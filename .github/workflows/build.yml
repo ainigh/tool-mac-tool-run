@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# A newer push to the same branch replaces a run still going.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The logic and the Flow language, on Linux (cheap and quick).
   test:
