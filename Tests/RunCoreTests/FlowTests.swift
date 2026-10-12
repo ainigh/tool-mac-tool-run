@@ -646,6 +646,31 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(host.asked.map(\.line), [1, 2, 3, 4])
     }
 
+    func testShowResultShowsAndWaitsForDone() throws {
+        let host = FakeHost()
+        host.answers = [.yes]
+        try run("showResult \"42 files\"\nprint \"after\"", host)
+        XCTAssertEqual(host.said, ["42 files", "after"])
+        XCTAssertEqual(host.asked.map(\.kind), [.result])
+        XCTAssertEqual(host.asked.first?.prompt, "42 files")
+    }
+
+    func testShowResultWithNoOneToShowGoesOn() throws {
+        // No window to show it in (a terminal, a pretend host): it's in the output, and the flow goes on.
+        let host = FakeHost()
+        try run("showResult \"done\"\nprint \"after\"", host)
+        XCTAssertEqual(host.said, ["done", "after"])
+    }
+
+    func testStopAtAResultStopsTheFlow() {
+        let host = FakeHost()
+        host.answers = [.stop]
+        XCTAssertThrowsError(try run("showResult \"x\"\nprint \"after\"", host)) { e in
+            XCTAssertEqual((e as? FlowError)?.stage, .stopped)
+        }
+        XCTAssertEqual(host.said, ["x"])
+    }
+
     func testStopAtAQuestionStopsTheFlowThere() {
         let host = FakeHost()
         host.answers = [.stop]

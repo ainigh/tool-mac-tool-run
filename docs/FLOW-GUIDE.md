@@ -48,6 +48,11 @@ run top to bottom. Nothing needs typing that a menu can give you.
 - **Ask**: **Ask to Continue** stops the flow and asks before going on (put it before anything
   that deletes, sends or costs); **Ask for Text**, **Ask Yes or No** and **Choose from List** keep
   the answer for the steps after.
+- **Show**: **Show Result** puts text (or a value) in a window of its own and waits for Done, as
+  Shortcuts' Show Result does (`showResult`); **Show in Output** writes it into the run's output
+  without stopping (`print`); **Show Notification** puts it on the screen (`notify`). When macOS
+  isn't showing the app's notifications, a banner of the app's own stands in, with a way to turn
+  them on.
 - **Anything else**: a **Flow Code** step holds any Flow, word for word.
 
 As you build, the flow is written as Flow, saved, and checked: a step with a mistake is outlined
@@ -519,6 +524,13 @@ retry 3 (fun () -> run "upload" [file]) |> ignore
 if not (exists "~/Desktop/report.pdf") then
     run "make-report" [] |> ignore
 notify "Report ready"
+```
+
+**Show what it found**
+
+```
+let used = run "disk-space" []
+showResult $"The disk is {used} full"
 ```
 
 **Count, add up, decide**

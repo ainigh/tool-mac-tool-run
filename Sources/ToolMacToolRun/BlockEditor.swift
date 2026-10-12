@@ -35,6 +35,25 @@ enum BlockStyle {
     }
 }
 
+/// A step's field: filled and rounded, as Shortcuts draws them, not a bordered box.
+struct BlockFieldStyle: ViewModifier {
+    @FocusState private var focused: Bool
+    func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .focused($focused)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.055)))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(focused ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: 1.5))
+    }
+}
+
+extension View {
+    func blockField() -> some View { modifier(BlockFieldStyle()) }
+}
+
 /// The blocks, the check's word on them, and the run's output, with the library beside them.
 struct BlockEditorView: View {
     @ObservedObject var model: EditorModel
@@ -107,6 +126,7 @@ struct BlockCanvas: View {
                         EmptyBlocks(model: model)
                     }
                     BlockList(model: model, blocks: model.doc.blocks, parent: nil, branch: .body, status: status)
+                    if !model.doc.blocks.isEmpty { AddStepMenu(model: model) }
                     Color.clear.frame(height: 120)
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -138,6 +158,53 @@ struct BlockCanvas: View {
             map[id] = step
         }
         return map
+    }
+}
+
+/// Under the last step: every kind of step, a click away (the library on the right has them too).
+struct AddStepMenu: View {
+    @ObservedObject var model: EditorModel
+    @State private var hover = false
+
+    var body: some View {
+        Menu {
+            ForEach(BlockGroup.allCases, id: \.self) { group in
+                let types = group.types.filter { $0 != .runScript && $0 != .epa }
+                if group == .scripts && !model.app.scripts.isEmpty {
+                    Menu("Run Script") {
+                        ForEach(model.app.scripts) { s in Button(s.title) { add(.runScript, script: model.runName(s)) } }
+                    }
+                }
+                if group == .epa {
+                    Menu("EPA") {
+                        ForEach(EPA.commands) { c in Button(c.title) { add(.epa, script: c.title) } }
+                    }
+                }
+                if !types.isEmpty {
+                    Section(group.rawValue) {
+                        ForEach(types, id: \.self) { t in
+                            Button { add(t) } label: { Label(t.info.title, systemImage: t.info.symbol) }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Add a Step", systemImage: "plus.circle.fill")
+                .font(.callout.weight(.medium))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(Color.accentColor.opacity(hover ? 0.16 : 0.09)))
+        .onHover { hover = $0 }
+        .padding(.top, 4)
+        .help("Add a step at the end (or after the step picked)")
+    }
+
+    private func add(_ t: BlockType, script: String? = nil) {
+        model.add(t, script: script)
     }
 }
 
@@ -209,7 +276,7 @@ struct BlockList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(blocks.enumerated()), id: \.element.id) { k, b in
-                DropGap(model: model, slot: BlockSlot(parent: parent, branch: branch, index: k))
+                DropGap(model: model, slot: BlockSlot(parent: parent, branch: branch, index: k), connects: k > 0)
                 BlockCard(model: model, block: b, status: status)
                     .id(b.id)
             }
@@ -226,16 +293,21 @@ struct BlockList: View {
 struct DropGap: View {
     @ObservedObject var model: EditorModel
     let slot: BlockSlot
+    /// Between two steps (a line joins them).
+    var connects = false
     @State private var targeted = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             Color.clear
             if targeted {
                 Capsule().fill(Color.accentColor).frame(height: 4)
+            } else if connects {
+                // Under the step before: a line down to the next, as the flow goes.
+                Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 2).padding(.leading, 26)
             }
         }
-        .frame(height: targeted ? 22 : 10)
+        .frame(height: targeted ? 22 : 14)
         .contentShape(Rectangle())
         .dropDestination(for: String.self) { items, _ in
             items.first.map { model.drop($0, at: slot) } ?? false
@@ -304,8 +376,16 @@ struct BlockCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        .padding(.vertical, 12)
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
         .background(shape.fill(block.type == .comment ? Color.yellow.opacity(0.13) : Color(nsColor: .textBackgroundColor)))
+        .overlay(alignment: .leading) {
+            // Its group's color down the left edge, as Shortcuts colors its actions.
+            UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12, style: .continuous)
+                .fill(BlockStyle.color(block.type).opacity(block.type == .comment ? 0.35 : 0.9))
+                .frame(width: 4)
+        }
         .overlay {
             if step?.state == .running {
                 RunningBorder(shape: shape)
@@ -314,7 +394,8 @@ struct BlockCard: View {
                                    lineWidth: problem || selected ? 2 : 1)
             }
         }
-        .shadow(color: .black.opacity(hover ? 0.10 : 0.05), radius: hover ? 4 : 2, y: 1)
+        .shadow(color: selected ? Color.accentColor.opacity(0.25) : .black.opacity(hover ? 0.10 : 0.05), radius: selected ? 8 : hover ? 4 : 2, y: 1)
+        .animation(.easeOut(duration: 0.12), value: hover)
         .onHover { hover = $0 }
         .dropDestination(for: String.self) { items, _ in
             // Dropped on a step: it goes after it.
@@ -444,8 +525,12 @@ struct BlockFields: View {
             OutputName(model: model, block: block, what: "What it printed is called")
         case .show:
             TemplateField(model: model, id: id, key: \.text, placeholder: "Text, or a value from an earlier step", vars: vars, multiline: true)
+        case .showResult:
+            TemplateField(model: model, id: id, key: \.text, placeholder: "Text, or a value from an earlier step", vars: vars, multiline: true)
+            Note("A window shows it; the flow goes on when you click Done.")
         case .notify:
             TemplateField(model: model, id: id, key: \.text, placeholder: "What the notification says", vars: vars)
+            Note("A notification on the screen (a banner from the app, if notifications are off for it).")
         case .confirm:
             TemplateField(model: model, id: id, key: \.text, placeholder: "The question, such as Delete the old backups?", vars: vars)
             Note("The flow stops here and asks. Continue goes on; Stop ends the flow.")
@@ -669,8 +754,8 @@ struct TemplateField: View {
                     TextField(placeholder, text: text)
                 }
             }
-            .textFieldStyle(.roundedBorder)
             .font(mono ? .body.monospaced() : .body)
+            .blockField()
             ValueMenu(vars: vars) { text.wrappedValue += $0 }
         }
     }
@@ -772,8 +857,8 @@ struct NumberField: View {
         let text = model.binding(id, key, "")
         HStack(spacing: 2) {
             TextField("0", text: text)
-                .textFieldStyle(.roundedBorder)
                 .font(.body.monospacedDigit())
+                .blockField()
                 .frame(width: max(54, ArgumentChips.width(text.wrappedValue)))
             if let n = Int(text.wrappedValue.trimmingCharacters(in: .whitespaces)) {
                 Stepper("", onIncrement: { text.wrappedValue = String(n + 1) }, onDecrement: { text.wrappedValue = String(max(0, n - 1)) })
@@ -896,8 +981,8 @@ struct ValuePicker: View {
         HStack(spacing: 4) {
             if typing || (!isVar && !value.wrappedValue.isEmpty) {
                 TextField("Flow, such as lines notes", text: value)
-                    .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
+                    .blockField()
                     .frame(minWidth: 120)
             }
             Menu {
@@ -932,8 +1017,8 @@ struct ConditionRow: View {
             Text("If")
             if c.test == .code {
                 TextField("Flow that's true or false, such as n > 3 && ok", text: model.binding(block.id, \.condition.subject, ""))
-                    .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
+                    .blockField()
             } else {
                 if c.test.usesSubject {
                     Menu {
@@ -1034,18 +1119,40 @@ struct CodeField: View {
 struct BlockLibrary: View {
     @ObservedObject var model: EditorModel
     @State private var search = ""
+    /// One group only (nil: all of them).
+    @State private var only: String?
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search scripts and actions", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .padding(10)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search scripts and actions", text: $search)
+                    .textFieldStyle(.plain)
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .buttonStyle(.plain)
+                        .help("Clear the search")
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    chip("All", color: .accentColor, value: nil)
+                    ForEach(BlockGroup.allCases, id: \.self) { g in chip(g.rawValue, color: BlockStyle.color(g), value: g.rawValue) }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     let scripts = model.app.scripts.filter { matches($0.title + " " + ($0.summary ?? "")) }
-                    if search.isEmpty || !scripts.isEmpty {
-                        section("Your Scripts") {
+                    if shown(BlockGroup.scripts.rawValue) && (search.isEmpty || !scripts.isEmpty) {
+                        section("Your Scripts", color: BlockStyle.color(BlockGroup.scripts)) {
                             if model.app.scripts.isEmpty {
                                 Note("No scripts in your folder yet: add one on the Scripts grid.")
                             }
@@ -1057,8 +1164,8 @@ struct BlockLibrary: View {
                         }
                     }
                     let flows = model.app.flows.filter { $0.id != model.item.id && matches($0.title + " " + ($0.summary ?? "")) }
-                    if !flows.isEmpty {
-                        section("Your Flows") {
+                    if shown(BlockGroup.scripts.rawValue) && !flows.isEmpty {
+                        section("Your Flows", color: BlockStyle.color(BlockGroup.scripts)) {
                             ForEach(flows) { f in
                                 LibraryRow(type: .runScript, title: f.title, subtitle: f.summary ?? "A flow", badge: "flow")
                                     .onTapGesture { model.add(.runScript, script: model.runName(f)) }
@@ -1067,8 +1174,8 @@ struct BlockLibrary: View {
                         }
                     }
                     let epaCommands = EPA.commands.filter { matches("EPA " + $0.title + " " + $0.summary) }
-                    if !epaCommands.isEmpty {
-                        section("EPA") {
+                    if shown(BlockGroup.epa.rawValue) && !epaCommands.isEmpty {
+                        section("EPA", color: BlockStyle.color(BlockGroup.epa)) {
                             ForEach(epaCommands) { c in
                                 LibraryRow(type: .epa, title: c.title, subtitle: c.summary, badge: c.changes ? nil : "read-only", symbol: c.symbol)
                                     .onTapGesture { model.add(.epa, script: c.title) }
@@ -1078,8 +1185,8 @@ struct BlockLibrary: View {
                     }
                     ForEach(BlockGroup.allCases, id: \.self) { group in
                         let types = group.types.filter { t in t != .runScript && t != .epa && matches(t.info.title + " " + t.info.summary) }
-                        if !types.isEmpty {
-                            section(group.rawValue) {
+                        if shown(group.rawValue) && !types.isEmpty {
+                            section(group.rawValue, color: BlockStyle.color(group)) {
                                 ForEach(types, id: \.self) { t in
                                     LibraryRow(type: t, title: t.info.title, subtitle: t.info.summary, badge: nil)
                                         .onTapGesture { model.add(t) }
@@ -1108,11 +1215,31 @@ struct BlockLibrary: View {
         return q.isEmpty || s.lowercased().contains(q)
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title.uppercased())
+    private func chip(_ title: String, color: Color, value: String?) -> some View {
+        let on = only == value
+        return Button { withAnimation(.easeOut(duration: 0.12)) { only = value } } label: {
+            Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(on ? Color.white : Color.primary.opacity(0.8))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(on ? color : Color.primary.opacity(0.07)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Which group a section belongs to (the scripts and flows are Scripts).
+    private func shown(_ group: String) -> Bool { only == nil || only == group }
+
+    private func section<Content: View>(_ title: String, color: Color = .secondary, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.leading, 2)
             content()
         }
     }
@@ -1143,6 +1270,9 @@ struct LibraryRow: View {
                 }
             }
             Spacer(minLength: 0)
+            Image(systemName: "plus.circle.fill")
+                .foregroundStyle(BlockStyle.color(type))
+                .opacity(hover ? 1 : 0)
         }
         .padding(6)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(hover ? 0.07 : 0)))

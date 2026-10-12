@@ -48,6 +48,7 @@ final class BlockTests: XCTestCase {
             block(.show) { $0.text = "Today is {today}, braces {{like this}}, \"quotes\" and a \\ backslash" },
             block(.show) { $0.text = "{length (lines greeting)}" },
             block(.notify) { $0.text = "{counted}" },
+            block(.showResult) { $0.text = "Counted {counted}" },
             block(.confirm) { $0.text = "Go on with {today}?" },
             block(.ask) { $0.text = "Who is it for?"; $0.name = "who" },
             block(.askYesNo) { $0.text = "Upload?"; $0.name = "upload" },

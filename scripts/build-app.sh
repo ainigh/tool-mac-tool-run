@@ -60,8 +60,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature: Apple silicon only runs signed code, and this needs no developer account.
+# Ad-hoc signature: Apple silicon only runs signed code, and this needs no developer account. Its
+# designated requirement is the bundle id alone (not this build's hash), so what macOS has allowed
+# the app (notifications, Desktop and Documents, controlling other apps) carries over to the next
+# version instead of being asked again, or quietly refused, after every update.
+BUNDLE_ID=com.ainigh.toolmactoolrun
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/flow"
-codesign --force --sign - --timestamp=none "$APP"
+codesign --force --sign - --timestamp=none --identifier "$BUNDLE_ID" \
+  --requirements "=designated => identifier \"$BUNDLE_ID\"" "$APP"
+codesign --verify --deep --strict "$APP"
 ditto -c -k --keepParent "$APP" "build/$NAME.zip"
 echo "built $APP ($VERSION, $BRANCH, $COMMIT)"

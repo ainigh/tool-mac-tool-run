@@ -26,6 +26,7 @@ struct ToolMacToolRunApp: App {
 struct MenuBarLabel: View {
     @ObservedObject var runs: RunStore
     @ObservedObject var prompts = PromptCenter.shared
+    @ObservedObject var updater = AppModel.shared.updater
 
     var body: some View {
         let n = runs.runningCount
@@ -38,6 +39,12 @@ struct MenuBarLabel: View {
             HStack(spacing: 2) {
                 Image(systemName: "terminal.fill")
                 Text("\(n)")
+            }
+        } else if updater.available != nil {
+            // An update is ready: the menu has it, a click away.
+            HStack(spacing: 1) {
+                Image(systemName: "terminal")
+                Image(systemName: "arrow.down.circle.fill")
             }
         } else {
             Image(systemName: "terminal")
@@ -87,8 +94,14 @@ struct MenuContent: View {
     @ObservedObject var app: AppModel
     @ObservedObject var runs: RunStore
     @ObservedObject var prompts = PromptCenter.shared
+    @ObservedObject var updater = AppModel.shared.updater
+    @ObservedObject var notifications = Notifier.Permission.shared
 
     var body: some View {
+        if let plan = updater.available {
+            Button("⬇️ \(plan.title)") { app.installUpdate() }
+            Divider()
+        }
         if !prompts.pending.isEmpty {
             let n = prompts.pending.count
             Button("✋ \(n == 1 ? "A flow is" : "\(n) flows are") waiting for your answer…") { Windows.showPrompt() }
@@ -129,10 +142,40 @@ struct MenuContent: View {
             Divider()
             Text("Never").tag(0)
         }
+        if notifications.allowed == false {
+            Button("🔕 Notifications Are Off: Turn On…") { Notifier.openSettings() }
+        }
         Toggle("Open at Login", isOn: Binding(get: { app.openAtLogin }, set: { app.setOpenAtLogin($0) }))
-        Text("Tool Mac Tool Run \(AppModel.version)")
+        Divider()
+        Text(updater.versionLine)
+        updateItems
         Button("Quit") { app.quit() }
             .keyboardShortcut("q")
+    }
+
+    /// Updating: a click checks, a click installs (the app restarts on the new version).
+    @ViewBuilder
+    private var updateItems: some View {
+        if Updater.canUpdate {
+            switch updater.state {
+            case .idle, .upToDate:
+                Button(updater.state == .upToDate ? "Up to Date: Check Again" : "Check for Updates…") { updater.check(userInitiated: true) }
+            case .checking:
+                Text("Checking for Updates…")
+            case let .available(plan):
+                Button("Install Update and Restart") { app.installUpdate() }
+                    .help(plan.title)
+            case let .installing(step):
+                Text(step)
+            case let .failed(message):
+                Text(message)
+                Button("Copy Update Details") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(Updater.report(message), forType: .string)
+                }
+                Button("Check for Updates…") { updater.check(userInitiated: true) }
+            }
+        }
     }
 
     static func title(_ run: RunRecord) -> String {
@@ -166,6 +209,8 @@ final class AppModel: ObservableObject {
     /// The runs (it reads the login shell's PATH as it's made, off the main thread, so the first
     /// run doesn't wait for it).
     let runs = RunStore()
+    /// Checks for (and installs) new versions.
+    let updater = Updater()
     private var watchers: [DispatchSourceFileSystemObject] = []
     /// A watch on a folder that's gone (deleted, renamed) is made again shortly.
     private var rewatchScheduled = false
@@ -366,6 +411,26 @@ final class AppModel: ObservableObject {
 
     /// Quits, saying first what's still running (it would be stopped). The stopping, and the
     /// saving of everything, is done as the app terminates (`AppDelegate`).
+    /// Installs the update that's ready, after asking about anything running (it's stopped: the
+    /// app restarts on the new version).
+    func installUpdate() {
+        guard let plan = updater.available else {
+            updater.check(userInitiated: true)
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Install the update and restart?"
+        let n = runs.runningCount
+        alert.informativeText = plan.title + "\n\nThe app quits and opens again on the new version, in a few seconds"
+            + (n > 0 ? "; the \(n) running \(n == 1 ? "script is" : "scripts are") stopped (their output so far is kept in Runs)." : ".")
+            + " If the new version won't open, the one you have now comes back."
+        alert.addButton(withTitle: "Install and Restart")
+        alert.addButton(withTitle: "Later")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        updater.install()
+    }
+
     func quit() {
         let n = runs.runningCount
         if n > 0 {
@@ -393,6 +458,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().delegate = NotificationClicks.shared
         }
+        // Ask about notifications now, not in the middle of the first flow that posts one.
+        Notifier.prepare()
+        AppModel.shared.updater.start()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

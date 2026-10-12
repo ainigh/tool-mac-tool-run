@@ -301,6 +301,17 @@ extension Builtin {
             i.host.notify(a[0].string)
             return .unit
         },
+        Builtin("showResult", "string -> unit", "System",
+                "Shows text in a window of its own (like Shortcuts' Show Result) and waits for Done; it's in the run's output too. Stop ends the flow there.",
+                "showResult $\"The disk is {used}% full\"", arity: 1) { i, a, pos in
+            i.host.say(a[0].string)
+            try i.checkStop(pos)
+            if i.host.ask(FlowQuestion(kind: .result, prompt: a[0].string, line: pos.line)) == .stop {
+                throw FlowError(.stopped, pos, "Stopped: you chose Stop at the result.")
+            }
+            try i.checkStop(pos)
+            return .unit
+        },
         Builtin("sleep", "int -> unit", "System", "Waits this many seconds.", "sleep 2", arity: 1) { i, a, _ in
             try i.pause(seconds: Double(max(0, a[0].int)))
             return .unit

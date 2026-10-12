@@ -52,8 +52,7 @@ Terminal (a browser window opens to sign in):
 brew install gh && gh auth login --web --git-protocol https -h github.com
 ```
 
-Then paste this. Run it again any time to update: it keeps your scripts, settings and run
-history.
+Then paste this. It keeps your scripts, settings and run history.
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" repos/ainigh/tool-mac-tool-run/contents/install.sh | bash
@@ -67,6 +66,15 @@ tools: `xcode-select --install`). Needs macOS 14 (Sonoma) or newer.
 
 The app adds itself to your login items the first time it runs (**Open at Login** in its menu
 turns that off).
+
+**Updates are a click.** The app checks for a new version when it starts and every six hours
+(or **Check for Updates…** in its menu). When there is one, a notification says so and the menu
+bar icon gets a ⬇︎: click the notification, or **Install Update and Restart** in the menu. It
+downloads GitHub's build (or builds it on your Mac when GitHub hasn't yet), checks it, swaps it
+in and opens it again; if the new version won't open, the one you had comes back. It reaches
+GitHub through `gh`, signed in as above. What went wrong, if anything, is in
+`~/Library/Logs/ToolMacToolRun/update.log` (**Copy Update Details** in the menu). Running the
+install command again still works too.
 
 ## First run
 

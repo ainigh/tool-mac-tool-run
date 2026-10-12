@@ -14,7 +14,7 @@ import Foundation
 
 /// The kinds of block. Each is one way of writing a step in Flow (see `BlockWriter`).
 public enum BlockType: String, CaseIterable, Codable, Sendable {
-    case runScript, shell, epa, show, notify, confirm, ask, askYesNo, choose, text, readFile, writeFile
+    case runScript, shell, epa, show, showResult, notify, confirm, ask, askYesNo, choose, text, readFile, writeFile
     case ifThen, repeatEach, repeatCount, wait, stop, comment, code
 
     /// What it's called, its symbol (SF Symbols), its group in the library, and what it does.
@@ -24,7 +24,8 @@ public enum BlockType: String, CaseIterable, Codable, Sendable {
         case .runScript: ("Run Script", "terminal", .scripts, "Runs one of your scripts, with arguments (and text as its input, if you like). Its output is kept under a name for the next steps.")
         case .shell: ("Run Shell Command", "chevron.left.forwardslash.chevron.right", .scripts, "Runs one line of shell (bash) and keeps what it printed.")
         case .epa: ("EPA", "bolt.horizontal.circle", .epa, "Runs one of EPA's commands (connect a service, secure a site, onboard someone…) and keeps what it showed. EPA asks before it changes anything.")
-        case .show: ("Show", "text.bubble", .tell, "Shows text (or a value from an earlier step) in the run's output.")
+        case .show: ("Show in Output", "text.alignleft", .tell, "Writes text (or a value from an earlier step) into the run's output, without stopping.")
+        case .showResult: ("Show Result", "text.bubble", .tell, "Shows text (or a value from an earlier step) in a window, like Shortcuts' Show Result, and waits for Done.")
         case .notify: ("Show Notification", "bell.badge", .tell, "Shows a notification on the screen.")
         case .confirm: ("Ask to Continue", "hand.raised", .ask, "Stops and asks before going on: Continue carries on, Stop ends the flow there. Put it before anything that deletes, sends or costs.")
         case .ask: ("Ask for Text", "character.cursor.ibeam", .ask, "Asks for a line of text and keeps the answer.")
@@ -548,7 +549,7 @@ extension FlowDocument {
             b.script = command.name
             b.args = command.args
             b.name = freeName(FlowDocument.variableName(for: command.name == "doctor" ? "connections" : command.name))
-        case .show:
+        case .show, .showResult:
             b.text = last.map(hole) ?? "Hello!"
         case .notify:
             b.text = last.map { "Done: \(hole($0))" } ?? "Done"
@@ -1138,6 +1139,7 @@ struct BlockWriter {
         case .text: return [named(Template.string(b.text, level: 1, known: { e in if case .str = e.kind { true } else { false } }))]
         case .readFile: return [named("read \(str(b.text))")]
         case .show: return ["print \(Template.value(b.text, level: 10))"]
+        case .showResult: return ["showResult \(str(b.text))"]
         case .notify: return ["notify \(str(b.text))"]
         case .confirm: return ["confirm \(str(b.text))"]
         case .stop: return ["fail \(str(b.text))"]
@@ -1483,8 +1485,8 @@ struct BlockReader {
             guard let t = Template.of(args[0]) else { return nil }
             b.text = t
             return b
-        case ("notify", 1), ("confirm", 1), ("fail", 1):
-            var b = FlowBlock(head == "notify" ? .notify : head == "confirm" ? .confirm : .stop)
+        case ("notify", 1), ("confirm", 1), ("fail", 1), ("showResult", 1):
+            var b = FlowBlock(head == "notify" ? .notify : head == "confirm" ? .confirm : head == "showResult" ? .showResult : .stop)
             guard let t = Template.of(args[0]) else { return nil }
             b.text = t
             return b
