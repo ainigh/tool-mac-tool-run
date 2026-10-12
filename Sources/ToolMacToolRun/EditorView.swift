@@ -11,7 +11,7 @@ final class EditorModel: ObservableObject {
         case saved, unsaved, failed(String)
     }
 
-    enum CheckState {
+    enum CheckState: Sendable {
         case none
         case ok([FlowBinding])
         case problem(FlowError)
@@ -22,7 +22,7 @@ final class EditorModel: ObservableObject {
     let app: AppModel
     @Published var text: String {
         didSet {
-            guard text != oldValue else { return }
+            guard text != oldValue, readOnlyReason == nil else { return }
             saveState = .unsaved
             scheduleSave()
             scheduleCheck()
@@ -32,8 +32,17 @@ final class EditorModel: ObservableObject {
     @Published private(set) var saveState: SaveState = .saved
     @Published private(set) var check: CheckState = .none
     @Published var renameProblem: String?
+    /// Why it can't be edited here (it isn't text, or isn't UTF-8 text): it's never saved.
+    let readOnlyReason: String?
+    /// The file was moved or deleted while it was open: it isn't made again unless that's asked for.
+    @Published private(set) var missing = false
     /// The text as it was opened (Revert goes back to it).
     private(set) var original: String
+    /// The text as it is in the file (as read, or as last written): nothing is written while
+    /// what's typed is the same.
+    private var lastSaved: String
+    /// Moved to the Trash: it's never saved again.
+    private var deleted = false
     let handle = TextHandle()
     private var saveTask: Task<Void, Never>?
     private var checkTask: Task<Void, Never>?
@@ -42,22 +51,44 @@ final class EditorModel: ObservableObject {
         self.item = item
         self.kind = kind
         self.app = app
-        let contents = (try? String(contentsOf: item.url, encoding: .utf8)) ?? ""
-        text = contents
-        original = contents
+        let loaded = EditorModel.read(item.url)
+        text = loaded.text
+        original = loaded.text
+        lastSaved = loaded.text
+        readOnlyReason = loaded.problem
         name = item.title
-        runCheck()
+        scheduleCheck(delay: 0)
+    }
+
+    /// The file's text, or why it can't be edited here.
+    private static func read(_ url: URL) -> (text: String, problem: String?) {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            return ("", "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+        if data.contains(0) {
+            return ("", "\(url.lastPathComponent) isn't text (a compiled program, or another kind of file), so it can't be edited here.")
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return ("", "\(url.lastPathComponent) isn't UTF-8 text, so it isn't edited here (saving it from here could damage it). Open it in a text editor that keeps its encoding.")
+        }
+        return (text, nil)
     }
 
     var isFlow: Bool { kind == .composer }
+    var isReadOnly: Bool { readOnlyReason != nil }
 
     /// What it's written in, told from what's typed now.
     var language: ScriptLanguage {
-        ScriptLanguage.detect(fileName: item.url.lastPathComponent, contents: text,
-                              executableBit: FileManager.default.isExecutableFile(atPath: item.url.path))
+        if isReadOnly { return item.language }
+        return ScriptLanguage.detect(fileName: item.url.lastPathComponent, contents: text,
+                                     executableBit: FileManager.default.isExecutableFile(atPath: item.url.path))
     }
 
     var languageNote: String {
+        if isReadOnly { return "Not editable here" }
         guard !isFlow else { return "Flow" }
         let lang = language
         if text.hasPrefix("#!") { return "\(lang.title) · from its first line" }
@@ -85,15 +116,43 @@ final class EditorModel: ObservableObject {
         }
     }
 
-    /// Writes it, keeping the file's permissions (an executable stays executable).
+    /// Writes it when it has changed, keeping the file's permissions (an executable stays
+    /// executable). A file that's gone (moved or deleted) isn't made again here.
     func save() {
         saveTask?.cancel()
-        let url = item.url
+        saveTask = nil
+        guard readOnlyReason == nil, !deleted else { return }
+        guard text != lastSaved else {
+            if !missing { saveState = .saved }
+            return
+        }
+        guard FileManager.default.fileExists(atPath: item.url.path) else {
+            missing = true
+            saveState = .failed("the file was moved or deleted")
+            return
+        }
+        write()
+    }
+
+    /// Writes it even though the file is gone: a new file where it was.
+    func saveAgain() {
+        guard readOnlyReason == nil, !deleted else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        write()
+    }
+
+    private func write() {
+        // A link stays a link: the file it points to is written.
+        let url = item.url.resolvingSymlinksInPath()
         let fm = FileManager.default
         let perms = (try? fm.attributesOfItem(atPath: url.path))?[.posixPermissions]
+        let contents = text
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try contents.write(to: url, atomically: true, encoding: .utf8)
             if let perms { try? fm.setAttributes([.posixPermissions: perms], ofItemAtPath: url.path) }
+            lastSaved = contents
+            missing = false
             saveState = .saved
             app.reload()
         } catch {
@@ -102,19 +161,34 @@ final class EditorModel: ObservableObject {
     }
 
     func revert() {
+        guard readOnlyReason == nil else { return }
         text = original
         save()
     }
 
-    /// Renames the file to what's typed in the name field (its extension stays, unless one is typed).
+    /// Moved to the Trash: nothing more is saved.
+    func markDeleted() {
+        deleted = true
+        saveTask?.cancel()
+        saveTask = nil
+    }
+
+    /// Its window is closing: what's typed is saved (if it changed), and checking stops.
+    func windowWillClose() {
+        save()
+        checkTask?.cancel()
+        checkTask = nil
+    }
+
+    /// Renames the file to what's typed in the name field. Its extension stays, unless one a
+    /// script can have is typed; a flow always ends in .flow ("morning.v2" is "morning.v2.flow").
     func commitRename() {
         let typed = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
         guard !typed.isEmpty else {
             name = item.title
             return
         }
-        let ext = item.url.pathExtension
-        let fileName = (typed as NSString).pathExtension.isEmpty && !ext.isEmpty ? "\(typed).\(ext)" : typed
+        let fileName = Self.fileName(typed: typed, current: item.url, isFlow: isFlow)
         guard fileName != item.id else {
             renameProblem = nil
             return
@@ -133,9 +207,25 @@ final class EditorModel: ObservableObject {
             renameProblem = nil
             app.renamed(kind, from: old, to: item.id)
             app.reload()
+            Windows.editorRenamed(self)
         } catch {
             renameProblem = "Couldn't rename it: \(error.localizedDescription)"
         }
+    }
+
+    /// The file name a typed name means.
+    static func fileName(typed: String, current: URL, isFlow: Bool) -> String {
+        let typedExt = (typed as NSString).pathExtension.lowercased()
+        if isFlow {
+            return typedExt == Library.flowExtension ? typed : "\(typed).\(Library.flowExtension)"
+        }
+        let ext = current.pathExtension
+        guard !ext.isEmpty else { return typed }
+        // The extension it has, or one a script can have (.sh, .py…): kept as typed.
+        if !typedExt.isEmpty, typedExt == ext.lowercased() || ScriptLanguage.detect(fileName: typed, contents: nil) != .unknown {
+            return typed
+        }
+        return "\(typed).\(ext)"
     }
 
     /// Saves, then runs it (its output shows under the editor).
@@ -149,27 +239,35 @@ final class EditorModel: ObservableObject {
 
     // MARK: checking a flow
 
-    private func scheduleCheck() {
-        guard isFlow else { return }
+    /// Checks the flow a moment after the typing stops, off the main thread. A result for text
+    /// that has changed since is dropped.
+    private func scheduleCheck(delay: UInt64 = 300_000_000) {
+        guard isFlow, readOnlyReason == nil else { return }
         checkTask?.cancel()
         checkTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            self?.runCheck()
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            guard !Task.isCancelled, let self else { return }
+            let source = self.text
+            let names = self.app.scripts.map(\.id) + self.app.flows.map(\.id)
+            let result = await Task.detached(priority: .userInitiated) {
+                EditorModel.computeCheck(source, scripts: names)
+            }.value
+            guard !Task.isCancelled, self.text == source else { return }
+            self.check = result
         }
     }
 
-    func runCheck() {
-        guard isFlow else { return }
-        let names = app.scripts.map(\.id) + app.flows.map(\.id)
+    nonisolated static func computeCheck(_ source: String, scripts: [String]) -> CheckState {
         do {
-            check = .ok(try Flow.check(text, scripts: names).bindings)
+            return .ok(try Flow.check(source, scripts: scripts).bindings)
         } catch let e as FlowError {
-            check = .problem(e)
+            return .problem(e)
         } catch {
-            check = .none
+            return .none
         }
     }
+
+    func runCheck() { scheduleCheck(delay: 0) }
 }
 
 /// The text view's handle, for jumping to a line and putting text where the cursor is.
@@ -195,7 +293,7 @@ final class TextHandle {
     }
 
     func insert(_ snippet: String) {
-        guard let tv = textView else { return }
+        guard let tv = textView, tv.isEditable else { return }
         tv.window?.makeFirstResponder(tv)
         tv.insertText(snippet, replacementRange: tv.selectedRange())
     }
@@ -235,11 +333,16 @@ struct CodeEditor: NSViewRepresentable {
         return scroll
     }
 
+    /// The text changed from outside the view (Revert): put it in, with the cursor kept where it
+    /// can be, and the undo steps (for text that's gone) dropped.
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let tv = scroll.documentView as? NSTextView, tv.string != text else { return }
-        let selection = tv.selectedRanges
+        let old = tv.selectedRange()
+        let length = (text as NSString).length
         tv.string = text
-        tv.selectedRanges = selection.filter { NSMaxRange($0.rangeValue) <= (text as NSString).length }
+        tv.undoManager?.removeAllActions()
+        let location = min(old.location, length)
+        tv.setSelectedRange(NSRange(location: location, length: min(old.length, length - location)))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
@@ -258,15 +361,13 @@ struct CodeEditor: NSViewRepresentable {
 struct EditorView: View {
     @ObservedObject var model: EditorModel
     @ObservedObject var runs: RunStore
-    let windowID: String
     @State private var trashing = false
     @State private var showOutput = true
     @FocusState private var nameFocused: Bool
 
-    init(model: EditorModel, windowID: String) {
+    init(model: EditorModel) {
         self.model = model
         runs = model.app.runs
-        self.windowID = windowID
     }
 
     var body: some View {
@@ -275,17 +376,24 @@ struct EditorView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 34)
                 .padding(.bottom, 10)
+            if model.missing {
+                missingBanner
+            }
             Divider()
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    CodeEditor(text: $model.text, handle: model.handle)
+                    if let reason = model.readOnlyReason {
+                        readOnlyNotice(reason)
+                    } else {
+                        CodeEditor(text: $model.text, handle: model.handle)
+                    }
                     if showOutput, let run = runs.latest(file: model.item.id, kind: model.kind) {
                         Divider()
                         OutputPanel(run: run, runs: runs)
                             .frame(height: 200)
                     }
                 }
-                if model.isFlow {
+                if model.isFlow && !model.isReadOnly {
                     Divider()
                     FlowSidebar(model: model)
                         .frame(width: 320)
@@ -301,16 +409,51 @@ struct EditorView: View {
             // A new one: its name is the first thing to type.
             if model.item.title.hasPrefix("untitled") { nameFocused = true }
         }
-        .onDisappear { model.save() }
         .confirmationDialog("Move \(model.item.id) to the Trash?", isPresented: $trashing) {
             Button("Move to Trash", role: .destructive) {
+                // Saved first (the Trash keeps the latest), then this window closes without saving again.
                 GridActions(app: model.app, kind: model.kind).trash(model.item)
-                Windows.forget(windowID)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("It goes to the Trash, so you can get it back from there (Put Back).")
         }
+    }
+
+    private func readOnlyNotice(_ reason: String) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "doc.badge.ellipsis")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text(reason)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 520)
+            HStack {
+                Button("Open in \(GridActions.editorName)") {
+                    GridActions(app: model.app, kind: model.kind).openInEditor(model.item)
+                }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([model.item.url]) }
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var missingBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text("\(model.item.id) was moved or deleted, so what's typed here isn't saved.")
+            Spacer()
+            Button("Save It Here Again") { model.saveAgain() }
+                .help("Make the file again where it was, with what's typed here")
+        }
+        .font(.callout)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
     }
 
     private var header: some View {
@@ -336,9 +479,9 @@ struct EditorView: View {
                 }
             }
             Spacer()
-            saveBadge
+            if !model.isReadOnly { saveBadge }
             Button("Revert") { model.revert() }
-                .disabled(model.text == model.original)
+                .disabled(model.isReadOnly || model.text == model.original)
                 .help("Back to how it was when this window opened")
             Button { model.saveAndRun() } label: { Label("Save & Run", systemImage: "play.fill") }
                 .buttonStyle(.borderedProminent)
@@ -374,6 +517,7 @@ struct EditorView: View {
             Spacer()
             Button("Save") { model.save() }
                 .keyboardShortcut("s")
+                .disabled(model.isReadOnly)
             Button("Open in \(GridActions.editorName)") {
                 model.save()
                 GridActions(app: model.app, kind: model.kind).openInEditor(model.item)
