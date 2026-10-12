@@ -33,6 +33,9 @@ public final class Expr: @unchecked Sendable {
 
     public let kind: Kind
     public let pos: Pos
+    /// Where its keywords are, for the block editor: an `if`'s `then` and `else` (or `elif`), a
+    /// `fun`'s `->`, a `for`'s `do`.
+    var marks: [Pos] = []
     /// How many levels deep the tree under it goes (1 for a value on its own). The checker and
     /// the interpreter go one call deeper per level, so the parser keeps it in bounds.
     let depth: Int
@@ -75,6 +78,8 @@ public struct Item: Sendable {
     }
     public let kind: Kind
     public let pos: Pos
+    /// Just after its last token.
+    public var end = Pos(line: 0, col: 0)
 }
 
 /// Reads tokens into a program, with F#'s layout rule: a line indented under the one before
@@ -89,6 +94,8 @@ struct Parser {
     /// How many brackets, blocks, `if`s and `fun`s deep the parser is now.
     private var nesting = 0
     private let stack: StackGuard
+    /// Just after the last token read.
+    private var lastEnd = Pos(line: 0, col: 0)
 
     /// How deep things may nest (brackets in brackets, or a chain like 1 + 1 + … with this many
     /// terms). Far more than a flow needs, and little enough that reading, checking and running
@@ -101,7 +108,11 @@ struct Parser {
     }
 
     static func parse(_ source: String) throws -> Expr {
-        var p = Parser(tokens: try Lexer.tokenize(source))
+        try parse(tokens: try Lexer.tokenize(source))
+    }
+
+    static func parse(tokens: [Token]) throws -> Expr {
+        var p = Parser(tokens: tokens)
         let first = p.peek
         if first.kind == .eof { return Expr(.block([]), first.pos) }
         let program = try p.block(col: first.pos.col)
@@ -123,6 +134,7 @@ struct Parser {
     private mutating func next() -> Token {
         let t = tokens[index]
         if index < tokens.count - 1 { index += 1 }
+        if t.kind != .eof { lastEnd = t.end }
         return t
     }
 
@@ -209,6 +221,12 @@ struct Parser {
     }
 
     private mutating func item() throws -> Item {
+        var it = try itemOnly()
+        it.end = lastEnd
+        return it
+    }
+
+    private mutating func itemOnly() throws -> Item {
         let t = peek
         if isKeyword("let") {
             _ = next()
@@ -355,7 +373,7 @@ struct Parser {
     }
 
     private mutating func application() throws -> Expr {
-        if isKeyword("if") || isKeyword("fun") { return try atom() }
+        if isKeyword("if") || isKeyword("fun") || isKeyword("for") { return try atom() }
         return try postfixAndArguments(try atom())
     }
 
@@ -408,6 +426,8 @@ struct Parser {
             return try lambda()
         case .keyword("if"):
             return try conditional()
+        case .keyword("for"):
+            return try loop()
         default:
             throw FlowError(.syntax, t.pos, "I expected a value here, found \(Self.describe(t)).")
         }
@@ -486,8 +506,40 @@ struct Parser {
             }
         }
         guard !params.isEmpty else { throw FlowError(.syntax, peek.pos, "`fun` needs a parameter before `->`.", fix: "fun x -> …, or fun () -> … for none") }
+        let arrow = next()
+        let e = try node(.lambda(params, try branch(after: "->")), t.pos)
+        e.marks = [arrow.pos]
+        return e
+    }
+
+    /// `for x in xs do body`: `body` for each item of `xs`, in order. It's `each` written as a
+    /// step (what the block editor's "Repeat" writes): `$for (fun x -> body) xs`.
+    private mutating func loop() throws -> Expr {
+        try enter()
+        defer { leave() }
+        let start = next()
+        guard case let .ident(name) = peek.kind else {
+            throw FlowError(.syntax, peek.pos, "A `for` needs a name for each item next, found \(Self.describe(peek)).",
+                            fix: "Write it as: for line in lines text do …")
+        }
+        let nameToken = next()
+        guard isKeyword("in") else {
+            throw FlowError(.syntax, peek.pos, "Expected `in` after `for \(name)`, found \(Self.describe(peek)).",
+                            fix: "Write it as: for \(name) in items do …")
+        }
         _ = next()
-        return try node(.lambda(params, try branch(after: "->")), t.pos)
+        let items = try expr()
+        guard isKeyword("do") && !atBoundary else {
+            throw FlowError(.syntax, peek.pos, "Expected `do` after `for \(name) in …`, found \(Self.describe(peek)).",
+                            fix: "Write it as: for \(name) in items do, with the steps on the lines under it, indented.")
+        }
+        let doToken = next()
+        let body = try branch(after: "do")
+        let fn = try node(.lambda([.name(name)], body), nameToken.pos)
+        fn.marks = [doToken.pos]
+        let e = try node(.apply(try node(.apply(Expr(.name(Builtin.forName), start.pos), fn), start.pos), items), start.pos)
+        e.marks = [doToken.pos]
+        return e
     }
 
     private mutating func conditional() throws -> Expr {
@@ -498,15 +550,19 @@ struct Parser {
         guard isKeyword("then") && !atBoundary else {
             throw FlowError(.syntax, peek.pos, "Expected `then` after the `\(start.kind == .keyword("if") ? "if" : "elif")` test, found \(Self.describe(peek)).")
         }
-        _ = next()
+        let thenToken = next()
         let yes = try branch(after: "then")
         var no: Expr?
+        var marks = [thenToken.pos]
         if !atBoundary && isKeyword("elif") {
+            marks.append(peek.pos)
             no = try conditional()
         } else if !atBoundary && isKeyword("else") {
-            _ = next()
+            marks.append(next().pos)
             no = try branch(after: "else")
         }
-        return try node(.cond(test, yes, no), start.pos)
+        let e = try node(.cond(test, yes, no), start.pos)
+        e.marks = marks
+        return e
     }
 }

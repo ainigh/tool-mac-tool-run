@@ -11,12 +11,13 @@ import RunCore
 
 let usage = """
 Usage:
-  flow run <file.flow> [args…]     check a flow, then run it
+  flow run <file.flow> [args…]     check a flow, then run it (its questions are asked here)
   flow check <file.flow>           check a flow and show the type of each name it defines
   flow functions                   list the builtin functions and their types
   flow examples <folder>           put the example scripts and flows in a folder (keeps what's there)
 Options:
   --folder <path>                  the scripts folder (default: the folder above composer/)
+  --yes                            answer Continue and Yes to every question (with no one at the keyboard)
 
 The guide: docs/FLOW-GUIDE.md
 """
@@ -80,6 +81,75 @@ final class StepOutput: @unchecked Sendable {
     }
 }
 
+/// Asks a flow's question at the terminal (on /dev/tty, so it works while output is piped).
+/// End of input, or "stop", is Stop.
+final class TerminalAsker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let yes: Bool
+    private let flush: () -> Void
+
+    init(yes: Bool, flush: @escaping () -> Void) {
+        self.yes = yes
+        self.flush = flush
+    }
+
+    func ask(_ q: FlowQuestion) -> FlowAnswer {
+        lock.lock()
+        defer { lock.unlock() }
+        flush()
+        if yes {
+            switch q.kind {
+            case .proceed, .yesNo:
+                print("❓ \(q.prompt) → yes (--yes)")
+                return .yes
+            case .text, .choice:
+                print("❓ \(q.prompt)")
+                return .unavailable
+            }
+        }
+        guard let tty = fopen("/dev/tty", "r+") else { return .unavailable }
+        defer { fclose(tty) }
+        func say(_ s: String) {
+            fputs(s, tty)
+            fflush(tty)
+        }
+        func line() -> String? {
+            var buffer = [CChar](repeating: 0, count: 4096)
+            guard fgets(&buffer, Int32(buffer.count), tty) != nil else { return nil }
+            let s = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            return s.trimmingCharacters(in: .newlines)
+        }
+        while true {
+            switch q.kind {
+            case .proceed:
+                say("❓ \(q.prompt) [Continue/stop] ")
+                guard let a = line()?.lowercased() else { return .stop }
+                if a.isEmpty || "continue".hasPrefix(a) || a == "y" || a == "yes" { return .yes }
+                if "stop".hasPrefix(a) || a == "n" || a == "no" { return .stop }
+            case .yesNo:
+                say("❓ \(q.prompt) [yes/no/stop] ")
+                guard let a = line()?.lowercased() else { return .stop }
+                if a == "y" || a == "yes" { return .yes }
+                if a == "n" || a == "no" { return .no }
+                if a == "stop" { return .stop }
+            case .text:
+                say("❓ \(q.prompt) ")
+                guard let a = line() else { return .stop }
+                return .text(a)
+            case let .choice(options):
+                say("❓ \(q.prompt)\n")
+                for (k, o) in options.enumerated() { say("   \(k + 1). \(o)\n") }
+                say("   Pick 1–\(options.count) (or stop): ")
+                guard let a = line() else { return .stop }
+                if a.lowercased() == "stop" { return .stop }
+                if let n = Int(a), options.indices.contains(n - 1) { return .text(options[n - 1]) }
+                if let o = options.first(where: { $0.lowercased() == a.lowercased() }) { return .text(o) }
+            }
+            say("   (I didn't get that: try again.)\n")
+        }
+    }
+}
+
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(("❌ " + message + "\n").data(using: .utf8)!)
     exit(code)
@@ -92,6 +162,12 @@ if let k = arguments.firstIndex(of: "--folder") {
     guard k + 1 < arguments.count else { fail("--folder needs a path after it.") }
     folder = URL(fileURLWithPath: (arguments[k + 1] as NSString).expandingTildeInPath)
     arguments.removeSubrange(k...(k + 1))
+}
+// --yes: nobody's at the keyboard; every confirm goes on (only before the file's own arguments).
+var answerYes = false
+if let k = arguments.firstIndex(of: "--yes"), k <= 1 || arguments.prefix(k).allSatisfy({ !$0.hasSuffix(".flow") }) {
+    answerYes = true
+    arguments.remove(at: k)
 }
 guard let command = arguments.first else {
     print(usage)
@@ -152,12 +228,13 @@ case "run":
     let lib = library(for: url)
     let started = Date()
     let steps = StepOutput()
-    let host = LocalFlowHost(library: lib) { event in
+    let asker = TerminalAsker(yes: answerYes) { steps.flush() }
+    let host = LocalFlowHost(library: lib, asker: { asker.ask($0) }) { event in
         switch event {
         case let .say(text):
             steps.flush()
             print(text)
-        case let .stepStarted(_, name, cmd):
+        case let .stepStarted(_, name, cmd, _):
             steps.flush()
             print(isatty(1) == 1 ? "👉 \(name)   \u{1B}[2m\(cmd)\u{1B}[0m" : "👉 \(name)   \(cmd)")
         case let .stepOutput(_, stream, text):

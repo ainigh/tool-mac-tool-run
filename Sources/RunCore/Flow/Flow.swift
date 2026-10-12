@@ -79,8 +79,9 @@ struct StackGuard {
 public enum FlowEvent: Sendable {
     /// A line from `print` (or from the flow itself: a step starting, a warning).
     case say(String)
-    /// A script (or a line of shell) starting: its name and the command as typed in a terminal.
-    case stepStarted(id: UUID, name: String, command: String)
+    /// A script (or a line of shell) starting: its name, the command as typed in a terminal, and
+    /// the line of the flow that runs it (0 for a flow run from a flow's own steps).
+    case stepStarted(id: UUID, name: String, command: String, line: Int)
     case stepOutput(id: UUID, stream: OutputStream, text: String)
     case stepFinished(id: UUID, name: String, result: RunResult)
     case notify(String)
@@ -96,11 +97,26 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
     private var running: [UUID: ScriptProcess] = [:]
     /// How deep in flows run from flows (so a flow that runs itself stops).
     private let depth: Int
+    /// Answers the flow's questions (nil: there's no one to ask).
+    private let asker: (@Sendable (FlowQuestion) -> FlowAnswer)?
+    /// For a script about to run: the question to ask first (it's marked "Ask Before Running"),
+    /// or nil to run it straight away.
+    private let askBefore: (@Sendable (ScriptItem) -> String?)?
 
-    public init(library: Library, depth: Int = 0, events: @escaping @Sendable (FlowEvent) -> Void) {
+    public init(library: Library, depth: Int = 0,
+                asker: (@Sendable (FlowQuestion) -> FlowAnswer)? = nil,
+                askBefore: (@Sendable (ScriptItem) -> String?)? = nil,
+                events: @escaping @Sendable (FlowEvent) -> Void) {
         self.library = library
         self.depth = depth
+        self.asker = asker
+        self.askBefore = askBefore
         self.events = events
+    }
+
+    public func ask(_ question: FlowQuestion) -> FlowAnswer {
+        guard let asker else { return .unavailable }
+        return asker(question)
     }
 
     public var environment: [String: String] { ShellEnvironment.shared.environment }
@@ -130,6 +146,16 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
 
     public func runScript(_ name: String, args: [String], stdin: String?, pos: Pos) throws -> RunResult {
         if let item = library.script(named: name) {
+            if let prompt = askBefore?(item) {
+                switch ask(FlowQuestion(kind: .proceed, prompt: prompt, line: pos.line)) {
+                case .yes, .text: break
+                case .unavailable:
+                    throw FlowError(.run, pos, "\(item.id) is set to ask before it runs, and there's no one here to answer.",
+                                    fix: "Run the flow from the app, or turn off Ask Before Running on its cell.")
+                default:
+                    throw FlowError(.stopped, pos, "Stopped: you chose not to run \(item.id).")
+                }
+            }
             let p = ScriptProcess(script: item.url, language: item.language, arguments: args, stdin: stdin, workingDirectory: library.root)
             return try execute(p, name: item.id, pos: pos)
         }
@@ -161,7 +187,7 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
             running[id] = nil
             lock.unlock()
         }
-        events(.stepStarted(id: id, name: name, command: p.commandLine))
+        events(.stepStarted(id: id, name: name, command: p.commandLine, line: pos.line))
         do {
             let events = self.events
             let r = try p.runToEnd { stream, text in events(.stepOutput(id: id, stream: stream, text: text)) }
@@ -183,14 +209,17 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
         let source = (try? String(contentsOf: flow.url, encoding: .utf8)) ?? ""
         let id = UUID()
         let started = Date()
-        events(.stepStarted(id: id, name: flow.id, command: "flow run \(ShellEnvironment.quote(flow.id))"))
+        events(.stepStarted(id: id, name: flow.id, command: "flow run \(ShellEnvironment.quote(flow.id))", line: pos.line))
         let out = Collected()
         let parent = self
         let events = self.events
-        let child = LocalFlowHost(library: library, depth: depth + 1) { event in
+        let child = LocalFlowHost(library: library, depth: depth + 1, asker: asker, askBefore: askBefore) { event in
             if case let .say(text) = event {
                 out.append(.out, text + "\n")
                 events(.stepOutput(id: id, stream: .out, text: text + "\n"))
+            } else if case let .stepStarted(stepID, name, command, _) = event {
+                // Its line is in the other flow, not this one.
+                events(.stepStarted(id: stepID, name: name, command: command, line: 0))
             } else {
                 events(event)
             }

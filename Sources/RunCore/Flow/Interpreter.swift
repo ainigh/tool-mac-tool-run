@@ -14,6 +14,51 @@ public protocol FlowHost: AnyObject, Sendable {
     var environment: [String: String] { get }
     /// Asked to stop: the flow ends at its next step.
     var isCancelled: Bool { get }
+    /// Asks the person running the flow (`confirm`, `ask`, `choose`, `askYesNo`) and waits for the
+    /// answer. `.stop` (or a stop while it waits) ends the flow, as stopped.
+    func ask(_ question: FlowQuestion) -> FlowAnswer
+}
+
+extension FlowHost {
+    /// No one to ask (a host that doesn't take questions): the flow stops, saying why.
+    public func ask(_ question: FlowQuestion) -> FlowAnswer { .unavailable }
+}
+
+/// A question a flow asks the person running it, and waits for.
+public struct FlowQuestion: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        /// Continue or Stop (`confirm`).
+        case proceed
+        /// Yes or No (`askYesNo`).
+        case yesNo
+        /// A line of text (`ask`).
+        case text
+        /// One of these (`choose`).
+        case choice([String])
+    }
+    public var kind: Kind
+    public var prompt: String
+    /// Where in the flow it's asked.
+    public var line: Int
+
+    public init(kind: Kind, prompt: String, line: Int) {
+        self.kind = kind
+        self.prompt = prompt
+        self.line = line
+    }
+}
+
+/// The answer to a `FlowQuestion`.
+public enum FlowAnswer: Sendable, Equatable {
+    /// Continue, or Yes.
+    case yes
+    case no
+    /// What was typed, or picked.
+    case text(String)
+    /// Stop the flow.
+    case stop
+    /// There's no one to ask (no terminal, nothing showing questions).
+    case unavailable
 }
 
 /// Runs a checked program, step by step.
@@ -51,7 +96,7 @@ public final class Interpreter: @unchecked Sendable {
 
     static func globals(args: [String]) -> Env {
         let env = Env()
-        for b in Builtin.all { env.define(b.name, .fn(FlowFunction(.builtin(b)))) }
+        for b in Builtin.all + Builtin.hidden { env.define(b.name, .fn(FlowFunction(.builtin(b)))) }
         env.define("args", .list(args.map { .str($0) }))
         return env
     }
@@ -266,6 +311,22 @@ public final class Interpreter: @unchecked Sendable {
         let detail = r.err.isEmpty ? "" : ": " + (r.err.split(whereSeparator: \.isNewline).last.map(String.init) ?? "")
         throw FlowError(.run, pos, "\(name) failed (exit code \(r.code))\(detail)",
                         fix: "Fix the script (its output is above), or use `attempt` instead of `run` to keep going when it fails.")
+    }
+
+    /// Asks the person running the flow. Stop (or no one to ask) ends the flow here.
+    func ask(_ question: FlowQuestion, pos: Pos) throws -> FlowAnswer {
+        try checkStop(pos)
+        let answer = host.ask(question)
+        try checkStop(pos)
+        switch answer {
+        case .stop:
+            throw FlowError(.stopped, pos, "Stopped: you chose Stop at “\(question.prompt)”.")
+        case .unavailable:
+            throw FlowError(.run, pos, "This flow asks “\(question.prompt)”, and there's no one here to answer.",
+                            fix: "Run it from the app, or from a terminal (flow run). In a terminal with no one at the keyboard, `flow run --yes` answers Continue and Yes for you.")
+        default:
+            return answer
+        }
     }
 
     /// Waits, a little at a time, so a stop ends it at once.

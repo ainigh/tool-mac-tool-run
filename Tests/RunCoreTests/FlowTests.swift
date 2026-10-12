@@ -31,6 +31,15 @@ final class FakeHost: FlowHost, @unchecked Sendable {
     }
 
     func notify(_ text: String) { notified.append(text) }
+    /// The answers to the flow's questions, in order (none left: no one to ask).
+    var answers: [FlowAnswer] = []
+    var asked: [FlowQuestion] = []
+    func ask(_ question: FlowQuestion) -> FlowAnswer {
+        lock.lock()
+        defer { lock.unlock() }
+        asked.append(question)
+        return answers.isEmpty ? .unavailable : answers.removeFirst()
+    }
     var environment: [String: String] { ["HOME": "/home/me"] }
     var isCancelled: Bool { cancelled }
 
