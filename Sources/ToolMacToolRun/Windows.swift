@@ -182,7 +182,7 @@ enum Windows {
             bringForward(w)
             return
         }
-        let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 220),
+        let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 240),
                         styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         w.title = "A Flow Is Asking"
         w.titlebarAppearsTransparent = true
@@ -195,7 +195,7 @@ enum Windows {
         w.contentViewController = host
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         if let v = screen?.visibleFrame {
-            w.setFrameTopLeftPoint(NSPoint(x: v.midX - 230, y: v.maxY - v.height * 0.22))
+            w.setFrameTopLeftPoint(NSPoint(x: v.midX - 260, y: v.maxY - v.height * 0.22))
         } else {
             w.center()
         }

@@ -22,7 +22,7 @@ struct GridView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 440)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Backdrop())
         .sheet(item: $askingArguments) { item in
             ArgumentsSheet(item: item, kind: kind, app: app) { askingArguments = nil }
         }
@@ -45,14 +45,14 @@ struct GridView: View {
         let page = settings.currentPage(for: all.count)
         return VStack(spacing: 0) {
             GridHeader(kind: kind, app: app, runs: runs, count: all.count, page: page, pages: pages)
-                .padding(.horizontal, 20)
-                .padding(.top, 30)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 24)
+                .padding(.top, 34)
+                .padding(.bottom, 16)
             ZStack {
                 cells(all: all, page: page)
                 if all.isEmpty { EmptyFolderCard(kind: kind, app: app) }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 24)
             footer
         }
         // The page showing is kept when it had to be brought back in range (fewer scripts than
@@ -99,33 +99,46 @@ struct GridView: View {
         } else if index == all.count {
             NewCell(kind: kind, count: count, actions: actions)
         } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+            RoundedRectangle(cornerRadius: Theme.radiusCell, style: .continuous)
+                .fill(Color.primary.opacity(0.018))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusCell, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 6])))
         }
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if let problem = app.problem {
-                Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-                Button { app.problem = nil } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Dismiss")
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(problem).lineLimit(2)
+                    Spacer(minLength: 8)
+                    Button { app.problem = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(CircleIconButtonStyle(size: 22))
+                        .help("Dismiss")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.orange.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.orange.opacity(0.3)))
             } else {
-                Text(kind == .scripts
-                     ? "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
-                     : "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run the scripts from the Scripts grid by name, and EPA (menu bar icon → EPA).")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                // The ways in, at a glance; the sentence is under the pointer.
+                Pill(text: "Click to run", symbol: "play.fill")
+                Pill(text: "Pencil to edit", symbol: "pencil")
+                Pill(text: "Drag to reorder", symbol: "hand.draw")
+                Pill(text: "Right-click for more", symbol: "contextualmenu.and.cursorarrow")
+                if kind == .composer {
+                    Pill(text: "Flows run your scripts by name, and EPA", symbol: "point.3.connected.trianglepath.dotted")
+                }
+                Spacer()
             }
-            Spacer()
         }
         .font(.callout)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 12)
+        .help(kind == .scripts
+              ? "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
+              : "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run the scripts from the Scripts grid by name, and EPA (menu bar icon → EPA).")
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
     }
 }
 
@@ -141,62 +154,98 @@ struct GridHeader: View {
     var body: some View {
         let s = app.settings(kind)
         HStack(spacing: 14) {
-            Image(systemName: kind == .scripts ? "terminal" : "point.3.connected.trianglepath.dotted")
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(kind == .scripts ? "Scripts" : "Composer").font(.title2.weight(.semibold))
+            IconTile(symbol: kind == .scripts ? "terminal.fill" : "point.3.connected.trianglepath.dotted", size: 46)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(kind == .scripts ? "Scripts" : "Composer")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                 if let lib = app.library {
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([kind == .scripts ? lib.root : lib.composerFolder])
                     } label: {
-                        Text("\(count) \(kind == .scripts ? (count == 1 ? "script" : "scripts") : (count == 1 ? "flow" : "flows")) in \(Self.short(kind == .scripts ? lib.root : lib.composerFolder))")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text("\(count) \(kind == .scripts ? (count == 1 ? "script" : "scripts") : (count == 1 ? "flow" : "flows")) in \(Self.short(kind == .scripts ? lib.root : lib.composerFolder))")
+                            Image(systemName: "arrow.up.forward").font(.caption2.weight(.bold))
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Show the folder in the Finder")
                 }
             }
-            Spacer()
+            Spacer(minLength: 12)
+            // The other grid, one click away (each has its own window).
+            Picker("", selection: Binding(get: { kind }, set: { if $0 != kind { app.openGrid($0) } })) {
+                Text("Scripts").tag(GridKind.scripts)
+                Text("Composer").tag(GridKind.composer)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("Switch grids (⌘1 Scripts, ⌘2 Composer, from the menu bar icon)")
             // How many cells at once.
-            HStack(spacing: 6) {
+            HStack(spacing: 2) {
                 Button { app.update(kind) { $0.cells = max(GridSettings.minCells, $0.cells - 1) } } label: { Image(systemName: "minus") }
+                    .buttonStyle(CircleIconButtonStyle(size: 24))
                     .disabled(s.cells <= GridSettings.minCells)
                     .help("Fewer cells")
-                Menu("\(s.cells) cells") {
+                Menu {
                     ForEach([4, 6, 9, 12, 16, 20, 24, 30, 36, 48, 64], id: \.self) { n in
                         Button("\(n) cells") { app.update(kind) { $0.cells = n } }
                     }
+                } label: {
+                    Text("\(s.cells) cells").monospacedDigit()
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .help("How many cells the grid shows at once (more scripts than that go on further pages)")
                 Button { app.update(kind) { $0.cells = min(GridSettings.maxCells, $0.cells + 1) } } label: { Image(systemName: "plus") }
+                    .buttonStyle(CircleIconButtonStyle(size: 24))
                     .disabled(s.cells >= GridSettings.maxCells)
                     .help("More cells")
             }
+            .capsuleGroup()
             if pages > 1 {
-                HStack(spacing: 6) {
+                HStack(spacing: 2) {
                     Button { app.update(kind) { $0.page = max(0, page - 1) } } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(CircleIconButtonStyle(size: 24))
                         .disabled(page == 0)
                         .keyboardShortcut(.leftArrow, modifiers: [.command])
-                    Text("Page \(page + 1) of \(pages)").monospacedDigit()
+                        .help("Previous page (⌘←)")
+                    Text("\(page + 1) / \(pages)").monospacedDigit().font(.callout.weight(.medium))
+                        .padding(.horizontal, 4)
                     Button { app.update(kind) { $0.page = min(pages - 1, page + 1) } } label: { Image(systemName: "chevron.right") }
+                        .buttonStyle(CircleIconButtonStyle(size: 24))
                         .disabled(page >= pages - 1)
                         .keyboardShortcut(.rightArrow, modifiers: [.command])
+                        .help("Next page (⌘→)")
                 }
+                .capsuleGroup()
             }
             if kind == .composer {
                 Button { Windows.showGuide() } label: { Label("Guide", systemImage: "book") }
+                    .buttonStyle(SoftButtonStyle())
                     .help("How to write a flow: the language, every function, examples")
             }
             Button { Windows.showRuns(nil) } label: {
-                Label(runs.runningCount > 0 ? "Runs (\(runs.runningCount) running)" : "Runs", systemImage: "list.bullet.rectangle")
+                HStack(spacing: 6) {
+                    Label("Runs", systemImage: "list.bullet.rectangle")
+                    if runs.runningCount > 0 {
+                        Text("\(runs.runningCount)")
+                            .font(.caption.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor))
+                    }
+                }
             }
-            .help("Every run, with what it printed")
+            .buttonStyle(SoftButtonStyle())
+            .help(runs.runningCount > 0 ? "Every run, with what it printed (\(runs.runningCount) running now)" : "Every run, with what it printed")
             NewButton(kind: kind, actions: GridActions(app: app, kind: kind))
         }
-        .controlSize(.large)
     }
 
     static func short(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
@@ -206,23 +255,69 @@ struct GridHeader: View {
 struct NewButton: View {
     let kind: GridKind
     let actions: GridActions
+    @State private var picking = false
 
     var body: some View {
         if kind == .scripts {
-            Menu {
-                ForEach(ScriptLanguage.offered, id: \.self) { lang in
-                    Button(lang.title) { actions.newScript(lang) }
+            Button { picking = true } label: { Label("New Script", systemImage: "plus") }
+                .buttonStyle(ProminentButtonStyle())
+                .help("A new script, in the language you pick")
+                .popover(isPresented: $picking, arrowEdge: .bottom) {
+                    LanguagePicker { lang in
+                        picking = false
+                        actions.newScript(lang)
+                    }
                 }
-            } label: {
-                Label("New Script", systemImage: "plus")
-            }
-            .fixedSize()
-            .help("A new script, in the language you pick")
         } else {
             Button { actions.newFlow() } label: { Label("New Flow", systemImage: "plus") }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ProminentButtonStyle())
                 .help("A new flow, composing your scripts")
         }
+    }
+}
+
+/// Picking a new script's language: a tile for each, its badge in its color.
+struct LanguagePicker: View {
+    let pick: (ScriptLanguage) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("A new script in…").font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 8)], spacing: 8) {
+                ForEach(ScriptLanguage.offered, id: \.self) { lang in
+                    LanguageTile(lang: lang) { pick(lang) }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 440)
+    }
+}
+
+private struct LanguageTile: View {
+    let lang: ScriptLanguage
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(lang.badge)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.badge(lang)))
+                Text(lang.title).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(hover ? 0.09 : 0.04)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 
@@ -449,17 +544,21 @@ struct ScriptCell: View {
     private var titleSize: CGFloat { count <= 4 ? 28 : count <= 9 ? 22 : count <= 16 ? 19 : count <= 30 ? 16 : 13 }
     private var roomy: Bool { count <= 30 }
 
+    /// The last run failed (or couldn't start): the cell's edge says so too.
+    private var lastFailed: Bool { run?.state == .failed || run?.state == .couldNotStart }
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        VStack(alignment: .leading, spacing: roomy ? 6 : 3) {
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusCell, style: .continuous)
+        VStack(alignment: .leading, spacing: roomy ? 7 : 3) {
             HStack(spacing: 6) {
                 if kind == .scripts {
                     Text(item.language.badge)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
                         .background(Capsule().fill(Theme.badge(item.language)))
+                        .shadow(color: Theme.badge(item.language).opacity(0.35), radius: 2, y: 1)
                         .help("\(item.language.title), told from \(item.url.lastPathComponent)")
                 } else {
                     Image(systemName: "point.3.connected.trianglepath.dotted")
@@ -491,17 +590,18 @@ struct ScriptCell: View {
                     Image(systemName: "pencil")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color.black.opacity(hover ? 0.75 : 0.4))
-                        .frame(width: 28, height: 24)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(hover ? 0.08 : 0)))
-                        .contentShape(Rectangle())
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Color.white.opacity(hover ? 0.75 : 0)))
+                        .overlay(Circle().strokeBorder(Color.black.opacity(hover ? 0.08 : 0)))
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .help("Edit \(item.id)")
                 .accessibilityLabel("Edit \(item.id)")
             }
             Text(item.title)
-                .font(.system(size: titleSize, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.85))
+                .font(.system(size: titleSize, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.black.opacity(0.86))
                 .lineLimit(2)
                 .minimumScaleFactor(0.7)
             if let summary = item.summary, roomy {
@@ -511,25 +611,54 @@ struct ScriptCell: View {
                     .lineLimit(count <= 9 ? 4 : 2)
             }
             Spacer(minLength: 0)
-            StatusLine(run: run, lastLine: lastLine, compact: !roomy, waiting: waiting, runs: actions.app.runs) {
-                if waiting { Windows.showPrompt() } else if let run { Windows.showRuns(run.id) }
-            } stop: {
-                if let run { actions.app.runs.stop(run.id) }
+            HStack(alignment: .bottom, spacing: 6) {
+                StatusLine(run: run, lastLine: lastLine, compact: !roomy, waiting: waiting, runs: actions.app.runs) {
+                    if waiting { Windows.showPrompt() } else if let run { Windows.showRuns(run.id) }
+                } stop: {
+                    if let run { actions.app.runs.stop(run.id) }
+                }
+                Spacer(minLength: 0)
+                if !running && !waiting && count <= 30 {
+                    // What a click does, under the pointer: run it.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: count <= 9 ? 15 : 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: count <= 9 ? 38 : 30, height: count <= 9 ? 38 : 30)
+                        .background(Circle().fill(LinearGradient(colors: [Color.accentColor.opacity(0.85), Color.accentColor],
+                                                                 startPoint: .top, endPoint: .bottom)))
+                        .shadow(color: Color.accentColor.opacity(0.4), radius: 5, y: 2)
+                        .opacity(hover ? 1 : 0)
+                        .scaleEffect(hover ? 1 : 0.7)
+                        .accessibilityHidden(true)
+                }
             }
         }
-        .padding(roomy ? 12 : 7)
+        .padding(roomy ? 14 : 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(shape.fill(Theme.tint(tint)))
+        .background {
+            ZStack {
+                shape.fill(Theme.tint(tint))
+                // A sheen from the top, a little depth at the bottom.
+                shape.fill(LinearGradient(colors: [Color.white.opacity(0.55), Color.white.opacity(0), Color.black.opacity(0.035)],
+                                          startPoint: .top, endPoint: .bottom))
+            }
+        }
         .overlay {
             if running {
                 RunningBorder(shape: shape)
+            } else if dropTarget {
+                shape.strokeBorder(Color.accentColor, lineWidth: 3)
+            } else if lastFailed {
+                shape.strokeBorder(Theme.color(.failed).opacity(hover ? 0.6 : 0.4), lineWidth: 1.5)
             } else {
-                shape.strokeBorder(dropTarget ? Color.accentColor : Color.black.opacity(hover ? 0.25 : 0.08), lineWidth: dropTarget ? 3 : 1)
+                shape.strokeBorder(Color.black.opacity(hover ? 0.18 : 0.07), lineWidth: 1)
             }
         }
-        .scaleEffect(hover && !running ? 1.01 : 1)
-        .animation(.easeOut(duration: 0.12), value: hover)
-        .shadow(color: .black.opacity(hover ? 0.18 : 0.08), radius: hover ? 6 : 3, y: 2)
+        .scaleEffect(hover && !running ? 1.015 : 1)
+        .offset(y: hover && !running ? -1 : 0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: hover)
+        .shadow(color: running ? Color.accentColor.opacity(0.35) : .black.opacity(hover ? 0.16 : 0.06),
+                radius: running ? 12 : hover ? 12 : 4, y: hover ? 6 : 2)
         .environment(\.colorScheme, .light)
         .contentShape(shape)
         .onHover { hover = $0 }
@@ -636,7 +765,11 @@ struct StatusLine: View {
                     }
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.black.opacity(0.7))
-                    .contentShape(Rectangle())
+                    .padding(.horizontal, compact ? 6 : 9)
+                    .padding(.vertical, compact ? 3 : 5)
+                    .background(Capsule().fill(Color.white.opacity(0.6)))
+                    .overlay(Capsule().strokeBorder(Color.black.opacity(0.05)))
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .help("Show what it printed")
@@ -646,15 +779,15 @@ struct StatusLine: View {
                         Label("Stop", systemImage: "stop.fill")
                             .font(.system(size: 11, weight: .semibold))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(SoftButtonStyle(tint: .red))
                     .help("Stop it")
                 }
             }
         } else {
-            Text("Not run yet: click to run")
-                .font(.system(size: 12))
+            Text(compact ? "Not run yet" : "Not run yet: click to run")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.black.opacity(0.4))
+                .padding(.vertical, compact ? 0 : 5)
         }
     }
 
@@ -676,7 +809,11 @@ struct RunningBorder: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
             let phase = ctx.date.timeIntervalSinceReferenceDate * 30
-            shape.strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6], dashPhase: -phase.truncatingRemainder(dividingBy: 16)))
+            ZStack {
+                shape.strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 3)
+                shape.strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [14, 10],
+                                                                         dashPhase: -phase.truncatingRemainder(dividingBy: 24)))
+            }
         }
     }
 }
@@ -690,16 +827,21 @@ struct NewCell: View {
     @State private var picking = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        VStack(spacing: 6) {
-            Image(systemName: "plus.circle")
-                .font(.system(size: count <= 9 ? 30 : 20, weight: .light))
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusCell, style: .continuous)
+        VStack(spacing: 8) {
+            Image(systemName: "plus")
+                .font(.system(size: count <= 9 ? 22 : 15, weight: .semibold))
+                .foregroundStyle(hover ? Color.white : Color.accentColor)
+                .frame(width: count <= 9 ? 48 : 34, height: count <= 9 ? 48 : 34)
+                .background(Circle().fill(hover ? Color.accentColor : Color.accentColor.opacity(0.12)))
             if count <= 30 { Text(kind == .scripts ? "New script" : "New flow").font(.headline) }
         }
         .foregroundStyle(hover ? Color.accentColor : Color.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(shape.fill(Color.secondary.opacity(hover ? 0.1 : 0.04)))
-        .overlay(shape.strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
+        .background(shape.fill(Color.accentColor.opacity(hover ? 0.07 : 0.025)))
+        .overlay(shape.strokeBorder(hover ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.28),
+                                    style: StrokeStyle(lineWidth: 1.5, dash: [7, 6])))
+        .animation(.easeOut(duration: 0.15), value: hover)
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture {
@@ -708,20 +850,10 @@ struct NewCell: View {
         .help(kind == .scripts ? "A new script: pick its language" : "A new flow")
         .accessibilityAddTraits(.isButton)
         .popover(isPresented: $picking, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("A new script in…").font(.headline)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], spacing: 6) {
-                    ForEach(ScriptLanguage.offered, id: \.self) { lang in
-                        Button(lang.title) {
-                            picking = false
-                            actions.newScript(lang)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
+            LanguagePicker { lang in
+                picking = false
+                actions.newScript(lang)
             }
-            .padding(14)
-            .frame(width: 400)
         }
     }
 }
@@ -731,41 +863,52 @@ struct EmptyFolderCard: View {
     let kind: GridKind
     @ObservedObject var app: AppModel
 
+    @State private var picking = false
+
     var body: some View {
         let actions = GridActions(app: app, kind: kind)
-        VStack(alignment: .leading, spacing: 12) {
-            Text(kind == .scripts ? "No scripts in this folder yet" : "No flows yet").font(.title2.weight(.semibold))
+        VStack(spacing: 16) {
+            IconTile(symbol: kind == .scripts ? "terminal.fill" : "point.3.connected.trianglepath.dotted", size: 64)
+            Text(kind == .scripts ? "No scripts in this folder yet" : "No flows yet")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
             Text(kind == .scripts
                  ? "Each script in your folder gets a cell here: bash, zsh, Python, JavaScript, Ruby and more (the language is told from its first line or its name). Start with the examples, or write one."
                  : "A flow composes your scripts: it runs them by name, passes what one prints to the next, and decides what to do with the results. Start with the examples (they use the example scripts), or write one.")
+                .font(.body)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Button { actions.addExamples() } label: { Label("Add the Examples", systemImage: "sparkles") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ProminentButtonStyle(large: true))
                     .keyboardShortcut(.defaultAction)
                     .help("Adds 5 example scripts and 4 flows to the folder (nothing there is changed)")
                 Button { actions.addEPARecipes() } label: { Label("Add the EPA Recipes", systemImage: "bolt.horizontal.circle") }
+                    .buttonStyle(SoftButtonStyle(large: true))
                     .help("Adds EPA's recipes: setup-epa, epa-keys, and flows to connect services, secure a site, onboard and offboard people… (nothing there is changed). If EPA isn't on this Mac yet, setup-epa then runs to install it.")
-                if kind == .scripts {
-                    Menu("New Script") {
-                        ForEach(ScriptLanguage.offered, id: \.self) { lang in Button(lang.title) { actions.newScript(lang) } }
-                    }
-                    .fixedSize()
-                } else {
-                    Button("New Flow") { actions.newFlow() }
-                    Button("Read the Guide") { Windows.showGuide() }
-                }
-                Button("Show Folder") {
-                    if let lib = app.library { NSWorkspace.shared.activateFileViewerSelecting([kind == .scripts ? lib.root : lib.composerFolder]) }
-                }
             }
-            .controlSize(.large)
+            HStack(spacing: 8) {
+                if kind == .scripts {
+                    Button { picking = true } label: { Label("New Script", systemImage: "plus") }
+                        .popover(isPresented: $picking, arrowEdge: .bottom) {
+                            LanguagePicker { lang in
+                                picking = false
+                                actions.newScript(lang)
+                            }
+                        }
+                } else {
+                    Button { actions.newFlow() } label: { Label("New Flow", systemImage: "plus") }
+                    Button { Windows.showGuide() } label: { Label("Read the Guide", systemImage: "book") }
+                }
+                Button {
+                    if let lib = app.library { NSWorkspace.shared.activateFileViewerSelecting([kind == .scripts ? lib.root : lib.composerFolder]) }
+                } label: { Label("Show Folder", systemImage: "folder") }
+            }
+            .buttonStyle(SoftButtonStyle())
         }
-        .padding(24)
-        .frame(maxWidth: 560)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.regularMaterial))
-        .shadow(color: .black.opacity(0.15), radius: 20, y: 6)
+        .padding(36)
+        .frame(maxWidth: 600)
+        .card(radius: 24)
     }
 }
 
@@ -780,7 +923,10 @@ struct ArgumentsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Run \(item.id) with…").font(.title3.weight(.semibold))
+            HStack(spacing: 12) {
+                IconTile(symbol: "terminal.fill", size: 34)
+                Text("Run \(item.id) with…").font(.title3.weight(.semibold))
+            }
             TextField("Arguments, as you'd type them in a terminal", text: $line)
                 .font(Theme.mono)
                 .textFieldStyle(.roundedBorder)
@@ -794,12 +940,12 @@ struct ArgumentsSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel, action: done)
                     .keyboardShortcut(.cancelAction)
-                Button("Run", action: run)
+                Button(action: run) { Label("Run", systemImage: "play.fill") }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ProminentButtonStyle())
             }
         }
-        .padding(20)
+        .padding(22)
         .frame(width: 520)
         .onAppear { line = app.settings(kind).arguments[item.id] ?? "" }
     }

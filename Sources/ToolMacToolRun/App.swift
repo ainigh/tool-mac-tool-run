@@ -2,7 +2,6 @@ import AppKit
 import RunCore
 import ServiceManagement
 import SwiftUI
-import UserNotifications
 
 /// A terminal icon in the menu bar. Its menu opens the two grids (every script; the flows that
 /// compose them), the runs, and the folder they all live in.
@@ -95,7 +94,6 @@ struct MenuContent: View {
     @ObservedObject var runs: RunStore
     @ObservedObject var prompts = PromptCenter.shared
     @ObservedObject var updater = AppModel.shared.updater
-    @ObservedObject var notifications = Notifier.Permission.shared
 
     var body: some View {
         if let plan = updater.available {
@@ -141,9 +139,6 @@ struct MenuContent: View {
             Text("15 Minutes").tag(900)
             Divider()
             Text("Never").tag(0)
-        }
-        if notifications.allowed == false {
-            Button("🔕 Notifications Are Off: Turn On…") { Notifier.openSettings() }
         }
         Toggle("Open at Login", isOn: Binding(get: { app.openAtLogin }, set: { app.setOpenAtLogin($0) }))
         Divider()
@@ -454,12 +449,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A click on a notification about a run shows it.
-        if Bundle.main.bundleIdentifier != nil {
-            UNUserNotificationCenter.current().delegate = NotificationClicks.shared
-        }
-        // Ask about notifications now, not in the middle of the first flow that posts one.
-        Notifier.prepare()
         AppModel.shared.updater.start()
     }
 

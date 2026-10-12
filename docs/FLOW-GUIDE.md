@@ -50,9 +50,9 @@ run top to bottom. Nothing needs typing that a menu can give you.
   the answer for the steps after.
 - **Show**: **Show Result** puts text (or a value) in a window of its own and waits for Done, as
   Shortcuts' Show Result does (`showResult`); **Show in Output** writes it into the run's output
-  without stopping (`print`); **Show Notification** puts it on the screen (`notify`). When macOS
-  isn't showing the app's notifications, a banner of the app's own stands in, with a way to turn
-  them on.
+  without stopping (`print`); **Show Notification** puts it on the screen (`notify`): a large
+  notice in the middle of the screen, half its size, that goes by itself after a few seconds
+  (not while the pointer is on it); a click shows the run.
 - **Anything else**: a **Flow Code** step holds any Flow, word for word.
 
 As you build, the flow is written as Flow, saved, and checked: a step with a mistake is outlined
