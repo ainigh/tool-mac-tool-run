@@ -77,11 +77,19 @@ public struct Library: Sendable {
         return all.first { $0.id == match }
     }
 
+    /// The files in `folder`, by name. A symbolic link to a file counts as a file (it keeps its own
+    /// name and place: that's the script's identity); one to a folder, or to nothing, doesn't.
     private func files(in folder: URL) -> [URL] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey]
         guard let urls = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return [] }
-        return urls.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        return urls.filter { url in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
+            if values.isSymbolicLink == true {
+                return (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            }
+            return values.isRegularFile == true
+        }
+        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
     static func head(of url: URL) -> String? {
@@ -93,8 +101,9 @@ public struct Library: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// When the file (for a symbolic link, the file it points to) last changed.
     static func modified(_ url: URL) -> Date? {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
     /// The first comment line in a script (not the #! line, not an editor's settings line).

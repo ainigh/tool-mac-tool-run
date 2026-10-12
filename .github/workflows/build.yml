@@ -25,7 +25,9 @@ jobs:
           swift-version: "6.1"
       - run: swift test
 
+  # Only once the Linux tests pass: a release never carries code that fails them.
   build:
+    needs: test
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -33,9 +35,15 @@ jobs:
       - name: Test
         run: swift test
       - name: Build the app
+        # Values from GitHub go in through the environment, never pasted into the script (a
+        # branch name is anyone's text).
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          echo "VERSION=0.1.${{ github.run_number }}" >> "$GITHUB_ENV"
-          VERSION="0.1.${{ github.run_number }}" BRANCH="${{ github.ref_name }}" scripts/build-app.sh
+          VERSION="0.1.$RUN_NUMBER"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          VERSION="$VERSION" BRANCH="$REF_NAME" scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
           name: ToolMacToolRun

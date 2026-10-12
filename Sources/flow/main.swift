@@ -21,6 +21,65 @@ Options:
 The guide: docs/FLOW-GUIDE.md
 """
 
+/// What a step prints, shown under it with "   │ " at the start of each line. Each output keeps
+/// its unfinished last line until its line break comes (or the step ends), so lines from stdout
+/// and stderr come out whole, one after the other, and the next status line starts on a line of
+/// its own.
+final class StepOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    /// The unfinished last line of each output.
+    private var partial: [RunCore.OutputStream: String] = [:]
+    /// A line of that output has been started on screen (a long one, shown before its end).
+    private var midLine: [RunCore.OutputStream: Bool] = [:]
+    private static let bar = "   │ "
+
+    func add(_ stream: RunCore.OutputStream, _ text: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        var pending = (partial[stream] ?? "") + text
+        var shown = ""
+        let scalars = pending.unicodeScalars
+        if let lastBreak = scalars.lastIndex(of: "\n") {
+            let whole = scalars[...lastBreak].split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+            for line in whole {
+                shown += (midLine[stream] == true ? "" : Self.bar) + String(String.UnicodeScalarView(line)) + "\n"
+                midLine[stream] = false
+            }
+            pending = String(String.UnicodeScalarView(scalars[scalars.index(after: lastBreak)...]))
+        }
+        // A very long line with no break yet: show what's there, and carry on with it later.
+        if pending.utf8.count > 16_384 {
+            shown += (midLine[stream] == true ? "" : Self.bar) + pending
+            midLine[stream] = true
+            pending = ""
+        }
+        partial[stream] = pending
+        write(stream, shown)
+    }
+
+    /// Shows what's left of each output's last line, ending it with a line break.
+    func flush() {
+        lock.lock()
+        defer { lock.unlock() }
+        for stream in [RunCore.OutputStream.out, .err] {
+            let pending = partial[stream] ?? ""
+            if !pending.isEmpty {
+                write(stream, (midLine[stream] == true ? "" : Self.bar) + pending + "\n")
+            } else if midLine[stream] == true {
+                write(stream, "\n")
+            }
+            partial[stream] = ""
+            midLine[stream] = false
+        }
+    }
+
+    private func write(_ stream: RunCore.OutputStream, _ text: String) {
+        guard !text.isEmpty else { return }
+        fflush(stdout)
+        FileHandle(fileDescriptor: stream == .out ? 1 : 2).write(Data(text.utf8))
+    }
+}
+
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(("❌ " + message + "\n").data(using: .utf8)!)
     exit(code)
@@ -92,17 +151,24 @@ case "run":
     let (url, source) = load(arguments.dropFirst().first)
     let lib = library(for: url)
     let started = Date()
+    let steps = StepOutput()
     let host = LocalFlowHost(library: lib) { event in
         switch event {
-        case let .say(text): print(text)
-        case let .stepStarted(_, name, cmd): print(isatty(1) == 1 ? "👉 \(name)   \u{1B}[2m\(cmd)\u{1B}[0m" : "👉 \(name)   \(cmd)")
+        case let .say(text):
+            steps.flush()
+            print(text)
+        case let .stepStarted(_, name, cmd):
+            steps.flush()
+            print(isatty(1) == 1 ? "👉 \(name)   \u{1B}[2m\(cmd)\u{1B}[0m" : "👉 \(name)   \(cmd)")
         case let .stepOutput(_, stream, text):
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            let shown = lines.enumerated().map { k, l in k == lines.count - 1 && l.isEmpty ? "" : "   │ " + l }.joined(separator: "\n")
-            FileHandle(fileDescriptor: stream == .out ? 1 : 2).write(shown.data(using: .utf8)!)
+            steps.add(stream, text)
         case let .stepFinished(_, name, r):
-            print(r.ok ? "✅ \(name) · \(String(format: "%.1f", r.seconds)) s" : "❌ \(name) · exit code \(r.code)")
-        case let .notify(text): print("🔔 \(text)")
+            steps.flush()
+            print(r.ok ? "✅ \(name) · \(String(format: "%.1f", r.seconds)) s"
+                : r.stopped ? "⏹ \(name) · stopped" : "❌ \(name) · \(r.ending.summary)")
+        case let .notify(text):
+            steps.flush()
+            print("🔔 \(text)")
         }
     }
     signal(SIGINT, SIG_IGN)
@@ -110,7 +176,9 @@ case "run":
     source2.setEventHandler { host.cancel() }
     source2.resume()
     do {
+        defer { steps.flush() }
         try Flow.run(source, host: host, scripts: LocalFlowHost.names(in: lib), args: Array(arguments.dropFirst(2)))
+        steps.flush()
         print("✅ \(url.lastPathComponent) finished in \(String(format: "%.1f", Date().timeIntervalSince(started))) s.")
     } catch let e as FlowError {
         show(e, file: url)
