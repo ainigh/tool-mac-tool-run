@@ -309,7 +309,12 @@ public final class ScriptProcess: @unchecked Sendable {
         self.pid = pid
         // Foundation starts it as the leader of a group of its own; gone already (-1), it was too.
         ownGroup = group == pid || group < 0
+        let stopAsked = stops > 0
         lock.unlock()
+        if stopAsked {
+            send(SIGTERM)
+            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { self.send(SIGKILL) }
+        }
         #if os(Linux)
         // Foundation on Linux only notices the script ended once everything it started has ended
         // too: watch for the script itself.
@@ -443,6 +448,8 @@ public final class ScriptProcess: @unchecked Sendable {
     public func stop() {
         lock.lock()
         guard pid > 0, !ended else {
+            // Not started yet: it's stopped as soon as it is (a Stop in that moment isn't lost).
+            if pid == 0, !ended { stops += 1 }
             lock.unlock()
             return
         }

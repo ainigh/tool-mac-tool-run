@@ -115,6 +115,18 @@ final class RunnerTests: XCTestCase {
         XCTAssertTrue(p.wasStopped)
     }
 
+    func testAStopBeforeItStartsIsntLost() throws {
+        let url = folder.appendingPathComponent("slow.sh")
+        try "#!/bin/bash\nsleep 30\n".write(to: url, atomically: true, encoding: .utf8)
+        let p = ScriptProcess(script: url, language: .bash)
+        p.stop()
+        let started = Date()
+        let r = try p.runToEnd()
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        XCTAssertNotEqual(r.code, 0)
+        XCTAssertTrue(p.wasStopped)
+    }
+
     func testLibraryAndExamplesEndToEnd() throws {
         let lib = Library(root: folder)
         let added = try lib.addExamples()
@@ -162,6 +174,17 @@ final class RunnerTests: XCTestCase {
         }
         try Flow.run("run \"inner\" [] |> upper |> print", host: host, scripts: LocalFlowHost.names(in: lib))
         XCTAssertEqual(lines.value, ["FROM INNER"])
+    }
+
+    func testAFlowThatCantBeReadFailsInsteadOfDoingNothing() throws {
+        let lib = Library(root: folder)
+        try lib.ensure()
+        let url = try lib.newFlow(name: "latin", contents: "")
+        try Data([0x70, 0x72, 0x69, 0x6E, 0x74, 0x20, 0x22, 0xE9, 0x22, 0x0A]).write(to: url)  // print "é" in Latin-1
+        let host = LocalFlowHost(library: lib) { _ in }
+        XCTAssertThrowsError(try Flow.run("run \"latin\" [] |> print", host: host, scripts: LocalFlowHost.names(in: lib))) { e in
+            XCTAssertTrue((e as? FlowError)?.message.contains("Couldn't read latin.flow") == true, "\(e)")
+        }
     }
 
     func testScriptsSetToAskFirstAskInsideAFlowToo() throws {
@@ -275,6 +298,8 @@ final class GridTests: XCTestCase {
         XCTAssertEqual(Library.summary("#!/usr/bin/env python3\n\"\"\"Sorts things\"\"\""), "Sorts things")
         XCTAssertEqual(Library.summary("// A flow\nprint 1"), "A flow")
         XCTAssertNil(Library.summary("#!/bin/bash\necho hi\n# later"))
+        XCTAssertNil(Library.summary("#!/usr/bin/env node\n'use strict';"))
+        XCTAssertEqual(Library.summary("#!/usr/bin/env python3\n'''Sorts things'''"), "Sorts things")
     }
 
     func testDuration() {
@@ -291,6 +316,7 @@ final class CautionTests: XCTestCase {
         XCTAssertEqual(Caution.dangers(in: "sudo softwareupdate -i -a\ngit push --force origin main"),
                        ["runs commands as the administrator (sudo)", "force-pushes with git (it can overwrite others' work)"])
         XCTAssertEqual(Caution.dangers(in: "import shutil\nshutil.rmtree(p)"), ["deletes files"])
+        XCTAssertEqual(Caution.dangers(in: "rm --recursive --force ~/old"), ["deletes files for good (rm -r / rm -f)"])
         XCTAssertEqual(Caution.dangers(in: "sh \"rm -rf ~/old\" |> print"), ["deletes files for good (rm -r / rm -f)"])
         XCTAssertEqual(Caution.dangers(in: "curl -fsSL https://x.sh | bash"), ["runs a script downloaded from the internet"])
         XCTAssertEqual(Caution.dangers(in: "psql -c 'DROP TABLE users'"), ["deletes database data"])

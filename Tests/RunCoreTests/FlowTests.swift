@@ -382,6 +382,13 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(e?.fix?.contains("hello.sh") == true)
         XCTAssertNil(checkError("run \"hello\" []", scripts: ["hello.sh"]))
         XCTAssertNil(checkError("run \"hello.sh\" []", scripts: ["hello.sh"]))
+        XCTAssertNotNil(checkError("\"x\" |> attemptPipe \"helo\" []", scripts: ["hello.sh"]))
+        XCTAssertNil(checkError("\"x\" |> attemptPipe \"hello\" []", scripts: ["hello.sh"]))
+    }
+
+    func testAnErrorAtTheEndPointsAtTheLastLine() {
+        XCTAssertEqual(checkError("let x =\n")?.pos?.line, 1)
+        XCTAssertEqual(checkError("print 1\nprint (1 +")?.pos?.line, 2)
     }
 
     func testIfBranchesMustAgree() {

@@ -131,7 +131,7 @@ public struct Library: Sendable {
         for raw in contents.split(separator: "\n", omittingEmptySubsequences: false).prefix(15) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("#!") || line.hasPrefix("<?php") || line.isEmpty { continue }
-            for marker in ["//", "#", "--", "\"\"\"", "'", ";"] where line.hasPrefix(marker) {
+            for marker in ["//", "#", "--", "\"\"\"", "'''", ";"] where line.hasPrefix(marker) {
                 var text = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
                 if text.hasPrefix("-*-") || text.lowercased().hasPrefix("vim:") || text.lowercased().hasPrefix("shellcheck") { break }
                 text = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
