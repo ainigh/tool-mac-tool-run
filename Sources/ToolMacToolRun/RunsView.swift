@@ -63,11 +63,14 @@ struct RunsView: View {
 struct RunRow: View {
     let run: RunRecord
     let indent: Bool
+    @ObservedObject private var prompts = PromptCenter.shared
 
     var body: some View {
+        let waiting = run.state == .running && prompts.pending(for: run.id) != nil
         HStack(spacing: 8) {
-            Image(systemName: Theme.symbol(run.state))
-                .foregroundStyle(Theme.color(run.state))
+            Image(systemName: waiting ? "hand.raised.fill" : Theme.symbol(run.state))
+                .foregroundStyle(waiting ? Color.orange : Theme.color(run.state))
+                .help(waiting ? "Waiting for your answer" : run.state.title)
             VStack(alignment: .leading, spacing: 1) {
                 Text(run.name + (run.arguments.isEmpty ? "" : " " + run.arguments.map(ShellEnvironment.quote).joined(separator: " ")))
                     .lineLimit(1)
@@ -150,8 +153,13 @@ struct RunDetail: View {
             }
             .padding(16)
             Divider()
+            RunAttention(run: run, runs: runs)
             OutputText(run: run, version: runs.version(run.id))
                 .id(run.id)
+            if run.state == .running && runs.acceptsInput(run.id) {
+                Divider()
+                InputBar(run: run.id, runs: runs)
+            }
         }
         .controlSize(.large)
     }
@@ -327,8 +335,13 @@ struct OutputPanel: View {
                     .foregroundStyle(Theme.color(run.state))
             }
             Divider()
+            RunAttention(run: run, runs: runs)
             OutputText(run: run, version: runs.version(run.id))
                 .id(run.id)
+            if run.state == .running && runs.acceptsInput(run.id) {
+                Divider()
+                InputBar(run: run.id, runs: runs)
+            }
         }
     }
 }
