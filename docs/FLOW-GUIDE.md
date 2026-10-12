@@ -60,7 +60,7 @@ A flow is checked before it runs. If it has a mistake, nothing runs: the cell sa
 
 | Type | Looks like | Notes |
 |---|---|---|
-| `int` | `42`, `-3`, `1_000` | whole numbers only |
+| `int` | `42`, `-3`, `1_000` | whole numbers only, from -9223372036854775808 to 9223372036854775807 |
 | `string` | `"hello"`, `$"hi {name}"` | text |
 | `bool` | `true`, `false` | |
 | `unit` | `()` | "nothing": what a step that only *does* something gives back |
@@ -78,14 +78,20 @@ let count = 3
 ```
 
 A name can be defined again further down (the new one hides the old one from there on). There
-are no variables that change: to build a new value, make one from the old.
+are no variables that change: to build a new value, make one from the old. That works for
+functions too: in `let f x = f (x * 10)`, the `f` inside is the `f` from above, as in F# (only a
+`let rec` sees its own name; see *Functions of your own*).
+
+Whole numbers that get too big (past 9223372036854775807, or below -9223372036854775808) stop
+the flow with a message, rather than quietly turning into a wrong number.
 
 ### Text
 
 - `"plain text"`, with `\n` (new line), `\t` (tab), `\"` (a quote) and `\\` (a backslash).
 - `$"Hello {name}, you have {count + 1} files"`: an **interpolated** text. Anything inside
   `{…}` is worked out and put in as text (numbers, lists, anything). Write `{{` and `}}` for
-  braces of their own.
+  braces of their own. Text inside `{…}` is fine, braces and all, written either way:
+  `$"{name + "!"}"` or `$"{name + \"!\"}"`, `$"{ "}" }"`.
 - `+` joins text: `"a" + "b"`.
 
 ### Calling a function
@@ -146,14 +152,18 @@ let check name =
 `let name params = body`. The body can sit on the same line, or on the lines under it,
 indented (see *Blocks* below); its last line is what the function gives back.
 
-A function can call itself:
+A function that calls itself is a `let rec` (as in F#: without `rec`, the name inside is
+whatever it meant above, and if nothing, the checker says to add `rec`):
 
 ```
-let countdown n =
+let rec countdown n =
     if n > 0 then
         print n
         countdown (n - 1)
 ```
+
+`let rec f = fun n -> …` works too. A function that calls itself without end stops the flow
+with a message (after some thousands of calls), rather than running forever.
 
 A function without a name: `fun x -> x * 2`. A function that takes nothing: `fun () -> …`, and
 it's called with `()`: `let stamp () = now ()`.
@@ -187,8 +197,10 @@ Use spaces to indent (tabs count as one space each, so they're easy to get wrong
 ### Choices: `if`
 
 ```
+let used = run "disk-space" [] |> int
 if used > 85 then notify "Disk nearly full" else print "fine"
 
+let n = run "list-files" ["~/Desktop"] |> lines |> length
 let size =
     if n > 100 then "big"
     elif n > 10 then "medium"
@@ -204,8 +216,8 @@ Both sides of an `if` give back the same type. An `if` with no `else` can only *
 |---|---|---|
 | `+` | add, or join text | `int`, `string` |
 | `-` `*` `/` `%` | subtract, multiply, divide (whole), remainder | `int` |
-| `=` or `==` | equal | anything but functions |
-| `<>` or `!=` | not equal | anything but functions |
+| `=` or `==` | equal | anything but functions (or lists of them) |
+| `<>` or `!=` | not equal | anything but functions (or lists of them) |
 | `<` `<=` `>` `>=` | compare | `int`, `string` (alphabetically) |
 | `&&` `\|\|` | and, or (the right side is only looked at when needed) | `bool` |
 | `@` | join two lists | lists |
@@ -233,7 +245,7 @@ What you'll use most: `map`, `filter`, `each`, `fold`, `length`, `isEmpty`, `fir
 functions at the end.
 
 There are no loops: `each` does something for every item, `map` makes a new list, `fold` carries
-a value through a list, and a function can call itself.
+a value through a list, and a `let rec` function can call itself.
 
 ---
 
@@ -294,6 +306,9 @@ twice : ('a -> 'a) -> 'a -> 'a
   a different type.
 - **`+` and comparisons** work on numbers and on text. When nothing says which, it's numbers, as
   in F#: `let add a b = a + b` is `int -> int -> int`.
+- **`=` and `<>`** work on anything that isn't a function and has none inside it. A function that
+  compares what it's given stays generic: `let same a b = a = b` is `'a -> 'a -> bool`, for
+  numbers, text, lists… but `same print print` is a mistake.
 - **One type per list, one type per `if`.** A list's items are all the same type; both sides
   of an `if` give back the same type.
 
@@ -309,6 +324,9 @@ twice : ('a -> 'a) -> 'a -> 'a
 | `if ok then 1 else "one"` | both sides of an `if` have to give back the same type | |
 | `print "a" "b"` | `print` is a function given one value too many | one step per line, or brackets |
 | `if x then 5` | an `if` without `else` can only do something | add an `else`, or `\|> ignore` |
+| `map upper` on a line of its own | `map` is missing a value: it needs 1 more | give it the list, or `names \|> map upper` |
+| `let f n = … f (n - 1)` | `f` can't use itself here: a `let` only sees its own name when it's a `let rec` | `let rec f n = …` |
+| `[print] = [print]` | functions can't be compared | compare what they give back |
 
 Every message names the line, and the editor's **Go to line** takes you there.
 
@@ -460,6 +478,12 @@ atom      = INT | STRING | $STRING | "true" | "false" | name
           | "fun" param {param} "->" body
           | "if" expr "then" body {"elif" expr "then" body} ["else" body]
 ```
+
+A `let rec` without parameters has to be a `fun` (`let rec f = fun x -> …`). A minus sign right
+before a number is part of it (so `-9223372036854775808` can be written). Windows line endings
+are fine. Things can nest (brackets in brackets, blocks in blocks, `1 + 1 + …`) up to 300 levels
+deep; past that, the checker asks you to split it up with `let`s, so the editor and the run never
+run out of room.
 
 ---
 

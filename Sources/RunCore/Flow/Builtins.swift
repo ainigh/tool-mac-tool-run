@@ -66,7 +66,7 @@ extension Builtin {
             var results = [Result<Value, Error>?](repeating: nil, count: thunks.count)
             let lock = NSLock()
             DispatchQueue.concurrentPerform(iterations: thunks.count) { k in
-                let r = Result { try i.apply(thunks[k], .unit, pos: pos) }
+                let r = Result { try i.forked().apply(thunks[k], .unit, pos: pos) }
                 lock.lock()
                 results[k] = r
                 lock.unlock()
@@ -182,10 +182,15 @@ extension Builtin {
         },
         Builtin("range", "int -> int -> int list", "Lists", "The whole numbers from the first to the second, both included.", "range 1 5 |> each (fun n -> print n)", arity: 2) { _, a, pos in
             let from = a[0].int, to = a[1].int
-            guard to - from < 1_000_000 else { throw FlowError(.run, pos, "range \(from) \(to) is over a million numbers.") }
-            return .list(from <= to ? (from...to).map { .int($0) } : [])
+            guard from <= to else { return .list([]) }
+            // to - from can itself be too big a number (range -9223372036854775808 9223372036854775807).
+            let (span, overflow) = to.subtractingReportingOverflow(from)
+            guard !overflow && span < 1_000_000 else { throw FlowError(.run, pos, "range \(from) \(to) is over a million numbers.") }
+            return .list((from...to).map { .int($0) })
         },
-        Builtin("sum", "int list -> int", "Lists", "All the numbers added up.", "sizes |> sum", arity: 1) { _, a, _ in .int(a[0].items.reduce(0) { $0 + $1.int }) },
+        Builtin("sum", "int list -> int", "Lists", "All the numbers added up.", "sizes |> sum", arity: 1) { _, a, pos in
+            .int(try a[0].items.reduce(0) { try Interpreter.arithmetic("+", $0, $1.int, pos) })
+        },
     ]
 
     // MARK: logic

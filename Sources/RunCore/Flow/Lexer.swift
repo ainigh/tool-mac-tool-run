@@ -38,7 +38,9 @@ public struct FlowError: Error, Equatable, CustomStringConvertible, Sendable {
 
 struct Token: Equatable {
     enum Kind: Equatable {
-        case int(Int)
+        /// A whole number as written, without a sign (so -9223372036854775808 can be written: the
+        /// parser joins a minus sign to it).
+        case int(UInt64)
         case string(String)
         /// $"…{expr}…": the text parts and the holes' source, in order (`holes[i]` comes after `texts[i]`).
         case interpolated(texts: [String], holes: [(String, Pos)])
@@ -73,7 +75,9 @@ enum Lexer {
 
     static func tokenize(_ source: String, origin: Pos = Pos(line: 1, col: 1)) throws -> [Token] {
         var tokens: [Token] = []
-        let chars = Array(source)
+        // Windows (\r\n) and old Mac (\r) line endings read as \n: Swift counts \r\n as one
+        // Character, which would hide the line break from everything below.
+        let chars = Array(source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
         var i = 0
         var line = origin.line, col = origin.col
         var lineHasToken = false
@@ -95,9 +99,76 @@ enum Lexer {
             lineHasToken = true
         }
 
+        /// Reads the source of a {…} hole in a $"…" text up to its closing } (left for the caller),
+        /// or nil when it's never closed. Text inside the hole is skipped whole, so a brace in it
+        /// doesn't count: $"{ "}" }". A \" in the hole is a quote, so $"{name + \"!\"}" works too.
+        /// Texts with holes of their own inside a hole are followed with a stack, not by calling
+        /// itself, so no nesting can run it out of room.
+        func scanHole() throws -> String? {
+            enum Mode {
+                case hole(depth: Int)
+                case text(interpolated: Bool)
+                /// Text started with \" inside a hole: it ends at the next \".
+                case escapedText
+            }
+            var modes: [Mode] = [.hole(depth: 1)]
+            var hole = ""
+            while i < chars.count, let mode = modes.last {
+                // Each text in a hole is read again when the hole is, so stop early rather than
+                // read a very deep one over and over (the parser would stop it anyway).
+                if modes.count > 2 * Parser.maxDepth { throw Parser.tooDeep(Pos(line: line, col: col)) }
+                let ch = chars[i]
+                let next: Character? = i + 1 < chars.count ? chars[i + 1] : nil
+                switch mode {
+                case let .hole(depth):
+                    if ch == "}" {
+                        modes.removeLast()
+                        if depth == 1 && modes.isEmpty { return hole }
+                        if depth > 1 { modes.append(.hole(depth: depth - 1)) }
+                    } else if ch == "{" {
+                        modes[modes.count - 1] = .hole(depth: depth + 1)
+                    } else if ch == "\"" {
+                        modes.append(.text(interpolated: hole.last == "$"))
+                    } else if ch == "\\" && next == "\"" {
+                        modes.append(.escapedText)
+                        hole.append("\"")
+                        advance(2)
+                        continue
+                    }
+                case let .text(interpolated):
+                    if ch == "\\", let next {
+                        hole.append(ch)
+                        hole.append(next)
+                        advance(2)
+                        continue
+                    }
+                    if ch == "\"" {
+                        modes.removeLast()
+                    } else if interpolated && ch == "{" {
+                        if next == "{" {
+                            hole += "{{"
+                            advance(2)
+                            continue
+                        }
+                        modes.append(.hole(depth: 1))
+                    }
+                case .escapedText:
+                    if ch == "\\" && next == "\"" {
+                        modes.removeLast()
+                        hole.append("\"")
+                        advance(2)
+                        continue
+                    }
+                }
+                hole.append(ch)
+                advance()
+            }
+            return nil
+        }
+
         while i < chars.count {
             let c = chars[i]
-            if c == " " || c == "\t" || c == "\r" || c == "\n" {
+            if c == " " || c == "\t" || c == "\n" {
                 advance()
                 continue
             }
@@ -115,19 +186,19 @@ enum Lexer {
                 continue
             }
             let pos = Pos(line: line, col: col)
-            if c.isNumber {
+            if isDigit(c) {
                 var s = ""
-                while i < chars.count, chars[i].isNumber || chars[i] == "_" {
+                while i < chars.count, isDigit(chars[i]) || chars[i] == "_" {
                     if chars[i] != "_" { s.append(chars[i]) }
                     advance()
                 }
-                guard let n = Int(s) else { throw FlowError(.syntax, pos, "\(s) is too big a number.") }
+                guard let n = UInt64(s) else { throw FlowError(.syntax, pos, "\(s) is too big a number.", fix: tooBigFix) }
                 add(.int(n), pos)
                 continue
             }
             if c.isLetter || c == "_" {
                 var s = ""
-                while i < chars.count, chars[i].isLetter || chars[i].isNumber || chars[i] == "_" || chars[i] == "'" {
+                while i < chars.count, chars[i].isLetter || isDigit(chars[i]) || chars[i] == "_" || chars[i] == "'" {
                     s.append(chars[i])
                     advance()
                 }
@@ -173,18 +244,7 @@ enum Lexer {
                         }
                         advance()
                         let holePos = Pos(line: line, col: col)
-                        var depth = 1
-                        var hole = ""
-                        while i < chars.count {
-                            if chars[i] == "{" { depth += 1 }
-                            if chars[i] == "}" {
-                                depth -= 1
-                                if depth == 0 { break }
-                            }
-                            hole.append(chars[i])
-                            advance()
-                        }
-                        guard i < chars.count else {
+                        guard let hole = try scanHole() else {
                             throw FlowError(.syntax, holePos, "A { in this text is never closed.", fix: "Close it with }, or write {{ for a { of its own.")
                         }
                         advance()
@@ -201,7 +261,7 @@ enum Lexer {
                     current.append(ch)
                     advance()
                 }
-                guard closed else { throw FlowError(.syntax, pos, "This text is never closed.", fix: "End it with a \" on the same line.") }
+                guard closed else { throw FlowError(.syntax, pos, "This text is never closed.", fix: "End it with a \". Text can carry on over several lines, so the \" it's missing may belong further down.") }
                 texts.append(current)
                 add(interpolated ? .interpolated(texts: texts, holes: holes) : .string(current), pos)
                 continue
@@ -216,6 +276,11 @@ enum Lexer {
         tokens.append(Token(kind: .eof, pos: Pos(line: line + 1, col: 1), startsLine: true))
         return tokens
     }
+
+    static let tooBigFix = "Whole numbers in a flow go from -9223372036854775808 to 9223372036854775807."
+
+    /// 0 to 9 only: other numerals (², ٣) aren't numbers to a flow.
+    private static func isDigit(_ c: Character) -> Bool { c.isASCII && c.isWholeNumber }
 
     private static func matches(_ sym: String, _ chars: [Character], _ i: Int) -> Bool {
         let s = Array(sym)
