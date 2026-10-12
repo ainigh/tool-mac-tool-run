@@ -149,8 +149,9 @@ final class BlockTests: XCTestCase {
         for (name, source) in Examples.flows + [("new.flow", Examples.newFlow)] {
             let doc = FlowDocument.read(source)
             XCTAssertEqual(doc.written().text, source, name)
-            XCTAssertFalse(doc.blocks.isEmpty, name)
+            XCTAssertEqual(doc.blocks.isEmpty, name == "new.flow", name)
         }
+        XCTAssertEqual(FlowDocument.read(Examples.blocksFlow.1).blocks.map(\.type), [.runScript, .confirm, .repeatEach, .notify])
         let morning = FlowDocument.read(Examples.flows[0].1)
         XCTAssertEqual(morning.summary, "Says hello, checks the disk, and warns when it's getting full")
         XCTAssertEqual(morning.blocks.map(\.type), [.runScript, .show, .code, .show, .ifThen])

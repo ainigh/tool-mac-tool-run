@@ -297,11 +297,21 @@ public enum Examples {
             parallel [ (fun () -> run "hello" ["parallel one"]); (fun () -> run "hello" ["parallel two"]) ]
         results |> each print
         """ + "\n"),
+        blocksFlow,
     ]
 
-    public static let newFlow = """
-    // What this flow does, in one line (it's shown on its cell)
-    let greeting = run "hello" ["you"]
-    print greeting
-    """ + "\n"
+    public static let blocksFlow = ("big-downloads.flow", """
+    // Asks before going on, then shows each of the biggest downloads on a line of its own
+    let bigFiles = run "big-files" []
+
+    confirm "Show the biggest files in your Downloads?"
+
+    for line in lines bigFiles do
+        print $"→ {line}"
+
+    notify "Done: the list is in the run's output"
+    """ + "\n")
+
+    /// A new flow: only the line saying what it does (the block editor offers the first step).
+    public static let newFlow = "// What this flow does, in one line (it's shown on its cell)\n"
 }

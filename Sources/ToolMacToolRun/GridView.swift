@@ -702,7 +702,7 @@ struct EmptyFolderCard: View {
                 Button { actions.addExamples() } label: { Label("Add the Examples", systemImage: "sparkles") }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .help("Adds 5 example scripts and 3 flows to the folder (nothing there is changed)")
+                    .help("Adds 5 example scripts and 4 flows to the folder (nothing there is changed)")
                 if kind == .scripts {
                     Menu("New Script") {
                         ForEach(ScriptLanguage.offered, id: \.self) { lang in Button(lang.title) { actions.newScript(lang) } }
