@@ -766,8 +766,8 @@ struct ArgumentsSheet: View {
         }
         // The sheet goes first: a question before running (Ask Before Running) shows on the grid.
         let actions = GridActions(app: app, kind: kind)
-        let item = self.item, line = self.line
+        let what = item, typed = line
         done()
-        DispatchQueue.main.async { actions.run(item, arguments: line) }
+        DispatchQueue.main.async { actions.run(what, arguments: typed) }
     }
 }
