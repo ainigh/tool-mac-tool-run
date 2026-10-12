@@ -322,8 +322,11 @@ public final class Interpreter: @unchecked Sendable {
         case .stop:
             throw FlowError(.stopped, pos, "Stopped: you chose Stop at “\(question.prompt)”.")
         case .unavailable:
+            let yesFits = question.kind == .proceed || question.kind == .yesNo
             throw FlowError(.run, pos, "This flow asks “\(question.prompt)”, and there's no one here to answer.",
-                            fix: "Run it from the app, or from a terminal (flow run). In a terminal with no one at the keyboard, `flow run --yes` answers Continue and Yes for you.")
+                            fix: yesFits
+                                ? "Run it from the app, or from a terminal (flow run). With no one at the keyboard, `flow run --yes` answers Continue and Yes for you."
+                                : "Run it from the app, or from a terminal (flow run) where someone can type the answer. (`--yes` answers only Continue and Yes questions: give the flow arguments instead.)")
         default:
             return answer
         }

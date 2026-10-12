@@ -9,6 +9,7 @@ struct GridView: View {
     let kind: GridKind
     @ObservedObject var app: AppModel
     @ObservedObject var runs: RunStore
+    @ObservedObject var prompts = PromptCenter.shared
     @State private var askingArguments: ScriptItem?
     @State private var trashing: ScriptItem?
 
@@ -93,6 +94,7 @@ struct GridView: View {
             let run = runs.latest(file: item.id, kind: kind)
             ScriptCell(item: item, kind: kind, tint: settings.tint(for: item.id), arguments: settings.arguments[item.id],
                        run: run, lastLine: run.flatMap { runs.lastLine($0.id) }, count: count, actions: actions,
+                       asksFirst: actions.asksFirst(item), waiting: run.map { prompts.pending(for: $0.id) != nil } ?? false,
                        askArguments: { askingArguments = item }, askTrash: { trashing = item })
         } else if index == all.count {
             NewCell(kind: kind, count: count, actions: actions)
@@ -230,14 +232,76 @@ struct GridActions {
     let app: AppModel
     let kind: GridKind
 
-    /// Runs it with these arguments (nil: the ones remembered for its cell).
+    /// Runs it with these arguments (nil: the ones remembered for its cell). One that asks first
+    /// (it looks like it can't be undone, or it's set to) says what it'll do and waits for Run.
     func run(_ item: ScriptItem, arguments line: String? = nil) {
         guard let lib = app.library else { return }
         let argv = ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
+        let go = {
+            if kind == .scripts {
+                app.runs.run(script: item, arguments: argv, folder: lib.root)
+            } else {
+                app.runs.run(flow: item, arguments: argv, library: lib)
+            }
+        }
+        if asksFirst(item) { confirm(item, argv: argv, then: go) } else { go() }
+    }
+
+    /// Whether it asks before running: as set on its cell, else when it looks like it can't be undone.
+    func asksFirst(_ item: ScriptItem) -> Bool { app.settings(kind).ask[item.id] ?? !item.dangers.isEmpty }
+
+    /// Why it asks, in a sentence.
+    func askReason(_ item: ScriptItem) -> String {
+        if app.settings(kind).ask[item.id] == true && item.dangers.isEmpty { return "You set it to ask before it runs." }
+        return "It looks like it " + Self.list(item.dangers) + "."
+    }
+
+    func setAsksFirst(_ item: ScriptItem, _ on: Bool) {
+        app.update(kind) { $0.ask[item.id] = on }
+    }
+
+    static func list(_ parts: [String]) -> String {
+        switch parts.count {
+        case 0: return ""
+        case 1: return parts[0]
+        default: return parts.dropLast().joined(separator: ", ") + " and " + parts.last!
+        }
+    }
+
+    /// The command it runs, as typed in a terminal.
+    func command(_ item: ScriptItem, argv: [String]) -> String {
         if kind == .scripts {
-            app.runs.run(script: item, arguments: argv, folder: lib.root)
+            // Only the command is wanted: no environment (reading it can wait on the login shell).
+            return ScriptProcess(script: item.url, language: item.language, arguments: argv, workingDirectory: app.library?.root, environment: [:]).commandLine
+        }
+        return (["flow", "run", item.url.path] + argv).map(ShellEnvironment.quote).joined(separator: " ")
+    }
+
+    /// Says what it's about to run and why it's asking, on the window in front (Return runs it,
+    /// Escape doesn't). The box under it keeps asking, or stops asking for this one.
+    private func confirm(_ item: ScriptItem, argv: [String], then go: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = item.dangers.isEmpty ? .informational : .warning
+        alert.messageText = "Run \(item.id)?"
+        alert.informativeText = askReason(item) + "\n\nIt will run:\n\(command(item, argv: argv))\n\nNothing has run yet."
+        let run = alert.addButton(withTitle: "Run")
+        run.hasDestructiveAction = !item.dangers.isEmpty
+        alert.addButton(withTitle: "Don't Run")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Ask before running \(item.title) next time"
+        alert.suppressionButton?.state = .on
+        let kind = self.kind
+        let app = self.app
+        let done: (NSApplication.ModalResponse) -> Void = { response in
+            // Unticked: it stops asking (said on its cell's menu, where it can be turned back on).
+            if alert.suppressionButton?.state == .off { app.update(kind) { $0.ask[item.id] = false } }
+            if response == .alertFirstButtonReturn { go() }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }) {
+            alert.beginSheetModal(for: window, completionHandler: done)
         } else {
-            app.runs.run(flow: item, arguments: argv, library: lib)
+            done(alert.runModal())
         }
     }
 
@@ -307,15 +371,8 @@ struct GridActions {
 
     func copyCommand(_ item: ScriptItem) {
         let argv = ShellEnvironment.split(app.settings(kind).arguments[item.id] ?? "")
-        let line: String
-        if kind == .scripts {
-            // Only the command is wanted: no environment (reading it can wait on the login shell).
-            line = ScriptProcess(script: item.url, language: item.language, arguments: argv, environment: [:]).commandLine
-        } else {
-            line = (["flow", "run", item.url.path] + argv).map(ShellEnvironment.quote).joined(separator: " ")
-        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(line, forType: .string)
+        NSPasteboard.general.setString(command(item, argv: argv), forType: .string)
     }
 
     /// Opens it in the app that edits plain text (never runs it, as opening a .sh or .command
@@ -343,6 +400,10 @@ struct ScriptCell: View {
     let lastLine: String?
     let count: Int
     let actions: GridActions
+    /// It asks before it runs (it looks like it can't be undone, or it's set to).
+    let asksFirst: Bool
+    /// Its flow is waiting for an answer.
+    let waiting: Bool
     let askArguments: () -> Void
     let askTrash: () -> Void
     @State private var hover = false
@@ -368,6 +429,13 @@ struct ScriptCell: View {
                     Image(systemName: "point.3.connected.trianglepath.dotted")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.55))
+                }
+                if asksFirst {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.orange.opacity(0.85))
+                        .help("Asks before it runs. " + actions.askReason(item) + " (Right-click → Ask Before Running to change it.)")
+                        .accessibilityLabel("Asks before it runs")
                 }
                 if let arguments, !arguments.isEmpty, roomy {
                     Text(arguments)
@@ -401,8 +469,8 @@ struct ScriptCell: View {
                     .lineLimit(count <= 9 ? 4 : 2)
             }
             Spacer(minLength: 0)
-            StatusLine(run: run, lastLine: lastLine, compact: !roomy) {
-                if let run { Windows.showRuns(run.id) }
+            StatusLine(run: run, lastLine: lastLine, compact: !roomy, waiting: waiting, runs: actions.app.runs) {
+                if waiting { Windows.showPrompt() } else if let run { Windows.showRuns(run.id) }
             } stop: {
                 if let run { actions.app.runs.stop(run.id) }
             }
@@ -424,7 +492,9 @@ struct ScriptCell: View {
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture { primary() }
-        .help(running ? "\(item.id) is running: click to watch its output" : "Click to run \(item.id)" + (arguments.map { $0.isEmpty ? "" : " \($0)" } ?? ""))
+        .help(waiting ? "\(item.id) is waiting for your answer: click to answer"
+              : running ? "\(item.id) is running: click to watch its output"
+              : "Click to run \(item.id)" + (arguments.map { $0.isEmpty ? "" : " \($0)" } ?? "") + (asksFirst ? " (it asks first)" : ""))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { primary() }
@@ -440,9 +510,11 @@ struct ScriptCell: View {
         .contextMenu { menu }
     }
 
-    /// A click: runs it, or, while it's running, shows what it's printing.
+    /// A click: runs it, or, while it's running, shows what it's printing (or the question it's waiting on).
     private func primary() {
-        if running, let run {
+        if waiting {
+            Windows.showPrompt()
+        } else if running, let run {
             Windows.showRuns(run.id)
         } else {
             actions.run(item)
@@ -451,7 +523,8 @@ struct ScriptCell: View {
 
     @ViewBuilder
     private var menu: some View {
-        Button(running ? "Watch Output" : "Run") { primary() }
+        if waiting { Button("Answer Its Question…") { Windows.showPrompt() } }
+        Button(running ? "Watch Output" : "Run") { if running, let run { Windows.showRuns(run.id) } else { actions.run(item) } }
         Button("Run with Arguments…") { askArguments() }
         if running, let run { Button("Stop") { actions.app.runs.stop(run.id) } }
         Button("Edit") { actions.edit(item) }
@@ -460,6 +533,7 @@ struct ScriptCell: View {
         Button("Copy Command for Terminal") { actions.copyCommand(item) }
         Button("Open in \(GridActions.editorName)") { actions.openInEditor(item) }
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        Toggle("Ask Before Running", isOn: Binding(get: { asksFirst }, set: { actions.setAsksFirst(item, $0) }))
         Menu("Color") {
             ForEach(GridSettings.tints.indices, id: \.self) { k in
                 Button(GridSettings.tints[k].name.capitalized) { actions.setTint(item, k) }
@@ -478,6 +552,10 @@ struct StatusLine: View {
     let run: RunRecord?
     let lastLine: String?
     let compact: Bool
+    /// Its flow is waiting for an answer.
+    var waiting = false
+    /// For how long it's been quiet (read each second while it runs).
+    var runs: RunStore?
     let show: () -> Void
     let stop: () -> Void
 
@@ -486,17 +564,30 @@ struct StatusLine: View {
             HStack(spacing: 6) {
                 Button(action: show) {
                     HStack(spacing: 5) {
-                        Image(systemName: Theme.symbol(run.state))
-                            .foregroundStyle(Theme.color(run.state))
-                        if run.state == .running {
+                        if run.state == .running && waiting {
+                            Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+                            Text(compact ? "Waiting" : "Waiting for your answer: click").lineLimit(1)
+                        } else if run.state == .running {
+                            Image(systemName: Theme.symbol(run.state))
+                                .foregroundStyle(Theme.color(run.state))
                             TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                Text(RunRecord.duration(ctx.date.timeIntervalSince(run.started)))
-                                    .monospacedDigit()
-                            }
-                            if !compact, let line = lastLine {
-                                Text(line).lineLimit(1).foregroundStyle(Color.black.opacity(0.55))
+                                let quiet = runs?.quietFor(run.id, now: ctx.date) ?? 0
+                                HStack(spacing: 5) {
+                                    Text(RunRecord.duration(ctx.date.timeIntervalSince(run.started)))
+                                        .monospacedDigit()
+                                    if !compact && quiet >= 20 {
+                                        // Silence reads as broken: say it's quiet, and what it may want.
+                                        Text(runs?.acceptsInput(run.id) == true ? "· quiet: waiting for you to type?" : "· quiet for \(RunRecord.duration(quiet))")
+                                            .lineLimit(1)
+                                            .foregroundStyle(Color.orange.opacity(0.9))
+                                    } else if !compact, let line = lastLine {
+                                        Text(line).lineLimit(1).foregroundStyle(Color.black.opacity(0.55))
+                                    }
+                                }
                             }
                         } else {
+                            Image(systemName: Theme.symbol(run.state))
+                                .foregroundStyle(Theme.color(run.state))
                             Text(Self.summary(run)).lineLimit(1)
                             if !compact { Text("· \(ago(run.ended ?? run.started))").foregroundStyle(Color.black.opacity(0.45)) }
                         }

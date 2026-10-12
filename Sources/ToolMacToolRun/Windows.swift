@@ -175,6 +175,33 @@ enum Windows {
         }
     }
 
+    /// The question a flow is waiting on: a small window that floats over the others, near the pointer.
+    static func showPrompt() {
+        if let w = windows["prompt"] {
+            bringForward(w)
+            return
+        }
+        let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 220),
+                        styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.title = "A Flow Is Asking"
+        w.titlebarAppearsTransparent = true
+        w.isReleasedWhenClosed = false
+        w.level = .floating
+        w.hidesOnDeactivate = false
+        w.becomesKeyOnlyIfNeeded = false
+        let host = NSHostingController(rootView: PromptWindowView(center: PromptCenter.shared))
+        host.sizingOptions = [.preferredContentSize]
+        w.contentViewController = host
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        if let v = screen?.visibleFrame {
+            w.setFrameTopLeftPoint(NSPoint(x: v.midX - 230, y: v.maxY - v.height * 0.22))
+        } else {
+            w.center()
+        }
+        windows["prompt"] = w
+        bringForward(w)
+    }
+
     static func showGuide() {
         show("guide", title: "Flow Guide", size: NSSize(width: 880, height: 760)) {
             GuideView()

@@ -628,4 +628,71 @@ final class FlowTests: XCTestCase {
             XCTAssertNoThrow(try Parser.parse(b.example), b.name)
         }
     }
+
+    // MARK: asking, and for
+
+    func testQuestionsWaitForTheirAnswers() throws {
+        let host = FakeHost()
+        host.answers = [.yes, .no, .text("Ada"), .text("large")]
+        try run("""
+        confirm "Go on?"
+        print (askYesNo "Upload?")
+        let who = ask "Who?"
+        let size = choose "Size?" ["small"; "large"]
+        print $"{who} {size}"
+        """, host)
+        XCTAssertEqual(host.said, ["false", "Ada large"])
+        XCTAssertEqual(host.asked.map(\.kind), [.proceed, .yesNo, .text, .choice(["small", "large"])])
+        XCTAssertEqual(host.asked.map(\.line), [1, 2, 3, 4])
+    }
+
+    func testStopAtAQuestionStopsTheFlowThere() {
+        let host = FakeHost()
+        host.answers = [.stop]
+        XCTAssertThrowsError(try run("confirm \"Delete it all?\"\nprint \"deleted\"", host)) { e in
+            XCTAssertEqual((e as? FlowError)?.stage, .stopped)
+            XCTAssertTrue((e as? FlowError)?.message.contains("Delete it all?") == true)
+        }
+        XCTAssertEqual(host.said, [])
+    }
+
+    func testNoOneToAskSaysHow() {
+        XCTAssertThrowsError(try run("confirm \"Go?\"")) { e in
+            let f = e as? FlowError
+            XCTAssertEqual(f?.stage, .run)
+            XCTAssertTrue(f?.fix?.contains("flow run --yes") == true)
+        }
+        XCTAssertThrowsError(try run("let n = ask \"Name?\"")) { e in
+            XCTAssertTrue((e as? FlowError)?.fix?.contains("arguments") == true)
+        }
+        XCTAssertThrowsError(try run("choose \"Pick\" [] |> print")) { e in
+            XCTAssertTrue((e as? FlowError)?.message.contains("empty list") == true)
+        }
+    }
+
+    func testForGoesThroughEachItem() throws {
+        let host = FakeHost()
+        try run("""
+        for n in [1; 2; 3] do
+            let twice = n * 2
+            print twice
+        for line in lines "a\nb" do print line
+        for i in range 1 2 do
+            for j in range 1 2 do
+                print $"{i}{j}"
+        """, host)
+        XCTAssertEqual(host.said, ["2", "4", "6", "a", "b", "11", "12", "21", "22"])
+        XCTAssertEqual(try types("let f xs = for x in xs do print x"), ["f": "'a list -> unit"])
+    }
+
+    func testForMistakesSayHowToWriteIt() {
+        XCTAssertEqual(checkError("for x [1] do print x")?.stage, .syntax)
+        XCTAssertTrue(checkError("for x in [1] print x")?.message.contains("`do`") == true)
+        XCTAssertTrue(checkError("for 1 in [1] do print 1")?.fix?.contains("for line in") == true)
+        let e = checkError("for x in 5 do print x")
+        XCTAssertEqual(e?.stage, .type)
+        XCTAssertTrue(e?.message.contains("`for`") == true, e?.message ?? "")
+        // `$for` isn't a name a flow can write.
+        XCTAssertEqual(checkError("$for")?.stage, .syntax)
+    }
 }

@@ -11,12 +11,25 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     /// The first comment in it (after any #! line), as shown under the title.
     public var summary: String?
     public var modified: Date?
+    /// What in it looks like it can't be undone (`Caution`): the app asks before running it.
+    public var dangers: [String] = []
+    /// It looks like it asks for a typed answer while it runs: its run keeps a way to type one.
+    public var asksForInput = false
 
     public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil) {
         self.url = url
         self.language = language
         self.summary = summary
         self.modified = modified
+    }
+
+    /// The same, with what `Caution` reads in it.
+    func cautioned() -> ScriptItem {
+        var item = self
+        let text = Caution.text(of: url)
+        item.dangers = Caution.dangers(in: text)
+        item.asksForInput = Caution.asksForInput(text)
+        return item
     }
 }
 
@@ -54,14 +67,16 @@ public struct Library: Sendable {
             let lang = ScriptLanguage.detect(fileName: url.lastPathComponent, contents: contents, executableBit: executable)
             // A file we can't run and that isn't marked executable isn't a script (a note, a picture).
             if lang == .unknown { return nil }
-            return ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url))
+            return ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url)).cautioned()
         }
     }
 
     /// The flows, by name.
     public func flows() -> [ScriptItem] {
         files(in: composerFolder).filter { $0.pathExtension.lowercased() == Self.flowExtension }.map { url in
-            ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url))
+            var item = ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url))
+            item.dangers = Caution.dangers(in: Caution.text(of: url))
+            return item
         }
     }
 

@@ -119,6 +119,13 @@ public final class ScriptProcess: @unchecked Sendable {
     private var abandoned = false
     private var abandonNoted = false
     private var finalEnding: RunEnding?
+    /// Its input, while it's kept open for typing (`keepsInputOpen`).
+    private var inputHandle: FileHandle?
+    private let inputQueue = DispatchQueue(label: "ToolMacToolRun.input")
+
+    /// Its input stays open after `stdin` is written, for answers typed while it runs (`send`),
+    /// until `endInput` (or it ends). Otherwise it reads an empty input once `stdin` is written.
+    public var keepsInputOpen = false
 
     /// Seconds from asking it to stop (SIGTERM) to ending it for good (SIGKILL, to its whole group).
     var killGrace: TimeInterval = 2
@@ -336,10 +343,16 @@ public final class ScriptProcess: @unchecked Sendable {
         }
         let writer = inPipe.fileHandleForWriting
         let data = input.flatMap { $0.data(using: .utf8) } ?? Data()
-        Thread.detachNewThread {
+        let keepOpen = keepsInputOpen
+        if keepOpen {
+            lock.lock()
+            inputHandle = writer
+            lock.unlock()
+        }
+        inputQueue.async {
             // A script that stops reading (or never reads) is fine: the rest isn't wanted.
             if !data.isEmpty { _ = writeAll(data, to: writer.fileDescriptor) }
-            try? writer.close()
+            if !keepOpen { try? writer.close() }
         }
         done.notify(queue: .global()) {
             self.lock.lock()
@@ -349,8 +362,38 @@ public final class ScriptProcess: @unchecked Sendable {
             self.finalEnding = ending
             self.lock.unlock()
             self.process.terminationHandler = nil
+            self.endInput()
             ended(ending)
         }
+    }
+
+    /// Types a line (or any text) into its input, while it's kept open. False when it isn't.
+    @discardableResult
+    public func send(_ text: String) -> Bool {
+        lock.lock()
+        let handle = inputHandle
+        lock.unlock()
+        guard let handle else { return false }
+        let data = Data(text.utf8)
+        inputQueue.async { _ = writeAll(data, to: handle.fileDescriptor) }
+        return true
+    }
+
+    /// Closes its input (as Control-D does in a terminal): what reads it to the end goes on.
+    public func endInput() {
+        lock.lock()
+        let handle = inputHandle
+        inputHandle = nil
+        lock.unlock()
+        guard let handle else { return }
+        inputQueue.async { try? handle.close() }
+    }
+
+    /// Whether its input is still open for typing.
+    public var acceptsInput: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return inputHandle != nil
     }
 
     /// Reads one of its outputs until it's closed (or abandoned), handing the text on.

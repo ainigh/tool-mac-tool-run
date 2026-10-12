@@ -60,6 +60,8 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     public var output: [Chunk]
     /// The run of a flow this is a step of.
     public var parent: UUID?
+    /// A step: the line of its flow that ran it (the block editor marks that block).
+    public var line: Int?
     /// Why it couldn't start or why the flow stopped, and the fix.
     public var problem: String?
     /// Earlier output was dropped to keep it to `maxOutput` bytes.
@@ -91,7 +93,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, problem, trimmed, receivedBytes
+        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, line, problem, trimmed, receivedBytes
     }
 
     public init(from decoder: Decoder) throws {
@@ -109,6 +111,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         state = try c.decode(State.self, forKey: .state)
         output = try c.decodeIfPresent([Chunk].self, forKey: .output) ?? []
         parent = try c.decodeIfPresent(UUID.self, forKey: .parent)
+        line = try c.decodeIfPresent(Int.self, forKey: .line)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         trimmed = try c.decodeIfPresent(Bool.self, forKey: .trimmed) ?? false
         outputBytes = output.reduce(0) { $0 + $1.text.utf8.count }
@@ -130,6 +133,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         try c.encode(state, forKey: .state)
         try c.encode(output, forKey: .output)
         try c.encodeIfPresent(parent, forKey: .parent)
+        try c.encodeIfPresent(line, forKey: .line)
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encode(trimmed, forKey: .trimmed)
         try c.encode(receivedBytes, forKey: .receivedBytes)

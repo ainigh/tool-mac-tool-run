@@ -31,10 +31,27 @@ final class RunStore: ObservableObject {
     private var versions: [UUID: Int] = [:]
     /// The last line of each running run's output, worked out once per batch (the cells show it).
     private var lastLines: [UUID: String] = [:]
+    /// When each running run last printed something (or started): silence reads as broken, so
+    /// the cells say how long it's been quiet.
+    private var lastOutputAt: [UUID: Date] = [:]
+    /// Runs already told about for taking long (once each).
+    private var toldSlow: Set<UUID> = []
+    private var watchTimer: Timer?
+
+    /// After how many seconds a run still going is worth a notification (0: never).
+    static let slowKey = "notifyAfterSeconds"
+    static var slowAfter: Int {
+        get { UserDefaults.standard.object(forKey: slowKey) as? Int ?? 60 }
+        set { UserDefaults.standard.set(newValue, forKey: slowKey) }
+    }
 
     init() {
         store = RunHistory.load()
         trimToCap()
+        // Every few seconds: is anything taking long, or gone quiet?
+        watchTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watch() }
+        }
         // Read the login shell's PATH now, off the main thread, so the first run doesn't wait for it.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let env = ShellEnvironment.shared.environment
@@ -64,6 +81,34 @@ final class RunStore: ObservableObject {
 
     /// The last line a running run printed (what its cell shows).
     func lastLine(_ id: UUID) -> String? { lastLines[id] }
+
+    /// How long a running run has printed nothing, in seconds (0 when it isn't running).
+    func quietFor(_ id: UUID, now: Date = Date()) -> TimeInterval {
+        guard let since = lastOutputAt[id], isRunning(id) else { return 0 }
+        return now.timeIntervalSince(since)
+    }
+
+    /// A long run: a notification (once) that it's still going, with what it last printed and a
+    /// click to watch it. Seconds pass on the cells and in Runs by themselves.
+    private func watch() {
+        let after = Self.slowAfter
+        guard after > 0 else { return }
+        let now = Date()
+        for r in store where r.state == .running && r.parent == nil && !toldSlow.contains(r.id) {
+            let secs = now.timeIntervalSince(r.started)
+            guard secs >= Double(after) else { continue }
+            toldSlow.insert(r.id)
+            // Waiting on a question: that has its own notice.
+            if PromptCenter.shared.pending(for: r.id) != nil { continue }
+            var body = "Still running after \(RunRecord.duration(secs))."
+            if quietFor(r.id, now: now) >= 30 {
+                body += " It hasn't printed anything for \(RunRecord.duration(quietFor(r.id, now: now)))" + (acceptsInput(r.id) ? ": it may be waiting for you to type something." : ".")
+            } else if let line = lastLines[r.id] {
+                body += " Last: \(line.prefix(80))"
+            }
+            Notifier.post(title: "⏳ \(r.name)", body: body + " Click to watch it (or stop it).", run: r.id)
+        }
+    }
 
     private func index(_ id: UUID) -> Int? { store.lastIndex { $0.id == id } }
 
@@ -132,6 +177,9 @@ final class RunStore: ObservableObject {
 
     private func launch(_ id: UUID, item: ScriptItem, arguments: [String], folder: URL, environment env: [String: String]) {
         let p = ScriptProcess(script: item.url, language: item.language, arguments: arguments, workingDirectory: folder, environment: env)
+        // It asks for typed answers: its input stays open for them (Runs and the editor show a place to type).
+        p.keepsInputOpen = item.asksForInput
+        lastOutputAt[id] = Date()
         let pending = self.pending
         do {
             try p.start(output: { [weak self] stream, text in
@@ -159,6 +207,7 @@ final class RunStore: ObservableObject {
         objectWillChange.send()
         change(id) { $0.finish(ending) }
         lastLines[id] = nil
+        lastOutputAt[id] = nil
         if let r = record(id) { tellIfLong(r) }
         save()
     }
@@ -203,8 +252,16 @@ final class RunStore: ObservableObject {
         }
         objectWillChange.send()
         store.append(rec)
+        lastOutputAt[id] = Date()
         let pending = self.pending
-        let host = LocalFlowHost(library: library) { [weak self] event in
+        let flowName = item.id
+        // The scripts set to Ask Before Running ask from inside a flow too.
+        let askFirst = Set(AppModel.shared.settings(.scripts).ask.filter(\.value).map(\.key))
+        let host = LocalFlowHost(library: library, asker: { question in
+            PromptCenter.ask(run: id, from: flowName, question)
+        }, askBefore: { script in
+            askFirst.contains(script.id) ? "Run \(script.id)? (It's set to ask before it runs.)" : nil
+        }) { [weak self] event in
             if pending.event(id, event) {
                 Task { @MainActor in self?.scheduleFlush() }
             }
@@ -234,6 +291,8 @@ final class RunStore: ObservableObject {
     private func flowFinished(_ id: UUID, state: RunRecord.State, problem: String?) {
         flush()
         hosts[id] = nil
+        lastOutputAt[id] = nil
+        PromptCenter.shared.cancel(run: id)
         objectWillChange.send()
         if let i = index(id) {
             store[i].finish(code: state == .succeeded ? 0 : 1, state: state)
@@ -266,6 +325,8 @@ final class RunStore: ObservableObject {
         }
         if let h = hosts[id] {
             h.cancel()
+            // A question it's waiting on is answered Stop.
+            PromptCenter.shared.cancel(run: id)
             return
         }
         if let parent = record(id)?.parent, parent != id {
@@ -277,9 +338,36 @@ final class RunStore: ObservableObject {
         for id in waitingToStart { stop(id) }
         processes.values.forEach { $0.stop() }
         hosts.values.forEach { $0.cancel() }
+        for id in hosts.keys { PromptCenter.shared.cancel(run: id) }
     }
 
     func isRunning(_ id: UUID) -> Bool { processes[id] != nil || hosts[id] != nil || waitingToStart.contains(id) }
+
+    // MARK: typing into a run
+
+    /// Whether a running script takes typed answers now.
+    func acceptsInput(_ id: UUID) -> Bool { processes[id]?.acceptsInput == true }
+
+    /// Types a line into a running script (shown in its output, as a terminal would, unless it's hidden).
+    func send(_ id: UUID, _ line: String, echo: Bool = true) {
+        guard let p = processes[id], p.send(line + "\n") else { return }
+        note(id, echo ? line : String(repeating: "•", count: min(line.count, 8)))
+    }
+
+    /// A line in a run's output from the app (a question asked, its answer, what was typed).
+    func note(_ id: UUID, _ text: String) {
+        flush()
+        guard index(id) != nil else { return }
+        objectWillChange.send()
+        append(id, .out, text + "\n")
+        lastOutputAt[id] = Date()
+    }
+
+    /// Ends a running script's input (Control-D in a terminal).
+    func endInput(_ id: UUID) {
+        processes[id]?.endInput()
+        objectWillChange.send()
+    }
 
     /// Something is still going (a script, a flow, or a run about to start).
     var hasLiveRuns: Bool { !processes.isEmpty || !hosts.isEmpty || !waitingToStart.isEmpty }
@@ -324,6 +412,9 @@ final class RunStore: ObservableObject {
 
     private func apply(_ buffer: PendingOutput.Buffer, to id: UUID) {
         guard let i = index(id) else { return }
+        let now = Date()
+        lastOutputAt[id] = now
+        if let parent = store[i].parent { lastOutputAt[parent] = now }
         for (n, piece) in buffer.pieces.enumerated() {
             append(at: i, piece.stream, piece.text, dropped: n == 0 && buffer.dropped)
         }
@@ -333,10 +424,12 @@ final class RunStore: ObservableObject {
         switch event {
         case .say, .stepOutput:
             break  // their text came with the output
-        case let .stepStarted(id, name, command):
+        case let .stepStarted(id, name, command, line):
             var step = RunRecord(id: id, kind: .step, name: name, file: nil, command: command, parent: flow)
             step.state = .running
+            step.line = line > 0 ? line : nil
             store.append(step)
+            lastOutputAt[flow] = Date()
         case let .stepFinished(id, _, result):
             if let i = index(id) {
                 if store[i].output.isEmpty && !result.err.isEmpty { append(at: i, .err, result.err) }
@@ -344,7 +437,7 @@ final class RunStore: ObservableObject {
             }
             lastLines[id] = nil
         case let .notify(text):
-            Notifier.post(title: record(flow)?.name ?? "Flow", body: text)
+            Notifier.post(title: record(flow)?.name ?? "Flow", body: text, run: flow)
         }
     }
 
@@ -375,6 +468,8 @@ final class RunStore: ObservableObject {
         let ids = Set(store.map(\.id))
         versions = versions.filter { ids.contains($0.key) }
         lastLines = lastLines.filter { ids.contains($0.key) }
+        lastOutputAt = lastOutputAt.filter { ids.contains($0.key) }
+        toldSlow = toldSlow.filter { ids.contains($0) }
     }
 
     private func save() {
@@ -398,10 +493,14 @@ final class RunStore: ObservableObject {
         try? RunHistory.save(store)
     }
 
-    /// A run that took a while, finishing while you're elsewhere: a notification says how it went.
+    /// A run that took a while, finishing while you're elsewhere: a notification says how it went
+    /// (one that was told about for taking long always says how it ended).
     private func tellIfLong(_ r: RunRecord) {
-        guard r.parent == nil, let secs = r.seconds, secs >= 15 else { return }
-        Notifier.post(title: "\(r.state.mark) \(r.name)", body: "\(r.state.title) after \(RunRecord.duration(secs)).")
+        guard r.parent == nil, let secs = r.seconds, secs >= 15 || toldSlow.contains(r.id) else { return }
+        if NSApp.isActive && !toldSlow.contains(r.id) { return }
+        var body = "\(r.state.title) after \(RunRecord.duration(secs))."
+        if r.state == .failed, let problem = r.problem ?? r.ending.map(\.summary) { body += " \(problem.prefix(120))" }
+        Notifier.post(title: "\(r.state.mark) \(r.name)", body: body, run: r.id)
     }
 }
 
@@ -482,7 +581,7 @@ final class PendingOutput: @unchecked Sendable {
         switch e {
         case let .say(text):
             addLocked(flow, .out, text + "\n")
-        case let .stepStarted(_, name, _):
+        case let .stepStarted(_, name, _, _):
             events.append((flow, e))
             addLocked(flow, .out, "👉 \(name)\n")
         case let .stepOutput(id, stream, text):
@@ -547,9 +646,10 @@ final class PendingOutput: @unchecked Sendable {
     }
 }
 
-/// Notifications (a flow's `notify`, a long run finishing). macOS asks once whether to allow them.
+/// Notifications (a flow's `notify`, a long run, a question waiting). macOS asks once whether to
+/// allow them. A click on one about a run shows that run.
 enum Notifier {
-    static func post(title: String, body: String) {
+    static func post(title: String, body: String, run: UUID? = nil) {
         guard Bundle.main.bundleIdentifier != nil else {
             NSSound.beep()
             return
@@ -561,7 +661,34 @@ enum Notifier {
             content.title = title
             content.body = body
             content.sound = .default
+            if let run { content.userInfo = ["run": run.uuidString] }
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
+    }
+}
+
+/// A click on a notification about a run: show that run (or its question, if it's waiting on one).
+final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = NotificationClicks()
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let run = (response.notification.request.content.userInfo["run"] as? String).flatMap(UUID.init(uuidString:))
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                if let run, PromptCenter.shared.pending(for: run) != nil {
+                    Windows.showPrompt()
+                } else {
+                    Windows.showRuns(run)
+                }
+            }
+        }
+        completionHandler()
+    }
+
+    /// Shown even while the app is in front (it's a menu bar app: it often is).
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
 }

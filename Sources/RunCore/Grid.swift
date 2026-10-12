@@ -13,18 +13,22 @@ public struct GridSettings: Codable, Equatable, Sendable {
     public var arguments: [String: String]
     /// The page showing.
     public var page: Int
+    /// Ask before running (true), never ask (false); not here: ask when it looks like it does
+    /// something that can't be undone (`Caution`).
+    public var ask: [String: Bool]
 
     public static let minCells = 1
     public static let maxCells = 64
     public static let defaultCells = 12
 
     public init(cells: Int = GridSettings.defaultCells, order: [String] = [], tints: [String: Int] = [:],
-                arguments: [String: String] = [:], page: Int = 0) {
+                arguments: [String: String] = [:], page: Int = 0, ask: [String: Bool] = [:]) {
         self.cells = cells
         self.order = order
         self.tints = tints
         self.arguments = arguments
         self.page = page
+        self.ask = ask
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,6 +38,7 @@ public struct GridSettings: Codable, Equatable, Sendable {
         tints = (try? c.decode([String: Int].self, forKey: .tints)) ?? [:]
         arguments = (try? c.decode([String: String].self, forKey: .arguments)) ?? [:]
         page = max(0, (try? c.decode(Int.self, forKey: .page)) ?? 0)
+        ask = (try? c.decode([String: Bool].self, forKey: .ask)) ?? [:]
     }
 
     /// The light colors a cell can wear (as on the boards of Tool Mac Tool), red, green, blue 0–1.
