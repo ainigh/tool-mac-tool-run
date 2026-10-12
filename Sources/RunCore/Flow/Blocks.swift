@@ -510,6 +510,17 @@ extension FlowDocument {
         return name
     }
 
+    /// A name as typed, made into one a flow can use: kept when it already is one ("myList"),
+    /// else made from its words ("my list" → myList); one Flow already uses gets "Output" after it.
+    public static func identifier(_ typed: String) -> String {
+        let t = typed.trimmingCharacters(in: .whitespaces)
+        let valid = t.first.map { $0.isASCII && ($0.isLetter || $0 == "_") } == true
+            && t.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "'") }
+        guard valid else { return variableName(for: t) }
+        if Lexer.keywords.contains(t) || Builtin.all.contains(where: { $0.name == t }) || t == "args" { return t + "Output" }
+        return t
+    }
+
     /// A new block of a type, ready to go in a slot: its settings filled in from what's before it
     /// (a Show shows the last step's output; an If tests it).
     public func newBlock(_ type: BlockType, script: String? = nil, at slot: BlockSlot) -> FlowBlock {

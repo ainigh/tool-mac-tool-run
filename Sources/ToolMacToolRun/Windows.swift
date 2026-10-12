@@ -109,8 +109,9 @@ enum Windows {
             return
         }
         let model = EditorModel(item: item, kind: kind, app: AppModel.shared)
-        let size = NSSize(width: 1000, height: 680)
-        let w = makeWindow(title: item.id, size: size, minSize: NSSize(width: 640, height: 400))
+        // A flow's block editor has its library beside it: a little more room.
+        let size = kind == .composer ? NSSize(width: 1120, height: 760) : NSSize(width: 1000, height: 680)
+        let w = makeWindow(title: item.id, size: size, minSize: NSSize(width: 720, height: 440))
         w.contentViewController = NSHostingController(rootView: EditorView(model: model))
         w.setContentSize(size)
         w.center()

@@ -237,7 +237,7 @@ struct GridActions {
     func run(_ item: ScriptItem, arguments line: String? = nil) {
         guard let lib = app.library else { return }
         let argv = ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
-        let go = {
+        let go: () -> Void = {
             if kind == .scripts {
                 app.runs.run(script: item, arguments: argv, folder: lib.root)
             } else {
