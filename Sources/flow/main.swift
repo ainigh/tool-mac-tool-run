@@ -98,6 +98,8 @@ final class TerminalAsker: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         flush()
+        // A result is in the output already: nothing to wait for at a terminal.
+        if q.kind == .result { return .yes }
         if yes {
             switch q.kind {
             case .proceed where q.destructive:
@@ -113,6 +115,8 @@ final class TerminalAsker: @unchecked Sendable {
             case .text, .choice:
                 print("❓ \(q.prompt)")
                 return .unavailable
+            case .result:
+                return .yes
             }
         }
         guard let tty = fopen("/dev/tty", "r+") else { return .unavailable }
@@ -170,6 +174,8 @@ final class TerminalAsker: @unchecked Sendable {
                 if a.lowercased() == "stop" { return .stop }
                 if let n = Int(a), options.indices.contains(n - 1) { return .text(options[n - 1]) }
                 if let o = options.first(where: { $0.lowercased() == a.lowercased() }) { return .text(o) }
+            case .result:
+                return .yes
             }
             say("   (I didn't get that: try again.)\n")
         }

@@ -66,7 +66,8 @@ final class PromptCenter: ObservableObject {
             return
         }
         pending.append(p)
-        AppModel.shared.runs.note(p.run, "❓ \(p.question.prompt)")
+        // A result is in the output already.
+        if p.question.kind != .result { AppModel.shared.runs.note(p.run, "❓ \(p.question.prompt)") }
         Windows.showPrompt()
         // Not answered in a while (the window went behind something): a notification.
         let id = p.id
@@ -82,7 +83,7 @@ final class PromptCenter: ObservableObject {
     func answer(_ id: UUID, _ a: FlowAnswer) {
         guard let i = pending.firstIndex(where: { $0.id == id }) else { return }
         let p = pending.remove(at: i)
-        AppModel.shared.runs.note(p.run, "   → " + Self.describe(a, p.question))
+        if p.question.kind != .result || a == .stop { AppModel.shared.runs.note(p.run, "   → " + Self.describe(a, p.question)) }
         p.reply.give(a)
         if pending.isEmpty { Windows.close("prompt") }
     }
@@ -98,7 +99,7 @@ final class PromptCenter: ObservableObject {
 
     static func describe(_ a: FlowAnswer, _ q: FlowQuestion) -> String {
         switch a {
-        case .yes: q.kind == .proceed ? (q.destructive ? "Go Ahead" : "Continue") : "Yes"
+        case .yes: q.kind == .proceed ? (q.destructive ? "Go Ahead" : "Continue") : q.kind == .result ? "Done" : "Yes"
         case .no: "No"
         // A secret (a key EPA asked for) is never written into the run's history.
         case let .text(t): q.secret ? "(typed, not shown)" : t.isEmpty ? "(nothing typed)" : t
@@ -149,13 +150,15 @@ struct PromptCard: View {
                     .foregroundStyle(q.destructive ? Color.red : Color.orange)
                     .frame(width: compact ? 24 : 36)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("\(pending.source) is waiting for you")
+                    Text(q.kind == .result ? "\(pending.source) shows you" : "\(pending.source) is waiting for you")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Text(q.prompt)
-                        .font(compact ? .headline : .title3.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                    if q.kind != .result {
+                        Text(q.prompt)
+                            .font(compact ? .headline : .title3.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             answerField
@@ -199,6 +202,7 @@ struct PromptCard: View {
         case .yesNo: "questionmark.circle.fill"
         case .text: "character.cursor.ibeam"
         case .choice: "list.bullet.circle.fill"
+        case .result: "text.bubble.fill"
         }
     }
 
@@ -210,6 +214,7 @@ struct PromptCard: View {
         case .yesNo: "The flow goes on either way: it decides what to do with Yes or No. Stop Flow ends it here."
         case .text: "What you type goes to the flow. Stop Flow ends it here."
         case .choice: "Pick one; the flow goes on with it. Stop Flow ends it here."
+        case .result: "Done carries on with the flow; Stop Flow ends it here. It's in the run's output too."
         }
     }
 
@@ -219,6 +224,7 @@ struct PromptCard: View {
         case .yesNo: "Yes"
         case .text: "OK"
         case .choice: "Choose"
+        case .result: "Done"
         }
     }
 
@@ -264,6 +270,26 @@ struct PromptCard: View {
                 }
             }
             .frame(maxHeight: 220)
+        case .result:
+            ScrollView {
+                Text(q.prompt)
+                    .font(compact ? .callout : .body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(maxHeight: compact ? 140 : 340)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+            HStack {
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(q.prompt, forType: .string)
+                } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    .buttonStyle(.borderless)
+                    .help("Copy the text")
+            }
         default:
             EmptyView()
         }
@@ -271,7 +297,7 @@ struct PromptCard: View {
 
     private func primary() {
         switch q.kind {
-        case .proceed, .yesNo: answer(.yes)
+        case .proceed, .yesNo, .result: answer(.yes)
         case .text: answer(.text(text))
         case .choice: if let choice { answer(.text(choice)) }
         }

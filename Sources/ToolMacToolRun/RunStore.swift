@@ -646,23 +646,72 @@ final class PendingOutput: @unchecked Sendable {
     }
 }
 
-/// Notifications (a flow's `notify`, a long run, a question waiting). macOS asks once whether to
-/// allow them. A click on one about a run shows that run.
+/// Notifications (a flow's `notify`, a long run, a question waiting, an update). macOS asks once
+/// whether to allow them. Nothing is silent: when they're off (turned off in System Settings, or
+/// macOS won't let this copy post them), the same message shows as a banner of the app's own, and
+/// the menu offers to turn them on. A click on one about a run shows that run; on an update, it
+/// installs it.
+@MainActor
 enum Notifier {
-    static func post(title: String, body: String, run: UUID? = nil) {
+    /// Whether macOS lets the app post notifications (nil: not asked yet).
+    final class Permission: ObservableObject {
+        static let shared = Permission()
+        @Published var allowed: Bool?
+    }
+
+    /// Asks macOS once, at launch, so the first `notify` isn't the one that asks.
+    static func prepare() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            let status = settings.authorizationStatus
+            if status == .notDetermined {
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = granted } }
+                }
+            } else {
+                let ok = status == .authorized || status == .provisional
+                DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = ok } }
+            }
+        }
+    }
+
+    static func post(title: String, body: String, run: UUID? = nil, update: Bool = false) {
         guard Bundle.main.bundleIdentifier != nil else {
-            NSSound.beep()
+            Toast.show(title: title, body: body, run: run, update: update)
             return
         }
         let center = UNUserNotificationCenter.current()
+        let fallback: @Sendable () -> Void = {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    Permission.shared.allowed = false
+                    Toast.show(title: title, body: body, run: run, update: update)
+                }
+            }
+        }
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
+            guard granted else { return fallback() }
+            DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = true } }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            if let run { content.userInfo = ["run": run.uuidString] }
-            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+            var info: [String: String] = [:]
+            if let run { info["run"] = run.uuidString }
+            if update { info["update"] = "1" }
+            content.userInfo = info
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { error in
+                if error != nil { fallback() }
+            }
+        }
+    }
+
+    /// System Settings → Notifications, at this app.
+    static func openSettings() {
+        let id = Bundle.main.bundleIdentifier ?? "com.ainigh.toolmactoolrun"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            NSWorkspace.shared.open(url)
         }
     }
 }
@@ -673,10 +722,14 @@ final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate, @unc
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let run = (response.notification.request.content.userInfo["run"] as? String).flatMap(UUID.init(uuidString:))
+        let info = response.notification.request.content.userInfo
+        let run = (info["run"] as? String).flatMap(UUID.init(uuidString:))
+        let update = info["update"] != nil
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                if let run, PromptCenter.shared.pending(for: run) != nil {
+                if update {
+                    AppModel.shared.installUpdate()
+                } else if let run, PromptCenter.shared.pending(for: run) != nil {
                     Windows.showPrompt()
                 } else {
                     Windows.showRuns(run)

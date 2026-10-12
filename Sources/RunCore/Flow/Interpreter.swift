@@ -43,6 +43,9 @@ public struct FlowQuestion: Sendable, Equatable {
         case text
         /// One of these (`choose`).
         case choice([String])
+        /// Text to read, with Done to go on (`showResult`, like Shortcuts' Show Result). With no
+        /// one to show it to, the flow goes on: it's in the run's output either way.
+        case result
     }
     public var kind: Kind
     public var prompt: String
