@@ -7,10 +7,12 @@ A terminal icon in the macOS menu bar. Click it, and its menu opens one of two g
   TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, or any
   executable. The language is told by itself: from the script's `#!` line, else its extension,
   else a look at what's in it. **Click a cell to run it. Click its pencil to edit it.**
-- **Composer** — a cell for every **flow**: a small program in **Flow**, a little F#-like language
-  that composes your scripts, runs them by name, hands what one prints to the next, and decides
-  what to do with the results. Its types are worked out for you, and mistakes are caught before
-  anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
+- **Composer** — a cell for every **flow**: your scripts put together, built like a shortcut in
+  Apple's Shortcuts. Drag your scripts and actions (Ask to Continue, If, Repeat with Each, Show
+  Notification…) into a column of steps; each step's output can go into the steps after it. Every
+  flow is also a small program in **Flow**, a little F#-like language, so it can be written as
+  text too: the editor switches between the two, and they're the same file. Mistakes are caught
+  before anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
 
 The same menu has **Runs**: every run of a script or a flow, with how it went and everything it
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
@@ -48,7 +50,7 @@ turns that off).
 
 1. Click the terminal icon in the menu bar. The first item is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and three flows that use them.
+   examples" on and you start with five small scripts and four flows that use them.
 3. Click a cell. It runs; its border moves while it does, and its last line of output shows on
    it. When it's done, the bottom of the cell says how it went (click there to see everything it
    printed).
@@ -68,6 +70,9 @@ turns that off).
 | Change its color | right-click → **Color** |
 | Copy the terminal command | right-click → **Copy Command for Terminal** |
 | Remove it | right-click → **Move to Trash…** (you can put it back from the Trash) |
+| Be asked before it runs | right-click → **Ask Before Running** (on by itself for a script that looks like it deletes files, uses `sudo`, force-pushes… ✋ on its cell says so) |
+| Answer a flow's question | the window that comes forward, or click the cell that says **Waiting for your answer** |
+| Type into a script that asks (`read -p`, `input()`…) | its output in Runs (or under the editor) has a line to type in |
 
 **Your scripts folder**: scripts go at its top; flows go in its `composer` folder (made for you).
 The grids follow the folder: add, rename or remove a file in the Finder and the grid changes
@@ -83,9 +88,21 @@ command that installs it. **Copy Command for Terminal** gives the same thing to 
 `cd` into the scripts folder, then the exact command. **Check Setup…** in the menu looks at everything at once (the folder,
 each language's program, each flow), changing nothing.
 
+## Asking first, and long runs
+
+- A script (or flow) that looks like it can't be undone — `rm -rf`, `sudo`, `git push --force`,
+  `DROP TABLE`, erasing a disk, emptying the Trash… — asks before it runs, saying what it looks
+  like it does and the exact command. Untick the box to stop it asking; right-click → **Ask
+  Before Running** turns asking on (or off) for any cell.
+- A flow can ask too: **Ask to Continue** (`confirm`) stops and waits for Continue or Stop.
+- A run still going after a minute gets a notification (the menu's **Notify Me When a Run Takes
+  Over** sets how long). A run that's printed nothing for a while says so on its cell, and a
+  script that looks like it's waiting for typed input gets a line to type into.
+
 ## The editor
 
-The pencil opens it. It saves as you type (**Revert** goes back to how the file was when the window
+The pencil opens it. A flow opens as **blocks** (see the guide); the switch at the top shows it
+as **Flow Code** instead. It saves as you type (**Revert** goes back to how the file was when the window
 opened). Type in the name at the top to rename the file. **Save & Run** (⌘R) runs it and shows the
 output underneath. Smart quotes and other auto-corrections are off: it's for code.
 
@@ -96,7 +113,8 @@ scripts and every function, each a click away from being typed in.
 ## From a terminal
 
 ```bash
-flow run ~/Scripts/composer/morning.flow     # check, then run a flow
+flow run ~/Scripts/composer/morning.flow     # check, then run a flow (questions are asked here)
+flow run --yes ~/Scripts/composer/tidy.flow  # with no one at the keyboard: Continue and Yes
 flow check ~/Scripts/composer/morning.flow   # check it, and see its types
 flow functions                               # every builtin, with its type
 flow examples ~/Scripts                      # add the examples to a folder
@@ -111,7 +129,8 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | Where | What |
 |---|---|
 | `Sources/RunCore/` | the logic, Foundation only: language detection, the runner, the folder, grid settings and layout, runs, Check Setup |
-| `Sources/RunCore/Flow/` | the Flow language: lexer, parser (F#'s indentation rule), type checker (Hindley–Milner), interpreter, builtins |
+| `Sources/RunCore/Flow/` | the Flow language: lexer, parser (F#'s indentation rule), type checker (Hindley–Milner), interpreter, builtins, and the blocks the editor shows (`Blocks.swift`) |
+| `Sources/RunCore/Caution.swift` | what a script looks like it does before it runs: things that can't be undone, asking for typed input |
 | `Sources/flow/` | the `flow` command |
 | `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit) |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |

@@ -65,16 +65,24 @@ struct Token: Equatable {
     var pos: Pos
     /// The first token on its line (where the layout rules look).
     var startsLine: Bool
+    /// Just after its last character.
+    var end = Pos(line: 0, col: 0)
 }
 
 enum Lexer {
-    static let keywords: Set<String> = ["let", "rec", "fun", "if", "then", "elif", "else", "true", "false"]
+    static let keywords: Set<String> = ["let", "rec", "fun", "if", "then", "elif", "else", "true", "false", "for", "in", "do"]
     /// Longest first, so `|>` isn't read as `|` then `>`.
     static let symbols = ["|>", ">>", "->", "==", "!=", "<>", "<=", ">=", "&&", "||",
                           "=", "<", ">", "+", "-", "*", "/", "%", "@", "(", ")", "[", "]", ";", ",", "."]
 
     static func tokenize(_ source: String, origin: Pos = Pos(line: 1, col: 1)) throws -> [Token] {
+        try scan(source, origin: origin).tokens
+    }
+
+    /// The tokens, and the lines that have a comment on them (for the block editor, which keeps them).
+    static func scan(_ source: String, origin: Pos = Pos(line: 1, col: 1)) throws -> (tokens: [Token], commentLines: Set<Int>) {
         var tokens: [Token] = []
+        var commentLines = Set<Int>()
         // Windows (\r\n) and old Mac (\r) line endings read as \n: Swift counts \r\n as one
         // Character, which would hide the line break from everything below.
         let chars = Array(source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
@@ -95,7 +103,7 @@ enum Lexer {
             }
         }
         func add(_ kind: Token.Kind, _ pos: Pos) {
-            tokens.append(Token(kind: kind, pos: pos, startsLine: !lineHasToken))
+            tokens.append(Token(kind: kind, pos: pos, startsLine: !lineHasToken, end: Pos(line: line, col: col)))
             lineHasToken = true
         }
 
@@ -174,6 +182,7 @@ enum Lexer {
             }
             // Comments: // to the end of the line, # too (so a #! line is fine), (* … *) across lines.
             if c == "/" && i + 1 < chars.count && chars[i + 1] == "/" || c == "#" {
+                commentLines.insert(line)
                 while i < chars.count && chars[i] != "\n" { advance() }
                 continue
             }
@@ -183,6 +192,7 @@ enum Lexer {
                 while i < chars.count && !(chars[i] == "*" && i + 1 < chars.count && chars[i + 1] == ")") { advance() }
                 guard i < chars.count else { throw FlowError(.syntax, start, "This (* comment is never closed.", fix: "End it with *)") }
                 advance(2)
+                for l in start.line...line { commentLines.insert(l) }
                 continue
             }
             let pos = Pos(line: line, col: col)
@@ -274,7 +284,7 @@ enum Lexer {
             throw FlowError(.syntax, pos, "\(c) isn't something a flow can contain here.")
         }
         tokens.append(Token(kind: .eof, pos: Pos(line: line + 1, col: 1), startsLine: true))
-        return tokens
+        return (tokens, commentLines)
     }
 
     static let tooBigFix = "Whole numbers in a flow go from -9223372036854775808 to 9223372036854775807."

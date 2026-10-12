@@ -26,7 +26,18 @@ public struct Builtin: @unchecked Sendable {
 
 extension Builtin {
     /// Every builtin, in the order the guide lists them.
-    public static let all: [Builtin] = scripts + text + lists + logic + system
+    public static let all: [Builtin] = scripts + asking + text + lists + logic + system
+
+    /// What `for x in xs do …` is made of (`each`, by a name a flow can't write or hide).
+    static let forName = "$for"
+
+    /// Builtins a flow can't name, only use through the language (`for`).
+    static let hidden: [Builtin] = [
+        Builtin(forName, "('a -> 'b) -> 'a list -> unit", "Lists", "for x in xs do …", "for f in files do print f", arity: 2) { i, a, pos in
+            for item in a[1].items { _ = try i.apply(a[0], item, pos: pos) }
+            return .unit
+        },
+    ]
 
     static let byName: [String: Builtin] = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -51,6 +62,11 @@ extension Builtin {
             let r = try i.script(a[0].string, args: a[1].strings, stdin: a[2].string, pos: pos)
             try i.requireSuccess(r, name: a[0].string, pos: pos)
             return .str(r.out)
+        },
+        Builtin("attemptPipe", "string -> string list -> string -> Run", "Scripts",
+                "Runs a script with text as its input, like `pipe`, but keeps going when it fails: you get its result, with .out, .err, .code and .ok.",
+                "let r = report |> attemptPipe \"upload.sh\" []", arity: 3) { i, a, pos in
+            .run(try i.script(a[0].string, args: a[1].strings, stdin: a[2].string, pos: pos))
         },
         Builtin("sh", "string -> string", "Scripts",
                 "Runs one line of shell (bash) and gives back what it printed. For small things that don't need a script of their own.",
@@ -90,6 +106,38 @@ extension Builtin {
                 }
             }
             throw last!
+        },
+    ]
+
+    // MARK: asking
+
+    static let asking: [Builtin] = [
+        Builtin("confirm", "string -> unit", "Asking",
+                "Asks before going on: Continue carries on, Stop ends the flow there (nothing after it runs). Put it before a step that deletes, sends or costs something.",
+                "confirm \"Delete the old backups?\"\nrun \"clean-backups\" [] |> print", arity: 1) { i, a, pos in
+            _ = try i.ask(FlowQuestion(kind: .proceed, prompt: a[0].string, line: pos.line), pos: pos)
+            return .unit
+        },
+        Builtin("askYesNo", "string -> bool", "Asking",
+                "Asks a yes-or-no question and gives back true for Yes, false for No (Stop ends the flow).",
+                "if askYesNo \"Upload it too?\" then run \"upload\" [] |> print", arity: 1) { i, a, pos in
+            .bool(try i.ask(FlowQuestion(kind: .yesNo, prompt: a[0].string, line: pos.line), pos: pos) == .yes)
+        },
+        Builtin("ask", "string -> string", "Asking",
+                "Asks for a line of text and gives back what's typed (Stop ends the flow).",
+                "let name = ask \"Who is it for?\"", arity: 1) { i, a, pos in
+            if case let .text(t) = try i.ask(FlowQuestion(kind: .text, prompt: a[0].string, line: pos.line), pos: pos) { return .str(t) }
+            return .str("")
+        },
+        Builtin("choose", "string -> string list -> string", "Asking",
+                "Asks to pick one of a list and gives back the one picked (Stop ends the flow).",
+                "let size = choose \"Which size?\" [\"small\"; \"large\"]", arity: 2) { i, a, pos in
+            let options = a[1].strings
+            guard !options.isEmpty else {
+                throw FlowError(.run, pos, "`choose` was given an empty list, so there's nothing to pick.", fix: "Check the list with `isEmpty` first.")
+            }
+            if case let .text(t) = try i.ask(FlowQuestion(kind: .choice(options), prompt: a[0].string, line: pos.line), pos: pos) { return .str(t) }
+            return .str(options[0])
         },
     ]
 

@@ -26,7 +26,197 @@ final class EditorModel: ObservableObject {
             saveState = .unsaved
             scheduleSave()
             scheduleCheck()
+            // Typed as code (or put back by Revert): the blocks are read again from it.
+            if !writingBlocks && isFlow { blocksStale = true }
+            if !writingBlocks && isFlow && mode == .blocks { readBlocks() }
         }
+    }
+
+    // MARK: the block editor (flows)
+
+    /// How a flow is edited: as blocks (Shortcuts-like, the first way) or as Flow code.
+    enum FlowMode: String {
+        case blocks, code
+    }
+
+    static let modeKey = "flowEditorMode"
+    @Published private(set) var mode: FlowMode = FlowMode(rawValue: UserDefaults.standard.string(forKey: EditorModel.modeKey) ?? "") ?? .blocks
+    /// The flow as blocks (written to `text` as each is changed).
+    @Published private(set) var doc = FlowDocument()
+    /// Which lines of `text` each block is (nil when the text isn't the blocks' own).
+    @Published private(set) var written: WrittenFlow?
+    /// The block picked (a click on an action in the library puts the new one after it).
+    @Published var selected: UUID?
+    /// Where a click on an action puts it, when no block is picked (an empty If, say).
+    @Published var insertionSlot: BlockSlot?
+    private var writingBlocks = false
+    private var blocksStale = true
+    private var undoStack: [FlowDocument] = []
+    private var redoStack: [FlowDocument] = []
+    private var lastEdit = Date.distantPast
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    func setMode(_ m: FlowMode) {
+        if m == .blocks { readBlocks() }
+        mode = m
+        UserDefaults.standard.set(m.rawValue, forKey: Self.modeKey)
+    }
+
+    /// Reads the blocks from the text (when it has changed since they were).
+    func readBlocks() {
+        guard isFlow, !isReadOnly, blocksStale else { return }
+        doc = FlowDocument.read(text)
+        let w = doc.written()
+        written = w.text == text ? w : nil
+        blocksStale = false
+        undoStack = []
+        redoStack = []
+        if let s = selected, doc.block(s) == nil { selected = nil }
+    }
+
+    /// Changes the blocks, writing the flow again. `typing`: one of many small changes (a
+    /// keystroke), kept as one step to undo with the ones just before it.
+    func edit(typing: Bool = false, _ change: (inout FlowDocument) -> Void) {
+        var next = doc
+        change(&next)
+        guard next != doc else { return }
+        if !typing || Date().timeIntervalSince(lastEdit) > 1.2 {
+            undoStack.append(doc)
+            if undoStack.count > 200 { undoStack.removeFirst() }
+            redoStack = []
+        }
+        lastEdit = typing ? Date() : .distantPast
+        doc = next
+        writeBlocks()
+    }
+
+    private func writeBlocks() {
+        let w = doc.written()
+        written = w
+        writingBlocks = true
+        text = w.text
+        writingBlocks = false
+        blocksStale = false
+    }
+
+    func undo() {
+        guard let last = undoStack.popLast() else { return }
+        redoStack.append(doc)
+        doc = last
+        lastEdit = .distantPast
+        writeBlocks()
+    }
+
+    func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(doc)
+        doc = next
+        lastEdit = .distantPast
+        writeBlocks()
+    }
+
+    /// A binding to one of a block's settings.
+    func binding<T>(_ id: UUID, _ key: WritableKeyPath<FlowBlock, T>, _ fallback: T) -> Binding<T> {
+        Binding(get: { [weak self] in self?.doc.block(id)?[keyPath: key] ?? fallback },
+                set: { [weak self] v in self?.edit(typing: true) { $0.update(id) { $0[keyPath: key] = v } } })
+    }
+
+    var summaryBinding: Binding<String> {
+        Binding(get: { [weak self] in self?.doc.summary ?? "" },
+                set: { [weak self] v in self?.edit(typing: true) { $0.summary = v.replacingOccurrences(of: "\n", with: " ") } })
+    }
+
+    /// Where an action clicked in the library goes: after the block picked, else where asked, else at the end.
+    var targetSlot: BlockSlot {
+        if let s = selected, let slot = doc.slot(of: s) {
+            return BlockSlot(parent: slot.parent, branch: slot.branch, index: slot.index + 1)
+        }
+        if let slot = insertionSlot { return slot }
+        return BlockSlot(parent: nil, index: doc.blocks.count)
+    }
+
+    /// A new block of a type (a script for Run Script) where `targetSlot` says, picked.
+    func add(_ type: BlockType, script: String? = nil, at slot: BlockSlot? = nil) {
+        let where_ = slot ?? targetSlot
+        let b = doc.newBlock(type, script: script, at: where_)
+        edit { $0.insert(b, at: where_) }
+        selected = b.id
+        insertionSlot = nil
+    }
+
+    /// Something dropped on the blocks: a block moved, an action or a script from the library.
+    @discardableResult
+    func drop(_ payload: String, at slot: BlockSlot) -> Bool {
+        if payload.hasPrefix("block:"), let id = UUID(uuidString: String(payload.dropFirst(6))) {
+            var moved = false
+            edit { moved = $0.move(id, to: slot) }
+            if moved { selected = id }
+            return moved
+        }
+        if payload.hasPrefix("new:"), let type = BlockType(rawValue: String(payload.dropFirst(4))) {
+            add(type, at: slot)
+            return true
+        }
+        if payload.hasPrefix("script:") {
+            add(.runScript, script: String(payload.dropFirst(7)), at: slot)
+            return true
+        }
+        return false
+    }
+
+    func remove(_ id: UUID) {
+        edit { $0.remove(id) }
+        if selected == id { selected = nil }
+    }
+
+    func duplicate(_ id: UUID) {
+        var copy: UUID?
+        edit { copy = $0.duplicate(id) }
+        if let copy { selected = copy }
+    }
+
+    /// Moves a block one place up or down in its list.
+    func nudge(_ id: UUID, by delta: Int) {
+        guard let s = doc.slot(of: id) else { return }
+        let to = delta < 0 ? s.index - 1 : s.index + 2
+        guard to >= 0 else { return }
+        edit { $0.move(id, to: BlockSlot(parent: s.parent, branch: s.branch, index: to)) }
+    }
+
+    /// Puts an Ask to Continue just before a block.
+    func askBefore(_ id: UUID) {
+        guard let s = doc.slot(of: id), let b = doc.block(id) else { return }
+        var ask = FlowBlock(.confirm)
+        ask.text = b.type == .runScript ? "Run \(b.script)?" : "Go on?"
+        edit { $0.insert(ask, at: s) }
+        selected = ask.id
+    }
+
+    /// Renames what a block's output is called (the steps using it follow). A name that isn't
+    /// one a flow can use is made into one.
+    func renameOutput(_ id: UUID, to typed: String) {
+        guard let b = doc.block(id) else { return }
+        var name = typed.trimmingCharacters(in: .whitespaces).isEmpty ? "" : FlowDocument.identifier(typed)
+        guard name != b.name else { return }
+        if !name.isEmpty, doc.definedNames.contains(name) { name = doc.freeName(name) }
+        edit { d in
+            d.update(id) { $0.name = name }
+            if !b.name.isEmpty && !name.isEmpty { d.rename(b.name, to: name) }
+        }
+    }
+
+    /// The block a problem found by the check is in.
+    var problemBlock: UUID? {
+        guard case let .problem(e) = check, let line = e.pos?.line else { return nil }
+        return written?.block(atLine: line)
+    }
+
+    /// The name `run` uses for a script: its name without the extension, unless another has it too.
+    func runName(_ item: ScriptItem) -> String {
+        let all = app.scripts + app.flows
+        return all.filter { $0.title == item.title }.count > 1 ? item.id : item.title
     }
     @Published var name: String
     @Published private(set) var saveState: SaveState = .saved
@@ -58,6 +248,7 @@ final class EditorModel: ObservableObject {
         readOnlyReason = loaded.problem
         name = item.title
         scheduleCheck(delay: 0)
+        if kind == .composer && loaded.problem == nil { readBlocks() }
     }
 
     /// The file's text, or why it can't be edited here.
@@ -380,31 +571,17 @@ struct EditorView: View {
                 missingBanner
             }
             Divider()
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    if let reason = model.readOnlyReason {
-                        readOnlyNotice(reason)
-                    } else {
-                        CodeEditor(text: $model.text, handle: model.handle)
-                    }
-                    if showOutput, let run = runs.latest(file: model.item.id, kind: model.kind) {
-                        Divider()
-                        OutputPanel(run: run, runs: runs)
-                            .frame(height: 200)
-                    }
-                }
-                if model.isFlow && !model.isReadOnly {
-                    Divider()
-                    FlowSidebar(model: model)
-                        .frame(width: 320)
-                }
+            if model.isFlow && !model.isReadOnly && model.mode == .blocks {
+                BlockEditorView(model: model, runs: runs, showOutput: showOutput)
+            } else {
+                codeEditor
             }
             Divider()
             footer
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
         }
-        .frame(minWidth: 640, minHeight: 400)
+        .frame(minWidth: 720, minHeight: 440)
         .onAppear {
             // A new one: its name is the first thing to type.
             if model.item.title.hasPrefix("untitled") { nameFocused = true }
@@ -417,6 +594,30 @@ struct EditorView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("It goes to the Trash, so you can get it back from there (Put Back).")
+        }
+    }
+
+    /// The text editor (a script, or a flow as Flow code), its output under it, and for a flow
+    /// what the check found and every function beside it.
+    private var codeEditor: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                if let reason = model.readOnlyReason {
+                    readOnlyNotice(reason)
+                } else {
+                    CodeEditor(text: $model.text, handle: model.handle)
+                }
+                if showOutput, let run = runs.latest(file: model.item.id, kind: model.kind) {
+                    Divider()
+                    OutputPanel(run: run, runs: runs)
+                        .frame(height: 200)
+                }
+            }
+            if model.isFlow && !model.isReadOnly {
+                Divider()
+                FlowSidebar(model: model)
+                    .frame(width: 320)
+            }
         }
     }
 
@@ -479,6 +680,28 @@ struct EditorView: View {
                 }
             }
             Spacer()
+            if model.isFlow && !model.isReadOnly {
+                Picker("", selection: Binding(get: { model.mode }, set: { model.setMode($0) })) {
+                    Label("Blocks", systemImage: "square.stack.3d.up").tag(EditorModel.FlowMode.blocks)
+                    Label("Flow Code", systemImage: "curlybraces").tag(EditorModel.FlowMode.code)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Blocks: build it step by step. Flow Code: the same flow as text. Either can be used; they're the same file.")
+                if model.mode == .blocks {
+                    HStack(spacing: 2) {
+                        Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                            .disabled(!model.canUndo)
+                            .keyboardShortcut("z")
+                            .help("Undo (⌘Z)")
+                        Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                            .disabled(!model.canRedo)
+                            .keyboardShortcut("z", modifiers: [.command, .shift])
+                            .help("Redo (⇧⌘Z)")
+                    }
+                }
+            }
             if !model.isReadOnly { saveBadge }
             Button("Revert") { model.revert() }
                 .disabled(model.isReadOnly || model.text == model.original)

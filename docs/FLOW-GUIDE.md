@@ -28,6 +28,40 @@ shows under the flow's name.
 
 ---
 
+## Building a flow with blocks
+
+The pencil on a flow's cell opens it as **blocks**, like Apple's Shortcuts: a column of steps,
+run top to bottom. Nothing needs typing that a menu can give you.
+
+- **Add a step**: on the right are your scripts and every kind of step (Run Script, Show, Ask to
+  Continue, If, Repeat with Each…). Click one to add it after the step you picked (or at the end),
+  or drag it to where it goes. Drag a step's title to move it; drop it inside an If or a Repeat
+  to put it there.
+- **Use what a step made**: a step's output has a name (shown under it, and yours to change). The
+  ⊕ beside any field puts a value from an earlier step in, written `{name}`; the text around it
+  stays as it is: `Disk is {diskSpace} full`. A script run with **If it fails: Keep going** gives
+  its whole result: what it printed, its errors, its exit code, and whether it worked.
+- **Decide**: an **If** compares a value ("diskSpace *is greater than* 85", "greeting *contains*
+  hi", "backup *failed*", "*you answer Yes to* Upload too?"), with **Otherwise** for the other case.
+- **Repeat**: **Repeat with Each** goes through each line of a value (or each item of a list);
+  **Repeat** does its steps a number of times.
+- **Ask**: **Ask to Continue** stops the flow and asks before going on (put it before anything
+  that deletes, sends or costs); **Ask for Text**, **Ask Yes or No** and **Choose from List** keep
+  the answer for the steps after.
+- **Anything else**: a **Flow Code** step holds any Flow, word for word.
+
+As you build, the flow is written as Flow, saved, and checked: a step with a mistake is outlined
+in red with the fix under it, and the bar under the steps says whether it's ready to run. When it
+runs, each step that runs a script shows how it went (click it for its output).
+
+**Blocks and Flow Code are the same file.** The switch at the top of the editor shows it either
+way; change it in one and the other follows. A flow written by hand opens as blocks too: what the
+blocks don't cover (a function of your own, a long pipeline) shows as a Flow Code step, kept
+exactly as written, and a step you don't change is saved exactly as it was. ⌘Z undoes a change to
+the blocks.
+
+---
+
 ## Running a flow
 
 - **From the Composer grid**: click its cell. While it runs, the cell's border moves and its
@@ -42,6 +76,16 @@ what it printed and the command to run it yourself in a terminal.
 
 A flow is checked before it runs. If it has a mistake, nothing runs: the cell says
 *Couldn't start*, and the editor shows the line and how to fix it.
+
+**When it asks.** A flow that asks (`confirm`, `ask`, `choose`, `askYesNo`) waits: its question
+comes forward in a small window, its cell says *Waiting for your answer*, and Runs and the editor
+show it too; any of them answers it. Stop ends the flow there. From a terminal, `flow run` asks
+in the terminal; `flow run --yes file.flow` answers Continue and Yes by itself (for a run with no
+one at the keyboard).
+
+**When it takes a while.** A run still going after a minute gets a notification (click it to
+watch, or stop, it); the menu's **Notify Me When a Run Takes Over** changes how long, or turns
+it off. A cell whose run has printed nothing for a while says so, so a quiet run never looks hung.
 
 ---
 
@@ -244,8 +288,20 @@ What you'll use most: `map`, `filter`, `each`, `fold`, `length`, `isEmpty`, `fir
 `take`, `skip`, `sort`, `reverse`, `unique`, `range`, `sum`, `join`. They're all in the list of
 functions at the end.
 
-There are no loops: `each` does something for every item, `map` makes a new list, `fold` carries
-a value through a list, and a `let rec` function can call itself.
+### Doing something for each item: `for`
+
+```
+for line in lines (run "list-files" []) do
+    print $"→ {line}"
+    run "check" [line] |> print
+
+for i in range 1 3 do
+    print i
+```
+
+`for name in items do`, then the steps, indented under it. It's `each` written as a step (it's
+what the block editor's Repeat writes). Besides `for`, `map` makes a new list, `filter` keeps some
+items, `fold` carries a value through a list, and a `let rec` function can call itself.
 
 ---
 
@@ -256,6 +312,7 @@ a value through a list, and a `let rec` function can call itself.
 | `run` | `string -> string list -> string` | runs a script; gives back what it printed (trimmed); **stops the flow if it fails** |
 | `attempt` | `string -> string list -> Run` | runs a script and **keeps going** whatever happens; you get `.out`, `.err`, `.code`, `.ok` |
 | `pipe` | `string -> string list -> string -> string` | runs a script with text as its input (stdin), made for `\|>` |
+| `attemptPipe` | `string -> string list -> string -> Run` | `pipe` that keeps going when the script fails, like `attempt` |
 | `sh` | `string -> string` | runs one line of shell (bash) |
 | `parallel` | `(unit -> 'a) list -> 'a list` | runs several steps at once, waits for all, keeps their order |
 | `retry` | `int -> (unit -> 'a) -> 'a` | tries a step up to n times, waiting a little longer each time |
@@ -280,6 +337,26 @@ if r.ok then print "up" else notify $"Server down: {r.err}"
   now, and nothing after it starts.
 - **The flow's own arguments** are `args : string list` (from the cell's arguments, or
   `flow run x.flow a b`).
+
+### Asking the person running it
+
+| Function | Type | What it does |
+|---|---|---|
+| `confirm` | `string -> unit` | asks before going on: Continue carries on, Stop ends the flow |
+| `askYesNo` | `string -> bool` | asks a yes-or-no question: `true` for Yes |
+| `ask` | `string -> string` | asks for a line of text |
+| `choose` | `string -> string list -> string` | asks to pick one of a list |
+
+```
+confirm "Delete last month's backups?"
+run "clean-backups" [] |> print
+
+let size = choose "Which size?" ["small"; "large"]
+if askYesNo $"Upload the {size} one too?" then run "upload" [size] |> print
+```
+
+A script set to **Ask Before Running** (on its cell's right-click menu) asks from inside a flow
+too.
 
 ### Every script name is checked first
 
@@ -427,6 +504,7 @@ The language is four small files in `Sources/RunCore/Flow/`, one stage each:
 | `Parser.swift` | tokens → a tree (`Expr`), with F#'s indentation rule |
 | `Checker.swift` | the tree → a type for everything (Hindley–Milner), or a mistake with its line and fix |
 | `Interpreter.swift` | runs the tree; scripts are run through a `FlowHost` |
+| `Blocks.swift` | the block editor's view of a flow: blocks written as Flow and read back (anything else is a Flow Code block, word for word) |
 
 **Adding a builtin is one row** in `Builtins.swift`: its name, its type written as F# writes it,
 its group, one sentence, an example, how many arguments it takes, and what it does:
@@ -477,6 +555,7 @@ atom      = INT | STRING | $STRING | "true" | "false" | name
           | "(" ")" | "(" expr ")" | "[" [expr {(";"|","|NEWLINE) expr}] "]"
           | "fun" param {param} "->" body
           | "if" expr "then" body {"elif" expr "then" body} ["else" body]
+          | "for" name "in" expr "do" body
 ```
 
 A `let rec` without parameters has to be a `fun` (`let rec f = fun x -> …`). A minus sign right
@@ -496,7 +575,7 @@ run out of room.
 - **Changing a name's value, and loops.** `each`, `map`, `fold` and functions that call
   themselves do the work of loops, and nothing can change behind your back.
 - **`import`.** Flows share by running each other.
-- **Reading from the keyboard.** A flow runs from a click, with no terminal to type into: give it
-  arguments instead.
+- **Reading from the keyboard line by line.** A flow asks with `ask`, `choose`, `askYesNo` and
+  `confirm` instead (in the app, a window; in a terminal, a prompt).
 
 Each of these would be a row or a stage above; they're left out until a flow needs one.

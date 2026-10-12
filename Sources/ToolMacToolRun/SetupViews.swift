@@ -38,7 +38,7 @@ struct FolderSetupView: View {
                     Label("Choose Another Folder…", systemImage: "folder")
                         .frame(minWidth: 320)
                 }
-                Toggle("Add the examples if the folder has no scripts (5 small scripts and 3 flows that use them)", isOn: $examples)
+                Toggle("Add the examples if the folder has no scripts (5 small scripts and 4 flows that use them)", isOn: $examples)
                     .padding(.top, 4)
             }
             .controlSize(.large)

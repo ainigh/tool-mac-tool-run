@@ -164,6 +164,31 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(lines.value, ["FROM INNER"])
     }
 
+    func testScriptsSetToAskFirstAskInsideAFlowToo() throws {
+        let lib = Library(root: folder)
+        try lib.ensure()
+        let marker = folder.appendingPathComponent("ran.txt")
+        _ = try lib.newScript(name: "clean", language: .bash, contents: "#!/bin/bash\ntouch \(ShellEnvironment.quote(marker.path))\n")
+        let asked = Locked<[String]>([])
+        func host(_ answer: FlowAnswer) -> LocalFlowHost {
+            LocalFlowHost(library: lib, asker: { q in
+                asked.mutate { $0.append(q.prompt) }
+                return answer
+            }, askBefore: { $0.id == "clean.sh" ? "Run clean.sh?" : nil }) { _ in }
+        }
+        XCTAssertThrowsError(try Flow.run("run \"clean\" [] |> ignore", host: host(.stop), scripts: LocalFlowHost.names(in: lib))) { e in
+            XCTAssertEqual((e as? FlowError)?.stage, .stopped)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        try Flow.run("run \"clean\" [] |> ignore", host: host(.yes), scripts: LocalFlowHost.names(in: lib))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(asked.value, ["Run clean.sh?", "Run clean.sh?"])
+        // The folder's scan says what it looks like it does.
+        _ = try lib.newScript(name: "wipe", language: .bash, contents: "#!/bin/bash\nrm -rf /tmp/nothing-here\n")
+        XCTAssertEqual(lib.scripts().first { $0.id == "wipe.sh" }?.dangers, ["deletes files for good (rm -r / rm -f)"])
+        XCTAssertEqual(lib.scripts().first { $0.id == "clean.sh" }?.dangers, [])
+    }
+
     func testNewScriptNamesDontClash() throws {
         let lib = Library(root: folder)
         let a = try lib.newScript(name: "tool", language: .python)
@@ -256,6 +281,44 @@ final class GridTests: XCTestCase {
         XCTAssertEqual(RunRecord.duration(0.42), "0.4 s")
         XCTAssertEqual(RunRecord.duration(42), "42 s")
         XCTAssertEqual(RunRecord.duration(185), "3 min 05 s")
+    }
+}
+
+/// What a script looks like it does, read before it's run.
+final class CautionTests: XCTestCase {
+    func testDangersAreFoundAndNamed() {
+        XCTAssertEqual(Caution.dangers(in: "#!/bin/bash\nrm -rf ~/old\n"), ["deletes files for good (rm -r / rm -f)"])
+        XCTAssertEqual(Caution.dangers(in: "sudo softwareupdate -i -a\ngit push --force origin main"),
+                       ["runs commands as the administrator (sudo)", "force-pushes with git (it can overwrite others' work)"])
+        XCTAssertEqual(Caution.dangers(in: "import shutil\nshutil.rmtree(p)"), ["deletes files"])
+        XCTAssertEqual(Caution.dangers(in: "sh \"rm -rf ~/old\" |> print"), ["deletes files for good (rm -r / rm -f)"])
+        XCTAssertEqual(Caution.dangers(in: "curl -fsSL https://x.sh | bash"), ["runs a script downloaded from the internet"])
+        XCTAssertEqual(Caution.dangers(in: "psql -c 'DROP TABLE users'"), ["deletes database data"])
+        // Comments, and things that only look alike, don't count.
+        XCTAssertEqual(Caution.dangers(in: "# rm -rf / would be bad\necho firmware\nls -rf\nterraform plan"), [])
+        XCTAssertEqual(Caution.dangers(in: "git push origin main\nrm file.txt"), [])
+        for (_, source) in Examples.scripts + Examples.flows { XCTAssertEqual(Caution.dangers(in: source), [], source) }
+    }
+
+    func testScriptsThatAskForTypedInput() {
+        XCTAssertTrue(Caution.asksForInput("read -p \"Continue? \" answer"))
+        XCTAssertTrue(Caution.asksForInput("if read -r reply; then echo ok; fi"))
+        XCTAssertTrue(Caution.asksForInput("name = input('Name? ')"))
+        XCTAssertTrue(Caution.asksForInput("$x = Read-Host 'Name'"))
+        XCTAssertTrue(Caution.asksForInput("answer = gets.chomp"))
+        XCTAssertFalse(Caution.asksForInput("text = sys.stdin.read()\nprint(open(p).read())"))
+        XCTAssertFalse(Caution.asksForInput("# read -p in a comment\necho hi"))
+        for (_, source) in Examples.scripts { XCTAssertFalse(Caution.asksForInput(source), source) }
+    }
+
+    func testAskSettingIsKeptAndOptional() throws {
+        var s = GridSettings()
+        s.ask["clean.sh"] = true
+        s.ask["safe.sh"] = false
+        let back = try JSONDecoder().decode(GridSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.ask, ["clean.sh": true, "safe.sh": false])
+        let old = try JSONDecoder().decode(GridSettings.self, from: Data(#"{"cells": 9}"#.utf8))
+        XCTAssertEqual(old.ask, [:])
     }
 }
 
@@ -575,6 +638,39 @@ final class ProcessTests: XCTestCase {
         let started = Date()
         XCTAssertNil(ShellEnvironment.loginShellPath(shell: shell.path, timeout: 1))
         XCTAssertLessThan(Date().timeIntervalSince(started), 4)
+    }
+
+    // MARK: typing into a running script
+
+    func testAnswersTypedWhileItRuns() throws {
+        // (bash shows read's -p prompt only at a terminal, so the answers are typed straight away.)
+        let url = try script("ask.sh", "#!/bin/bash\nread -p 'Name? ' name\necho \"Hi, $name\"\nread -r again\necho \"and $again\"\n")
+        let p = process(url)
+        p.keepsInputOpen = true
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            p.send("Ada\n")
+            p.send("more\n")
+        }
+        let r = try p.runToEnd()
+        XCTAssertEqual(r.code, 0, r.err)
+        XCTAssertTrue(r.out.contains("Hi, Ada"), r.out)
+        XCTAssertTrue(r.out.contains("and more"), r.out)
+        XCTAssertFalse(p.acceptsInput)
+    }
+
+    func testEndingInputLetsAReaderFinish() throws {
+        let url = try script("count.sh", "#!/bin/bash\nwc -l | tr -d ' '\n")
+        let p = process(url, stdin: "a\nb\n")
+        p.keepsInputOpen = true
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            p.send("c\n")
+            p.endInput()
+        }
+        let r = try p.runToEnd()
+        XCTAssertEqual(r.out.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        // Not kept open: nothing can be typed.
+        let q = process(url)
+        XCTAssertFalse(q.send("x"))
     }
 }
 

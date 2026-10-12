@@ -30,7 +30,7 @@ final class Checker {
 
     func check(_ program: Expr) throws -> [FlowBinding] {
         var env: [String: Scheme] = [:]
-        for b in Builtin.all { env[b.name] = scheme(signature: b.signature) }
+        for b in Builtin.all + Builtin.hidden { env[b.name] = scheme(signature: b.signature) }
         for g in Globals.names { env[g.name] = Scheme(generic: [], type: g.type) }
         _ = try infer(program, env, top: true)
         // A + or < that was never pinned down is on numbers, as in F#.
@@ -513,7 +513,7 @@ final class Checker {
     }
 
     private static func who(_ f: Expr) -> String {
-        if case let .name(n) = head(f).kind { return "`\(n)`" }
+        if case let .name(n) = head(f).kind { return n == Builtin.forName ? "This `for`" : "`\(n)`" }
         return "This function"
     }
 

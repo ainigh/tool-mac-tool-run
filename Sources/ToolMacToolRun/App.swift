@@ -2,6 +2,7 @@ import AppKit
 import RunCore
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 
 /// A terminal icon in the menu bar. Its menu opens the two grids (every script; the flows that
 /// compose them), the runs, and the folder they all live in.
@@ -20,13 +21,20 @@ struct ToolMacToolRunApp: App {
     }
 }
 
-/// The icon, and beside it how many runs are going (when any are).
+/// The icon, and beside it how many runs are going (when any are). A raised hand when a flow is
+/// waiting for an answer.
 struct MenuBarLabel: View {
     @ObservedObject var runs: RunStore
+    @ObservedObject var prompts = PromptCenter.shared
 
     var body: some View {
         let n = runs.runningCount
-        if n > 0 {
+        if !prompts.pending.isEmpty {
+            HStack(spacing: 2) {
+                Image(systemName: "hand.raised.fill")
+                Text("\(prompts.pending.count)")
+            }
+        } else if n > 0 {
             HStack(spacing: 2) {
                 Image(systemName: "terminal.fill")
                 Text("\(n)")
@@ -41,8 +49,14 @@ struct MenuBarLabel: View {
 struct MenuContent: View {
     @ObservedObject var app: AppModel
     @ObservedObject var runs: RunStore
+    @ObservedObject var prompts = PromptCenter.shared
 
     var body: some View {
+        if !prompts.pending.isEmpty {
+            let n = prompts.pending.count
+            Button("✋ \(n == 1 ? "A flow is" : "\(n) flows are") waiting for your answer…") { Windows.showPrompt() }
+            Divider()
+        }
         if app.library == nil {
             Button("Choose Your Scripts Folder…") { app.openGrid(.scripts) }
             Divider()
@@ -69,6 +83,14 @@ struct MenuContent: View {
         Button("Check Setup…") { Windows.showDoctor() }
         Button("Flow Guide") { Windows.showGuide() }
         Divider()
+        Picker("Notify Me When a Run Takes Over", selection: Binding(get: { app.slowAfter }, set: { app.slowAfter = $0 })) {
+            Text("30 Seconds").tag(30)
+            Text("1 Minute").tag(60)
+            Text("5 Minutes").tag(300)
+            Text("15 Minutes").tag(900)
+            Divider()
+            Text("Never").tag(0)
+        }
         Toggle("Open at Login", isOn: Binding(get: { app.openAtLogin }, set: { app.setOpenAtLogin($0) }))
         Text("Tool Mac Tool Run \(AppModel.version)")
         Button("Quit") { app.quit() }
@@ -96,6 +118,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var flows: [ScriptItem] = []
     @Published var grids: [GridKind: GridSettings] = [:]
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
+    /// After how long a run still going gets a notification (0: never).
+    @Published var slowAfter = RunStore.slowAfter {
+        didSet { RunStore.slowAfter = slowAfter }
+    }
     /// Something went wrong that the person should see (a save that failed), shown on the grid.
     @Published var problem: String?
 
@@ -286,7 +312,8 @@ final class AppModel: ObservableObject {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {
-            NSLog("open at login: \(error)")
+            // Said where it's seen (the grid), with where to do it instead.
+            problem = "Couldn't turn Open at Login \(on ? "on" : "off") (\(error.localizedDescription)). It's also in System Settings › General › Login Items."
         }
         openAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -320,6 +347,13 @@ final class AppModel: ObservableObject {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // A click on a notification about a run shows it.
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().delegate = NotificationClicks.shared
+        }
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateCancel }  // already on its way out

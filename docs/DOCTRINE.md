@@ -61,9 +61,9 @@ Every feature keeps these. If a change breaks one, it isn't done.
 |---|---|
 | **One obvious way in** | One install command. One icon in the menu bar. With no folder chosen, choosing it is the first menu item and the whole of the grid window. |
 | **Say it before doing it** | Help on every control says what a click does. "Add the Examples" says what it adds and that nothing else changes. |
-| **Show the plan / confirm the consequence** | Quitting with runs going names how many will stop. Moving to the Trash says it can be put back. Never a bare "Proceed?". |
+| **Show the plan / confirm the consequence** | Quitting with runs going names how many will stop. Moving to the Trash says it can be put back. A script that looks like it can't be undone (`rm -rf`, `sudo`, a force-push…) says what it looks like it does and the exact command, and waits for Run. A flow's Ask to Continue stops before the costly step. Never a bare "Proceed?". |
 | **One status vocabulary** | Running 👉, succeeded ✅, failed ❌, stopped ⏹, couldn't start ⚠️ — the same mark, icon and color on cells, in Runs, in the menu, in `flow run`. |
-| **Progress you can follow** | A running cell's border moves, its elapsed time ticks, its last line shows. A flow's steps appear as they start. |
+| **Progress you can follow** | A running cell's border moves, its elapsed time ticks, its last line shows; gone quiet, it says for how long. A flow's steps appear as they start, and in the block editor each step shows how it went. A run that takes long gets a notification; a question waiting comes forward, and its cell says so. |
 | **Safe to repeat** | Running the installer again updates in place and keeps the old app until the new one is seen running. Adding examples twice adds nothing the second time. |
 | **Report what happened** | Every run keeps its exit code, duration, output, and the exact command. |
 | **Always a next step** | Every failure says the fix: a missing interpreter names the `brew install`, a flow mistake names the line and the change, a failed `run` suggests `attempt`. |
@@ -71,7 +71,7 @@ Every feature keeps these. If a change breaks one, it isn't done.
 | **Diagnose yourself** | Check Setup looks at the folder, each language's program and each flow, changing nothing, with the fix beside every problem. |
 | **Fix it yourself, with a fallback** | The app finds your login shell's PATH so Homebrew's tools are found; when it can't build, the installer builds from source; when it still can't, it says the one command to run. |
 | **Guard what can't be undone** | Nothing is deleted: removing a script moves it to the Trash, after asking. Editing autosaves, and Revert goes back to how the file was opened. |
-| **Simplest surface first** | Click runs, the pencil edits. Arguments, colors, the Finder and the rest are in the right-click menu. |
+| **Simplest surface first** | Click runs, the pencil edits. Arguments, colors, the Finder and the rest are in the right-click menu. A flow is built from blocks first (nothing to remember); Flow code is the same file, one switch away. |
 | **Docs within reach, offline** | The Flow guide ships inside the app (one file, the same as docs/FLOW-GUIDE.md); the editor lists every function, from the language itself. |
 
 ## 5 · The feel
@@ -92,7 +92,8 @@ Every feature keeps these. If a change breaks one, it isn't done.
   builtin functions' table feeds the checker, the editor's list and the guide; the run states'
   marks and colors come from one mapping.
 - **Behavior as data** — a new language is a row in the language table; a new builtin is a row in
-  the builtin table. Not a new `if` in a render path.
+  the builtin table; a new kind of block is a row in `BlockType.info`; a new danger is a row in
+  `Caution.dangers`. Not a new `if` in a render path.
 - **Words from the domain** — "Run", "Watch Output", "Couldn't start", "Move to Trash…"; never
   "Submit" or "OK".
 - **Never-blank empties** — an empty grid says what belongs there and offers the first step
