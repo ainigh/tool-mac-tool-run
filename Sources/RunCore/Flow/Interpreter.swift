@@ -57,12 +57,20 @@ public struct FlowQuestion: Sendable, Equatable {
     /// The answer is a secret (a key EPA asks for): it isn't shown as it's typed, or kept.
     public var secret: Bool
 
-    public init(kind: Kind, prompt: String, line: Int, destructive: Bool = false, secret: Bool = false) {
+    /// The page the answer comes from (where an EPA key is made): offered next to the field.
+    public var link: URL?
+    /// Where the answer is kept (EPA saves a key to .env under this name).
+    public var savedAs: String?
+
+    public init(kind: Kind, prompt: String, line: Int, destructive: Bool = false, secret: Bool = false,
+                link: URL? = nil, savedAs: String? = nil) {
         self.kind = kind
         self.prompt = prompt
         self.line = line
         self.destructive = destructive
         self.secret = secret
+        self.link = link
+        self.savedAs = savedAs
     }
 }
 

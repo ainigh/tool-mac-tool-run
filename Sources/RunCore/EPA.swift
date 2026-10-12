@@ -67,7 +67,7 @@ public enum EPA {
         Command(title: "Check Connections", name: "doctor", args: [],
                 summary: "Checks every service EPA can reach (read-only: one harmless question each) and says the one next step.", changes: false),
         Command(title: "Connect a Service", name: "connect", args: ["resend"],
-                summary: "Connects a service (cloudflare, cloudflare-email, resend, sendgrid, ses, mailup, microsoft, google, freshdesk) and proves it works. Safe to run again.", changes: true),
+                summary: "Connects a service (cloudflare, cloudflare-email, resend, sendgrid, ses, mailup, microsoft, google, freshdesk) and proves it works. Not set up yet: Cloudflare, Microsoft and Google sign in in the browser; the others open the page their key is made on, and you paste it once (EPA checks it and saves it). Safe to run again.", changes: true),
         Command(title: "Connect a Sending Domain", name: "connect", args: ["resend", "--domain", "example.com", "--test-to", "you@example.com"],
                 summary: "Sets up a domain to send email from: the vendor, its DNS records on Cloudflare, verification, then a test email.", changes: true),
         Command(title: "Secure a Site", name: "secure", args: ["www.example.com"],
@@ -246,10 +246,14 @@ public enum EPA {
             let kind = event["kind"] as? String ?? "consent"
             if kind == "secret" {
                 let question = event["question"] as? String ?? "EPA needs a secret."
-                let answer = ask(FlowQuestion(kind: .text, prompt: question, line: line, secret: true))
+                // Not every value is a secret: a domain or a user name is shown as it's typed.
+                let visible = event["visible"] as? Bool ?? false
+                let link = (event["url"] as? String).flatMap(URL.init(string:))
+                let answer = ask(FlowQuestion(kind: .text, prompt: question, line: line, secret: !visible,
+                                              link: link, savedAs: event["envName"] as? String))
                 switch answer {
                 case let .text(value):
-                    say("  ❓ \(question) → (typed, not shown)")
+                    say(visible ? "  ❓ \(question) → \(value)" : "  ❓ \(question) → (typed, not shown)")
                     send(value + "\n")
                 case .stop:
                     stop(question)
