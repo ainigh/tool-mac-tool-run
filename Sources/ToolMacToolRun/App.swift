@@ -45,6 +45,43 @@ struct MenuBarLabel: View {
     }
 }
 
+/// EPA (Enter-Price Automation) in the menu: its everyday recipes a click away, or the one step
+/// that puts them in the folder.
+struct EPAMenu: View {
+    @ObservedObject var app: AppModel
+    let library: Library
+
+    var body: some View {
+        Menu("EPA") {
+            if library.hasAnyEPARecipe {
+                Button("Check Connections") { run("epa-check-connections.flow") }
+                Button("Connect a Service…") { run("epa-connect-service.flow") }
+                Button("Open the Atlas") { run("epa-atlas.flow") }
+                Divider()
+                Button("Keys (.env)…") { run("epa-keys.sh") }
+                Button("Set Up or Update EPA") { run(EPA.setupScript) }
+                if !library.hasEPARecipes {
+                    Button("Add the Missing EPA Recipes") { GridActions(app: app, kind: .composer).addEPARecipes() }
+                }
+            } else {
+                Button("Add the EPA Recipes") {
+                    GridActions(app: app, kind: .composer).addEPARecipes()
+                    app.openGrid(.composer)
+                }
+            }
+            Divider()
+            Button("EPA in the Flow Guide") { Windows.showGuide() }
+        }
+    }
+
+    private func run(_ file: String) {
+        if !GridActions(app: app, kind: .scripts).runFile(file) {
+            app.problem = "\(file) isn't in your folder any more: EPA → Add the EPA Recipes puts it back."
+            app.openGrid(file.hasSuffix(".flow") ? .composer : .scripts)
+        }
+    }
+}
+
 /// The menu. With no folder chosen yet, choosing one comes first (the grids need it).
 struct MenuContent: View {
     @ObservedObject var app: AppModel
@@ -82,6 +119,7 @@ struct MenuContent: View {
         Button(app.library == nil ? "Choose Folder…" : "Change Folder…") { app.chooseFolder() }
         Button("Check Setup…") { Windows.showDoctor() }
         Button("Flow Guide") { Windows.showGuide() }
+        if let lib = app.library { EPAMenu(app: app, library: lib) }
         Divider()
         Picker("Notify Me When a Run Takes Over", selection: Binding(get: { app.slowAfter }, set: { app.slowAfter = $0 })) {
             Text("30 Seconds").tag(30)

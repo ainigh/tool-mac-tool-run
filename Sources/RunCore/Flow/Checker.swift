@@ -472,6 +472,7 @@ final class Checker {
     // MARK: the scripts named in run, attempt and pipe
 
     private func checkScriptName(_ f: Expr, _ a: Expr) throws {
+        try checkEPACommand(f, a)
         guard let scripts, case let .name(fn) = f.kind, ["run", "attempt", "pipe"].contains(fn),
               case let .str(name) = a.kind else { return }
         if ScriptNames.match(name, in: scripts) != nil { return }
@@ -479,6 +480,16 @@ final class Checker {
         let list = scripts.isEmpty ? "Your scripts folder has no scripts yet." : "Scripts there: " + scripts.prefix(12).joined(separator: ", ")
         throw FlowError(.type, a.pos, "There's no script called \"\(name)\" in your scripts folder.",
                         fix: near.map { "Did you mean \"\($0)\"? " + list } ?? list)
+    }
+
+    /// `epa ["conect"; …]`: a command EPA doesn't have is caught before anything runs.
+    private func checkEPACommand(_ f: Expr, _ a: Expr) throws {
+        guard case let .name(fn) = f.kind, fn == "epa" || fn == "attemptEpa", case let .list(items) = a.kind,
+              let head = items.first, case let .str(command) = head.kind, !command.hasPrefix("-"),
+              !EPA.commandNames.contains(command) else { return }
+        let near = Self.closest(command, among: EPA.commandNames)
+        throw FlowError(.type, head.pos, "EPA has no command \"\(command)\".",
+                        fix: (near.map { "Did you mean \"\($0)\"? " } ?? "") + "Its commands: " + EPA.commandNames.joined(separator: ", ") + ".")
     }
 
     // MARK: words for messages

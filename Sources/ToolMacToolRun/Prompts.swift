@@ -98,9 +98,10 @@ final class PromptCenter: ObservableObject {
 
     static func describe(_ a: FlowAnswer, _ q: FlowQuestion) -> String {
         switch a {
-        case .yes: q.kind == .proceed ? "Continue" : "Yes"
+        case .yes: q.kind == .proceed ? (q.destructive ? "Go Ahead" : "Continue") : "Yes"
         case .no: "No"
-        case let .text(t): t.isEmpty ? "(nothing typed)" : t
+        // A secret (a key EPA asked for) is never written into the run's history.
+        case let .text(t): q.secret ? "(typed, not shown)" : t.isEmpty ? "(nothing typed)" : t
         case .stop: "Stop"
         case .unavailable: "No one to answer"
         }
@@ -145,7 +146,7 @@ struct PromptCard: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: symbol)
                     .font(.system(size: compact ? 20 : 30))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(q.destructive ? Color.red : Color.orange)
                     .frame(width: compact ? 24 : 36)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(pending.source) is waiting for you")
@@ -175,9 +176,11 @@ struct PromptCard: View {
                 if q.kind == .yesNo {
                     Button("No") { answer(.no) }
                 }
+                // What can't be undone isn't on Return: it takes a click on the button that says so.
                 Button(primaryTitle) { primary() }
                     .buttonStyle(.borderedProminent)
-                    .shortcut(compact ? nil : .defaultAction)
+                    .tint(q.destructive ? Color.red : nil)
+                    .shortcut(compact || q.destructive ? nil : .defaultAction)
                     .disabled(primaryDisabled)
             }
             .controlSize(compact ? .regular : .large)
@@ -190,7 +193,8 @@ struct PromptCard: View {
     }
 
     private var symbol: String {
-        switch q.kind {
+        if q.destructive { return "exclamationmark.triangle.fill" }
+        return switch q.kind {
         case .proceed: "hand.raised.fill"
         case .yesNo: "questionmark.circle.fill"
         case .text: "character.cursor.ibeam"
@@ -199,7 +203,9 @@ struct PromptCard: View {
     }
 
     private var note: String {
-        switch q.kind {
+        if q.destructive { return "Going ahead can't be undone. Go Ahead carries on (Return doesn't, on purpose); Stop Flow ends it here, and nothing is changed." }
+        if q.secret { return "What you type goes straight to it: it isn't shown, and isn't kept in the run's output. Stop Flow ends it here." }
+        return switch q.kind {
         case .proceed: "The flow has stopped here to ask. Continue carries on; Stop Flow ends it, and nothing after this runs."
         case .yesNo: "The flow goes on either way: it decides what to do with Yes or No. Stop Flow ends it here."
         case .text: "What you type goes to the flow. Stop Flow ends it here."
@@ -209,7 +215,7 @@ struct PromptCard: View {
 
     private var primaryTitle: String {
         switch q.kind {
-        case .proceed: "Continue"
+        case .proceed: q.destructive ? "Go Ahead" : "Continue"
         case .yesNo: "Yes"
         case .text: "OK"
         case .choice: "Choose"
@@ -224,6 +230,11 @@ struct PromptCard: View {
     @ViewBuilder
     private var answerField: some View {
         switch q.kind {
+        case .text where q.secret:
+            SecureField("Paste or type it (it isn't shown)", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit { primary() }
         case .text:
             TextField("Your answer", text: $text)
                 .textFieldStyle(.roundedBorder)

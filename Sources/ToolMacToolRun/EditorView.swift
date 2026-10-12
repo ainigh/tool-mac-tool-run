@@ -163,6 +163,10 @@ final class EditorModel: ObservableObject {
             add(.runScript, script: String(payload.dropFirst(7)), at: slot)
             return true
         }
+        if payload.hasPrefix("epa:") {
+            add(.epa, script: String(payload.dropFirst(4)), at: slot)
+            return true
+        }
         return false
     }
 
@@ -189,7 +193,7 @@ final class EditorModel: ObservableObject {
     func askBefore(_ id: UUID) {
         guard let s = doc.slot(of: id), let b = doc.block(id) else { return }
         var ask = FlowBlock(.confirm)
-        ask.text = b.type == .runScript ? "Run \(b.script)?" : "Go on?"
+        ask.text = b.type == .runScript ? "Run \(b.script)?" : b.type == .epa ? "Go on to \(b.headline)?" : "Go on?"
         edit { $0.insert(ask, at: s) }
         selected = ask.id
     }

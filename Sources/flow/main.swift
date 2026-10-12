@@ -15,6 +15,7 @@ Usage:
   flow check <file.flow>           check a flow and show the type of each name it defines
   flow functions                   list the builtin functions and their types
   flow examples <folder>           put the example scripts and flows in a folder (keeps what's there)
+  flow recipes <folder>            put the EPA recipes in a folder: setup-epa, epa-keys and the epa-… flows
 Options:
   --folder <path>                  the scripts folder (default: the folder above composer/)
   --yes                            answer Continue and Yes to every question (with no one at the keyboard)
@@ -99,6 +100,13 @@ final class TerminalAsker: @unchecked Sendable {
         flush()
         if yes {
             switch q.kind {
+            case .proceed where q.destructive:
+                // --yes approves going on, never what can't be undone (as EPA's own --yes).
+                print("❓ \(q.prompt) → no (--yes doesn't approve what can't be undone: run it at a terminal to answer)")
+                return .no
+            case .text where q.secret:
+                print("❓ \(q.prompt) → no answer (--yes can't type a secret: put it in .env)")
+                return .unavailable
             case .proceed, .yesNo:
                 print("❓ \(q.prompt) → yes (--yes)")
                 return .yes
@@ -121,6 +129,11 @@ final class TerminalAsker: @unchecked Sendable {
         }
         while true {
             switch q.kind {
+            case .proceed where q.destructive:
+                say("⚠️ \(q.prompt) [go ahead/stop] ")
+                guard let a = line()?.lowercased() else { return .stop }
+                if a == "go ahead" || a == "yes" { return .yes }
+                if a.isEmpty || "stop".hasPrefix(a) || a == "n" || a == "no" { return .stop }
             case .proceed:
                 say("❓ \(q.prompt) [Continue/stop] ")
                 guard let a = line()?.lowercased() else { return .stop }
@@ -134,7 +147,20 @@ final class TerminalAsker: @unchecked Sendable {
                 if a == "stop" { return .stop }
             case .text:
                 say("❓ \(q.prompt) ")
-                guard let a = line() else { return .stop }
+                // A secret isn't shown as it's typed.
+                var saved = termios()
+                let hide = q.secret && tcgetattr(fileno(tty), &saved) == 0
+                if hide {
+                    var quiet = saved
+                    quiet.c_lflag &= ~tcflag_t(ECHO)
+                    tcsetattr(fileno(tty), TCSANOW, &quiet)
+                }
+                let a = line()
+                if hide {
+                    tcsetattr(fileno(tty), TCSANOW, &saved)
+                    say("\n")
+                }
+                guard let a else { return .stop }
                 return .text(a)
             case let .choice(options):
                 say("❓ \(q.prompt)\n")
@@ -212,6 +238,21 @@ case "examples":
         print("Next: flow run \(ShellEnvironment.quote(lib.composerFolder.appendingPathComponent("morning.flow").path))")
     } catch {
         fail("Couldn't add the examples: \(error.localizedDescription)")
+    }
+case "recipes":
+    guard let path = arguments.dropFirst().first ?? folder?.path else { fail("Name the folder.\n\n" + usage) }
+    let lib = Library(root: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+    do {
+        let added = try lib.addEPARecipes()
+        if added.isEmpty { print("— The EPA recipes are already in \(lib.root.path): nothing to add.") }
+        for url in added { print("✅ Added \(url.path)") }
+        if EPA.find(path: ShellEnvironment.shared.environment["PATH"] ?? "") == nil {
+            print("Next: set EPA up: \(ShellEnvironment.quote(lib.root.appendingPathComponent(EPA.setupScript).path))")
+        } else {
+            print("Next: flow run \(ShellEnvironment.quote(lib.composerFolder.appendingPathComponent("epa-check-connections.flow").path))")
+        }
+    } catch {
+        fail("Couldn't add the EPA recipes: \(error.localizedDescription)")
     }
 case "check":
     let (url, source) = load(arguments.dropFirst().first)

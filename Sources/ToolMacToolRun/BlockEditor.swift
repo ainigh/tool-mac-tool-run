@@ -14,6 +14,7 @@ enum BlockStyle {
     static func color(_ group: BlockGroup) -> Color {
         switch group {
         case .scripts: Color(red: 0.20, green: 0.47, blue: 0.95)
+        case .epa: Color(red: 0.86, green: 0.26, blue: 0.42)
         case .ask: Color(red: 0.96, green: 0.55, blue: 0.10)
         case .tell: Color(red: 0.10, green: 0.65, blue: 0.70)
         case .values: Color(red: 0.80, green: 0.60, blue: 0.08)
@@ -24,9 +25,9 @@ enum BlockStyle {
 
     static func color(_ type: BlockType) -> Color { color(type.info.group) }
 
-    /// The small colored tile with a step's symbol.
-    static func tile(_ type: BlockType, size: CGFloat = 26) -> some View {
-        Image(systemName: type.info.symbol)
+    /// The small colored tile with a step's symbol (or another, for an EPA command).
+    static func tile(_ type: BlockType, size: CGFloat = 26, symbol: String? = nil) -> some View {
+        Image(systemName: symbol ?? type.info.symbol)
             .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
@@ -325,8 +326,8 @@ struct BlockCard: View {
 
     private func header(_ step: RunRecord?) -> some View {
         HStack(spacing: 8) {
-            BlockStyle.tile(block.type)
-            Text(block.type.info.title)
+            BlockStyle.tile(block.type, symbol: epaCommand?.symbol)
+            Text(block.type == .epa ? block.headline : block.type.info.title)
                 .font(.headline)
             Spacer(minLength: 6)
             if let step {
@@ -369,6 +370,9 @@ struct BlockCard: View {
         }
         .help("Drag the title to move this step")
     }
+
+    /// The EPA command an EPA step runs (for its title and symbol).
+    private var epaCommand: EPA.Command? { block.type == .epa ? EPA.command(named: block.script, args: block.args) : nil }
 
     @ViewBuilder
     private var menu: some View {
@@ -434,6 +438,7 @@ struct BlockFields: View {
     var body: some View {
         switch block.type {
         case .runScript: runScript
+        case .epa: epa
         case .shell:
             TemplateField(model: model, id: id, key: \.text, placeholder: "a line of shell, such as ls -la", vars: vars, mono: true)
             OutputName(model: model, block: block, what: "What it printed is called")
@@ -543,6 +548,79 @@ struct BlockFields: View {
             }
         }
         OutputName(model: model, block: block, what: block.keepGoing ? "Its result is called" : "What it printed is called")
+    }
+}
+
+extension BlockFields {
+    /// An EPA step: which command, its words, what happens when it fails, what its output is called.
+    @ViewBuilder
+    var epa: some View {
+        let command = EPA.command(named: block.script, args: block.args)
+        HStack(spacing: 6) {
+            Text("EPA")
+            EPACommandPicker(model: model, id: id, current: block.script, args: block.args)
+        }
+        LabeledRow("With") { ArgumentChips(model: model, id: id, key: \.args, vars: vars, addTitle: "Add a Word") }
+        if let command {
+            Note(command.summary + (command.changes ? " EPA shows its plan and asks before it changes anything." : ""))
+        }
+        HStack(spacing: 10) {
+            Picker("If it fails:", selection: model.binding(id, \.keepGoing, false)) {
+                Text("Stop the flow").tag(false)
+                Text("Keep going").tag(true)
+            }
+            .fixedSize()
+            .help("Keep going: the flow carries on, and the step's result says whether it worked (.ok), what EPA showed (.out), and what failed with its next step (.err)")
+            Text((["epa", block.script] + block.args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }).joined(separator: " "))
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .help("What it runs, as you'd type it in a terminal (in your scripts folder, where EPA's keys are)")
+        }
+        OutputName(model: model, block: block, what: block.keepGoing ? "Its result is called" : "What it showed is called")
+    }
+}
+
+/// Which EPA command an EPA step runs, picked from what EPA does.
+struct EPACommandPicker: View {
+    @ObservedObject var model: EditorModel
+    let id: UUID
+    let current: String
+    let args: [String]
+
+    var body: some View {
+        let known = EPA.commandNames.contains(current)
+        HStack(spacing: 6) {
+            Menu {
+                Section("Changes something (EPA asks first)") {
+                    ForEach(EPA.commands.filter(\.changes)) { c in Button(c.title) { pick(c) } }
+                }
+                Section("Read-only") {
+                    ForEach(EPA.commands.filter { !$0.changes }) { c in Button(c.title) { pick(c) } }
+                }
+            } label: {
+                Text(EPA.command(named: current, args: args)?.title ?? (current.isEmpty ? "Choose What EPA Does" : current))
+                    .font(.body.weight(.semibold))
+            }
+            .fixedSize()
+            .help("Picking one puts in its example words, ready to change (⌘Z goes back)")
+            if !current.isEmpty && !known {
+                Label("Not an EPA command", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func pick(_ c: EPA.Command) {
+        model.edit { d in
+            d.update(id) {
+                $0.script = c.name
+                $0.args = c.args
+            }
+        }
     }
 }
 
@@ -988,8 +1066,18 @@ struct BlockLibrary: View {
                             }
                         }
                     }
+                    let epaCommands = EPA.commands.filter { matches("EPA " + $0.title + " " + $0.summary) }
+                    if !epaCommands.isEmpty {
+                        section("EPA") {
+                            ForEach(epaCommands) { c in
+                                LibraryRow(type: .epa, title: c.title, subtitle: c.summary, badge: c.changes ? nil : "read-only", symbol: c.symbol)
+                                    .onTapGesture { model.add(.epa, script: c.title) }
+                                    .draggable("epa:\(c.title)") { LibraryRow(type: .epa, title: c.title, subtitle: nil, badge: nil, symbol: c.symbol) }
+                            }
+                        }
+                    }
                     ForEach(BlockGroup.allCases, id: \.self) { group in
-                        let types = group.types.filter { t in t != .runScript && matches(t.info.title + " " + t.info.summary) }
+                        let types = group.types.filter { t in t != .runScript && t != .epa && matches(t.info.title + " " + t.info.summary) }
                         if !types.isEmpty {
                             section(group.rawValue) {
                                 ForEach(types, id: \.self) { t in
@@ -1036,11 +1124,13 @@ struct LibraryRow: View {
     let title: String
     let subtitle: String?
     let badge: String?
+    /// Its own symbol (an EPA command's), instead of its kind's.
+    var symbol: String? = nil
     @State private var hover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
-            BlockStyle.tile(type, size: 24)
+            BlockStyle.tile(type, size: 24, symbol: symbol)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(title).font(.callout.weight(.semibold)).lineLimit(1)

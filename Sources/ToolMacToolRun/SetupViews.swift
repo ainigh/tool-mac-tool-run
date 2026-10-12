@@ -8,6 +8,7 @@ struct FolderSetupView: View {
     @ObservedObject var app: AppModel
     let kind: GridKind
     @State private var examples = true
+    @State private var epa = true
 
     private var suggested: URL { AppModel.suggestedFolder }
     private var suggestedExists: Bool { FileManager.default.fileExists(atPath: suggested.path) }
@@ -33,13 +34,14 @@ struct FolderSetupView: View {
                 .keyboardShortcut(.defaultAction)
                 Button {
                     app.chooseFolder()
-                    if examples, let lib = app.library, lib.scripts().isEmpty { GridActions(app: app, kind: kind).addExamples() }
+                    addStarters()
                 } label: {
                     Label("Choose Another Folder…", systemImage: "folder")
                         .frame(minWidth: 320)
                 }
                 Toggle("Add the examples if the folder has no scripts (5 small scripts and 4 flows that use them)", isOn: $examples)
                     .padding(.top, 4)
+                Toggle("Add the EPA recipes (connect services, secure a site, onboard and offboard people…), and set EPA up if it isn't yet", isOn: $epa)
             }
             .controlSize(.large)
             Text("You can change the folder any time from the menu bar icon (Change Folder…).")
@@ -52,9 +54,14 @@ struct FolderSetupView: View {
 
     private func use(_ url: URL) {
         app.setFolder(url)
-        if examples, let lib = app.library, lib.scripts().isEmpty {
-            GridActions(app: app, kind: kind).addExamples()
-        }
+        addStarters()
+    }
+
+    /// The examples (into a folder with no scripts) and the EPA recipes, as ticked.
+    private func addStarters() {
+        guard let lib = app.library else { return }
+        if examples, lib.scripts().isEmpty { GridActions(app: app, kind: kind).addExamples() }
+        if epa, !lib.hasEPARecipes { GridActions(app: app, kind: kind).addEPARecipes() }
     }
 }
 
@@ -98,6 +105,12 @@ struct DoctorView: View {
                                     .buttonStyle(.borderless)
                                     .help("Copy")
                             }
+                        }
+                        // The fix is a script in the folder: one click runs it (and Check Again shows the result).
+                        if let file = line.run, app.library?.script(named: file) != nil {
+                            Button("Run \((file as NSString).deletingPathExtension)") { GridActions(app: app, kind: .scripts).runFile(file) }
+                                .controlSize(.small)
+                                .help("Runs \(file) from your folder: its cell on the Scripts grid shows it going, and Runs has its output")
                         }
                     }
                 }

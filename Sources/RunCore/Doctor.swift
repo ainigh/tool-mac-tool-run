@@ -12,6 +12,8 @@ public enum Doctor {
         public var title: String
         public var detail: String?
         public var fix: String?
+        /// A script in the folder that does the fix (Check Setup offers to run it).
+        public var run: String? = nil
     }
 
     /// The folder (there, writable, its composer folder) and, for each language used in it, the
@@ -63,6 +65,7 @@ public enum Doctor {
                                   fix: need.program.hasPrefix("/") ? Remedy.interpreter(need.program) : Remedy.install(need.program)))
             }
         }
+        lines += epa(library, flows: flows, path: path)
         for flow in flows {
             guard let source = try? String(contentsOf: flow.url, encoding: .utf8) else { continue }
             do {
@@ -70,6 +73,45 @@ public enum Doctor {
             } catch let e as FlowError {
                 lines.append(Line(status: .warning, title: "\(flow.id) has a mistake", detail: e.description, fix: "Open it with the pencil on its cell."))
             } catch {}
+        }
+        return lines
+    }
+
+    /// EPA: whether `epa` is there (and runs), and where its keys are. Only when it's in use or
+    /// about to be: the recipes are in the folder, or a flow runs it.
+    static func epa(_ library: Library, flows: [ScriptItem], path: String) -> [Line] {
+        let using = flows.filter(\.usesEPA)
+        guard !using.isEmpty || library.hasAnyEPARecipe || EPA.find(path: path) != nil else { return [] }
+        var lines: [Line] = []
+        let n = using.count
+        let uses = n == 0 ? "" : " (\(n) flow\(n == 1 ? "" : "s") use\(n == 1 ? "s" : "") it)"
+        if let program = EPA.find(path: path) {
+            let p = ScriptProcess(shell: "exec \(ShellEnvironment.quote(program)) --version", workingDirectory: library.root)
+            let r = try? p.runToEnd()
+            let said = r?.out.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let r, r.ok, said.hasPrefix("epa v") {
+                lines.append(Line(status: .ok, title: "EPA: \(said)\(uses)", detail: program, fix: nil))
+            } else {
+                lines.append(Line(status: .problem, title: "EPA is there but doesn't start\(uses)",
+                                  detail: [said, r?.err.trimmingCharacters(in: .whitespacesAndNewlines)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n"),
+                                  fix: "Run setup-epa on the Scripts grid: it installs what EPA needs (Node.js 22 or newer) and updates it.",
+                                  run: EPA.setupScript))
+            }
+        } else {
+            lines.append(Line(status: n > 0 ? .problem : .warning, title: "EPA isn't set up yet\(uses)",
+                              detail: "Flows run it as `epa`, which isn't on the scripts' PATH.", fix: EPA.setupFix, run: EPA.setupScript))
+        }
+        let keys = library.root.appendingPathComponent(EPA.keysFile)
+        if let text = try? String(contentsOf: keys, encoding: .utf8) {
+            let count = text.split(separator: "\n").filter { line in
+                let t = line.trimmingCharacters(in: .whitespaces)
+                return !t.hasPrefix("#") && t.contains("=")
+            }.count
+            lines.append(Line(status: .ok, title: "EPA keys: \(count) in \(keys.path)", detail: nil, fix: nil))
+        } else {
+            lines.append(Line(status: .warning, title: "No EPA keys yet (\(keys.path))",
+                              detail: "EPA reads the keys for each service from there. Check Connections says which each one needs.",
+                              fix: "Run epa-keys on the Scripts grid to make and open it.", run: "epa-keys.sh"))
         }
         return lines
     }
