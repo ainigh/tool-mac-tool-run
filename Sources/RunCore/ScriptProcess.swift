@@ -336,10 +336,6 @@ public final class ScriptProcess: @unchecked Sendable {
         }
         let writer = inPipe.fileHandleForWriting
         let data = input.flatMap { $0.data(using: .utf8) } ?? Data()
-        #if canImport(Darwin)
-        // A write to a script that's gone fails with EPIPE instead of raising SIGPIPE.
-        _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
-        #endif
         Thread.detachNewThread {
             // A script that stops reading (or never reads) is fine: the rest isn't wanted.
             if !data.isEmpty { _ = writeAll(data, to: writer.fileDescriptor) }
@@ -463,15 +459,19 @@ public final class ScriptProcess: @unchecked Sendable {
 }
 
 /// Writes all of `data` to `fd`. False when the reader went away (EPIPE): the script stopped
-/// reading, which is no failure. SIGPIPE is held back on this thread while it writes (and one
-/// raised by it is taken back before the thread goes on), so it can't end the process; on macOS
-/// the pipe is also marked F_SETNOSIGPIPE.
+/// reading, which is no failure. On macOS the pipe is marked F_SETNOSIGPIPE, so a write raises no
+/// SIGPIPE at all (there, one raised by a write can go to any thread, so blocking it here wouldn't
+/// be enough). Elsewhere SIGPIPE is held back on this thread while it writes (and one raised by it
+/// is taken back before the thread goes on), so it can't end the process.
 ///
 /// SIGPIPE isn't ignored for the whole process instead: Foundation's Process hands an ignored
 /// SIGPIPE on to the scripts it starts (seen on Linux), and in a script `yes | head` and the like
 /// would then print "Broken pipe" errors instead of ending quietly.
 @discardableResult
 func writeAll(_ data: Data, to fd: Int32) -> Bool {
+    #if canImport(Darwin)
+    _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+    #endif
     var pipeOnly = sigset_t()
     sigemptyset(&pipeOnly)
     sigaddset(&pipeOnly, SIGPIPE)
