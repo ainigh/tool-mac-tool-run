@@ -1152,7 +1152,7 @@ struct BlockLibrary: View {
                 VStack(alignment: .leading, spacing: 16) {
                     let scripts = model.app.scripts.filter { matches($0.title + " " + ($0.summary ?? "")) }
                     if shown(BlockGroup.scripts.rawValue) && (search.isEmpty || !scripts.isEmpty) {
-                        section("Your Scripts", color: BlockStyle.color(.scripts)) {
+                        section("Your Scripts", color: BlockStyle.color(BlockGroup.scripts)) {
                             if model.app.scripts.isEmpty {
                                 Note("No scripts in your folder yet: add one on the Scripts grid.")
                             }
@@ -1165,7 +1165,7 @@ struct BlockLibrary: View {
                     }
                     let flows = model.app.flows.filter { $0.id != model.item.id && matches($0.title + " " + ($0.summary ?? "")) }
                     if shown(BlockGroup.scripts.rawValue) && !flows.isEmpty {
-                        section("Your Flows", color: BlockStyle.color(.scripts)) {
+                        section("Your Flows", color: BlockStyle.color(BlockGroup.scripts)) {
                             ForEach(flows) { f in
                                 LibraryRow(type: .runScript, title: f.title, subtitle: f.summary ?? "A flow", badge: "flow")
                                     .onTapGesture { model.add(.runScript, script: model.runName(f)) }
@@ -1175,7 +1175,7 @@ struct BlockLibrary: View {
                     }
                     let epaCommands = EPA.commands.filter { matches("EPA " + $0.title + " " + $0.summary) }
                     if shown(BlockGroup.epa.rawValue) && !epaCommands.isEmpty {
-                        section("EPA", color: BlockStyle.color(.epa)) {
+                        section("EPA", color: BlockStyle.color(BlockGroup.epa)) {
                             ForEach(epaCommands) { c in
                                 LibraryRow(type: .epa, title: c.title, subtitle: c.summary, badge: c.changes ? nil : "read-only", symbol: c.symbol)
                                     .onTapGesture { model.add(.epa, script: c.title) }

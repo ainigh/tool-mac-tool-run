@@ -88,8 +88,8 @@ public enum EPA {
                 summary: "Makes one change at a provider: says exactly what, and asks first. With only the provider, lists every action.", changes: true),
         Command(title: "Import a MailUp List", name: "lists", args: ["import-mailup", "--mailup-list", "1"],
                 summary: "Moves a MailUp list to mailing lists on Cloudflare, keeping every state and the consent evidence.", changes: true),
-        Command(title: "Open the Atlas", name: "atlas", args: [],
-                summary: "A local page with every provider's reads and actions, try-it buttons, recipes and costs. It runs until you press Stop.", changes: false),
+        Command(title: "Open the Atlas", name: "atlas", args: ["--open"],
+                summary: "A local page with every provider's reads and actions, try-it buttons, recipes and costs; it opens in your browser and stays up until you press Stop.", changes: false),
     ]
 
     /// Every command `epa` knows (what a flow is checked against).
