@@ -20,6 +20,28 @@ printed (live while it runs), the command to run it yourself in a terminal, Stop
 It's the sibling of [Tool Mac Tool](https://github.com/ainigh/tool-mac-tool), whose boards' grid
 this borrows: the same cell colors and the same rows-closest-to-square layout.
 
+## EPA, built in
+
+The main thing this app is for: [EPA](https://github.com/ainigh/ENTER-PRICE-AUTOMATION)
+(Enter-Price Automation), the kit for Cloudflare and the services around it (Resend, SendGrid,
+SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
+
+- **Recipes, ready to click**: check every connection, connect a service, set up a sending domain,
+  secure a site, Gmail on your own domain, look up a person, onboard or offboard someone, sweep a
+  phishing email out of every mailbox, open the Atlas. Each is a flow made of blocks.
+- **EPA's questions come to you**: before EPA changes anything it says what, in the app's own
+  question window. What can't be undone says so and needs a click (Return won't do it); a key it
+  needs goes in a hidden field and is never kept.
+- **It reads like EPA in a terminal**: its plan, each step's status word, the one next step, with
+  clickable links. A failure stops the flow with EPA's own sentence and its fix.
+- **An EPA step in the block editor** for every command, and `epa […]` / `attemptEpa […]` in Flow.
+- **Set up in one click**: **Add the EPA Recipes** (first run, an empty grid, or the menu's
+  **EPA** submenu) adds the recipes and runs `setup-epa`, which installs Node.js if needed and
+  fetches EPA (run it again to update). The installer sets EPA up too. Its keys live in `.env` in
+  your scripts folder (**EPA → Keys (.env)…** opens it).
+
+→ [EPA in the Flow guide](docs/FLOW-GUIDE.md#epa-cloudflare-and-the-services-around-it)
+
 ## Install (and update)
 
 **The first time only:** the installer comes through `gh` (GitHub's command line tool), signed in
@@ -50,7 +72,8 @@ turns that off).
 
 1. Click the terminal icon in the menu bar. The first item is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and four flows that use them.
+   examples" on and you start with five small scripts and four flows that use them; keep "Add the
+   EPA recipes" on and EPA's recipes are there too, with EPA set up for you.
 3. Click a cell. It runs; its border moves while it does, and its last line of output shows on
    it. When it's done, the bottom of the cell says how it went (click there to see everything it
    printed).
@@ -118,6 +141,7 @@ flow run --yes ~/Scripts/composer/tidy.flow  # with no one at the keyboard: Cont
 flow check ~/Scripts/composer/morning.flow   # check it, and see its types
 flow functions                               # every builtin, with its type
 flow examples ~/Scripts                      # add the examples to a folder
+flow recipes ~/Scripts                       # add the EPA recipes (then run setup-epa.sh once)
 ```
 
 ## Building it yourself
@@ -131,6 +155,8 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/` | the logic, Foundation only: language detection, the runner, the folder, grid settings and layout, runs, Check Setup |
 | `Sources/RunCore/Flow/` | the Flow language: lexer, parser (F#'s indentation rule), type checker (Hindley–Milner), interpreter, builtins, and the blocks the editor shows (`Blocks.swift`) |
 | `Sources/RunCore/Caution.swift` | what a script looks like it does before it runs: things that can't be undone, asking for typed input |
+| `Sources/RunCore/EPA.swift`, `EPARecipes.swift` | EPA: its commands, running `epa --ask-json` (its words shown, its questions asked here), the recipes |
+| `scripts/setup-epa.sh` | installs or updates EPA (the installer runs it; the app puts the same file in the folder) |
 | `Sources/flow/` | the `flow` command |
 | `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit) |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |

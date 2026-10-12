@@ -72,6 +72,7 @@ Every feature keeps these. If a change breaks one, it isn't done.
 | **Fix it yourself, with a fallback** | The app finds your login shell's PATH so Homebrew's tools are found; when it can't build, the installer builds from source; when it still can't, it says the one command to run. |
 | **Guard what can't be undone** | Nothing is deleted: removing a script moves it to the Trash, after asking. Editing autosaves, and Revert goes back to how the file was opened. |
 | **Simplest surface first** | Click runs, the pencil edits. Arguments, colors, the Finder and the rest are in the right-click menu. A flow is built from blocks first (nothing to remember); Flow code is the same file, one switch away. |
+| **EPA keeps its promises here too** | EPA's own narration is what a run shows (its plan, each step's status word, the one next step), written once, by EPA (`--ask-json` carries the words). Its go-aheads come to the app's question window with the consequence EPA names; what can't be undone is red and needs a click, never Return or `--yes`; a key it asks for is a hidden field, never kept. Setting it up is one cell (setup-epa), safe to run again, and Check Setup offers to run it. |
 | **Docs within reach, offline** | The Flow guide ships inside the app (one file, the same as docs/FLOW-GUIDE.md); the editor lists every function, from the language itself. |
 
 ## 5 · The feel

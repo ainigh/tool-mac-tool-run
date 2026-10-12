@@ -9,7 +9,8 @@
 # can't see the repository. It takes the latest release GitHub built. If there isn't one (or
 # TMR_FROM_SOURCE=1), it downloads the source of main (TMR_BRANCH=name for another branch) and
 # builds it here with Apple's command line tools. Running it again is safe: it replaces the app
-# and keeps your scripts, settings and run history.
+# and keeps your scripts, settings and run history. It also sets up (or updates) EPA, the kit the
+# app's recipes run (TMR_SKIP_EPA=1 leaves it out).
 set -euo pipefail
 
 REPO="ainigh/tool-mac-tool-run"
@@ -116,6 +117,18 @@ mkdir -p "$HOME/.local/bin"
 ln -sf "$APPS/$NAME.app/Contents/MacOS/flow" "$HOME/.local/bin/flow"
 ok "The flow command is at ~/.local/bin/flow"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "   (To type just 'flow', add ~/.local/bin to your PATH: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc)";; esac
+
+# EPA, what the app is mostly for: set up (or updated) with the same script the app's
+# setup-epa cell runs. Not having it never stops the install: the app offers it again.
+if [[ "${TMR_SKIP_EPA:-0}" != 1 ]]; then
+  say "Setting up EPA (Enter-Price Automation) for the app's recipes: Node.js, the kit, the epa command"
+  if gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/scripts/setup-epa.sh?ref=$BRANCH" > "$tmp/setup-epa.sh" 2>/dev/null \
+     && bash "$tmp/setup-epa.sh" </dev/null; then
+    ok "EPA is set up (run the installer again, or setup-epa in the app, to update it)"
+  else
+    echo "   ⚠️ EPA isn't set up yet; the app works without it. In the app: menu bar icon → EPA → Add the EPA Recipes."
+  fi
+fi
 
 open "$APPS/$NAME.app"
 

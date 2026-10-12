@@ -358,6 +358,62 @@ if askYesNo $"Upload the {size} one too?" then run "upload" [size] |> print
 A script set to **Ask Before Running** (on its cell's right-click menu) asks from inside a flow
 too.
 
+### EPA: Cloudflare and the services around it
+
+[EPA](https://github.com/ainigh/ENTER-PRICE-AUTOMATION) (Enter-Price Automation) connects and
+runs Cloudflare, Resend, SendGrid, Amazon SES, MailUp, Microsoft 365, Google and Freshdesk, through
+one command, `epa`. Flows run it as a step of its own:
+
+| Function | Type | What it does |
+|---|---|---|
+| `epa` | `string list -> string` | runs `epa` with these words; gives back what it showed; **stops the flow if it fails**, with EPA's own sentence and its next step |
+| `attemptEpa` | `string list -> Run` | the same, but **keeps going**: `.ok`, `.out` (what it showed), `.err` (what failed, and `Next: …`) |
+
+```
+let domain = ask "Which domain will the email come from?"
+epa ["connect"; "resend"; "--domain"; domain; "--test-to"; "me@acme.com"] |> ignore
+
+let check = attemptEpa ["doctor"]
+if not check.ok then notify "EPA needs something: see the run's output"
+```
+
+- **It reads as it does in a terminal.** The run's output is EPA's own words: its plan first,
+  each step with its status word (✓ created, ↺ already in place, ✚ repaired, ⤳ skipped, ✗ failed),
+  and the next step at the end. Links in it (where to get a key, the Atlas) are clickable.
+- **It asks here.** EPA asks before it changes anything, naming what will change; the question
+  comes up in the app's window (or the terminal, for `flow run`), like `confirm`. Go ahead and it
+  goes on; Stop Flow tells EPA no and ends the flow. What can't be undone (EPA replacing mail
+  records, moving email to the Trash) says so in red, and isn't answered by Return or by
+  `flow run --yes`. A key it needs is asked for in a hidden field, and never kept in the run.
+- **Where it runs.** In your scripts folder, so EPA's keys go in `.env` there (the `epa-keys`
+  script opens it; Check Connections says what each service needs). Every run also keeps a full
+  record in `.epa/logs/` there, secrets masked.
+- **The commands** are EPA's: `doctor` (check every connection), `connect`, `secure`, `gmail`,
+  `see`, `do`, `person`, `onboard`, `offboard`, `sweep`, `lists`, `atlas`. One EPA doesn't have
+  is caught before anything runs (*EPA has no command "conect". Did you mean "connect"?*).
+  `epa ["help"]` lists every option.
+- **Blocks.** The library's **EPA** section has each command as a step, with example words ready
+  to change; **If it fails: Keep going** makes it `attemptEpa`.
+- **Not set up yet?** **Add the EPA Recipes** (on an empty grid, in the menu's EPA submenu, or
+  `flow recipes ~/Scripts`) puts `setup-epa` in your folder and runs it: it installs Node.js if
+  needed, fetches EPA into `~/.local/share/epa` and links `epa` into `~/.local/bin`. Running it
+  again updates EPA. **Check Setup** says whether EPA is there, which flows use it, and where its
+  keys are.
+
+The recipes, each a flow made of blocks (open one with its pencil to see how it's built):
+
+| Flow | What it does |
+|---|---|
+| `epa-check-connections` | checks every service EPA can reach (read-only) and says the next step |
+| `epa-connect-service` | picks a service and connects it, proving it works |
+| `epa-sending-domain` | sets a domain up to send email: the service, DNS on Cloudflare, verification, a test email |
+| `epa-secure-site` | puts email sign-in in front of a site on Cloudflare |
+| `epa-gmail-on-your-domain` | you@yourdomain.com in a free Gmail, through Cloudflare |
+| `epa-person` | everything every connected service knows about one address |
+| `epa-onboard` / `epa-offboard` | a joiner or a leaver, everywhere at once, in one go-ahead |
+| `epa-phishing-sweep` | one phishing email out of every mailbox: counts first, then asks |
+| `epa-atlas` | EPA's Atlas in your browser: every provider's reads and actions (Stop closes it) |
+
 ### Every script name is checked first
 
 `run "helo" []` doesn't wait to fail at that line: the check before running says *There's no

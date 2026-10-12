@@ -117,7 +117,7 @@ struct GridView: View {
             } else {
                 Text(kind == .scripts
                      ? "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
-                     : "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run the scripts from the Scripts grid by name.")
+                     : "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run the scripts from the Scripts grid by name, and EPA (menu bar icon → EPA).")
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
