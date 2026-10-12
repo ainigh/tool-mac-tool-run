@@ -2,7 +2,7 @@
 
 We have https://github.com/ainigh/tool-mac-tool 
 now we want a separate thing. all this will do is thaty it will show a grid similar to the board's grid from https://github.com/ainigh/tool-mac-tool , but only 2 grid that has many cells, user can adjust how many cells per grid etc . 1 grid for all script, and the other for composer script
-each grid item contains script (bash, python, js, ...) typically command line/terminal  kinds of scripts. it auto detects. use can easily click to run the script
+each grid item contains script (powershell, bash, python, js, ...) typically command line/terminal  kinds of scripts. it auto detects. use can easily click to run the script
 initially it asks user for a folder containing all the scripts or where it should save the script 
 grid should fill up to 90% of the screen 
 user needs to click edit pencil to edit. else click runs the script
