@@ -7,6 +7,7 @@ import SwiftUI
 /// compose them), the runs, and the folder they all live in.
 @main
 struct ToolMacToolRunApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var app = AppModel.shared
 
     var body: some Scene {
@@ -98,9 +99,16 @@ final class AppModel: ObservableObject {
     /// Something went wrong that the person should see (a save that failed), shown on the grid.
     @Published var problem: String?
 
+    /// The runs (it reads the login shell's PATH as it's made, off the main thread, so the first
+    /// run doesn't wait for it).
     let runs = RunStore()
     private var watchers: [DispatchSourceFileSystemObject] = []
+    /// A watch on a folder that's gone (deleted, renamed) is made again shortly.
+    private var rewatchScheduled = false
+    /// Each read of the folder is numbered: only the latest one's result is used.
+    private var scanGeneration = 0
     private var saveTasks: [GridKind: Task<Void, Never>] = [:]
+    private var observers: [NSObjectProtocol] = []
 
     static let folderKey = "scriptsFolder"
 
@@ -113,13 +121,19 @@ final class AppModel: ObservableObject {
         if let path = UserDefaults.standard.string(forKey: Self.folderKey) {
             setFolder(URL(fileURLWithPath: path), remember: false)
         }
-        // Read the login shell's PATH now, off the main thread, so the first run doesn't wait for it.
-        DispatchQueue.global(qos: .utility).async { _ = ShellEnvironment.shared.environment }
         // Start at login from the first launch; the menu has the switch to turn it off.
         let key = "didSetUpOpenAtLogin"
         if !UserDefaults.standard.bool(forKey: key), Bundle.main.bundleURL.pathExtension == "app" {
             UserDefaults.standard.set(true, forKey: key)
             setOpenAtLogin(true)
+        }
+        // "Open at Login" can be changed in System Settings: read it again when the menu opens
+        // (or the app comes forward).
+        for name in [NSMenu.didBeginTrackingNotification, NSApplication.didBecomeActiveNotification] {
+            let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshOpenAtLogin() }
+            }
+            observers.append(token)
         }
     }
 
@@ -168,30 +182,59 @@ final class AppModel: ObservableObject {
             return
         }
         let lib = library
+        scanGeneration += 1
+        let generation = scanGeneration
         Task.detached(priority: .userInitiated) {
             let s = lib.scripts(), f = lib.flows()
             await MainActor.run {
-                guard self.library?.root == lib.root else { return }
+                // A newer read was started meanwhile: its result is the one that counts.
+                guard generation == self.scanGeneration, self.library?.root == lib.root else { return }
                 if self.scripts != s { self.scripts = s }
                 if self.flows != f { self.flows = f }
             }
         }
     }
 
-    /// Reloads whenever something in the folder (or its composer folder) changes.
+    /// Reloads whenever something in the folder (or its composer folder) changes. A folder that's
+    /// deleted, renamed or not there is watched again once it's back.
     private func watch() {
         watchers.forEach { $0.cancel() }
         watchers = []
         guard let library else { return }
+        var missing = false
         for folder in [library.root, library.composerFolder] {
             let fd = open(folder.path, O_EVTONLY)
-            guard fd >= 0 else { continue }
-            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+            guard fd >= 0 else {
+                missing = true
+                continue
+            }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .attrib, .link, .rename, .delete], queue: .main)
             // The queue is the main one: the handler runs on the main actor.
-            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.reload() } }
+            source.setEventHandler { [weak self] in
+                let gone = !source.data.intersection([.delete, .rename]).isEmpty
+                MainActor.assumeIsolated {
+                    self?.reload()
+                    if gone { self?.scheduleRewatch() }
+                }
+            }
             source.setCancelHandler { close(fd) }
             source.resume()
             watchers.append(source)
+        }
+        if missing { scheduleRewatch(after: 2) }
+    }
+
+    /// Watches the folders again in a moment (and reads them again).
+    private func scheduleRewatch(after seconds: Double = 0.5) {
+        guard !rewatchScheduled else { return }
+        rewatchScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.rewatchScheduled = false
+                self.watch()
+                self.reload()
+            }
         }
     }
 
@@ -211,9 +254,17 @@ final class AppModel: ObservableObject {
         saveTasks[kind] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled, let self else { return }
-            do { try self.settings(kind).save(kind) } catch { self.problem = "Couldn't save the grid's settings: \(error.localizedDescription)" }
+            do {
+                try self.settings(kind).save(kind)
+                // Saved now: an earlier failure to save them is over.
+                if self.problem?.hasPrefix(Self.settingsProblem) == true { self.problem = nil }
+            } catch {
+                self.problem = "\(Self.settingsProblem): \(error.localizedDescription)"
+            }
         }
     }
+
+    private static let settingsProblem = "Couldn't save the grid's settings"
 
     /// A script renamed: its place, color and arguments go with it.
     func renamed(_ kind: GridKind, from old: String, to new: String) {
@@ -240,7 +291,14 @@ final class AppModel: ObservableObject {
         openAtLogin = SMAppService.mainApp.status == .enabled
     }
 
-    /// Quits, saying first what's still running (it would be stopped).
+    /// Reads whether it opens at login again (it can be changed in System Settings).
+    func refreshOpenAtLogin() {
+        let on = SMAppService.mainApp.status == .enabled
+        if openAtLogin != on { openAtLogin = on }
+    }
+
+    /// Quits, saying first what's still running (it would be stopped). The stopping, and the
+    /// saving of everything, is done as the app terminates (`AppDelegate`).
     func quit() {
         let n = runs.runningCount
         if n > 0 {
@@ -251,9 +309,43 @@ final class AppModel: ObservableObject {
             alert.addButton(withTitle: "Keep Running")
             alert.addButton(withTitle: "Stop and Quit")
             if alert.runModal() == .alertFirstButtonReturn { return }
-            runs.stopAll()
+        }
+        NSApp.terminate(nil)
+    }
+}
+
+/// Quitting (from the menu, or as the Mac logs out): the editors save, what's running is stopped
+/// and given a moment to end (a script that ignores the polite stop is ended for good two seconds
+/// on), its last output is kept, and the runs are saved, before the app goes.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var quitting = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitting { return .terminateCancel }  // already on its way out
+        let runs = AppModel.shared.runs
+        Windows.saveEditors()
+        runs.flush()
+        guard runs.hasLiveRuns else {
+            runs.saveNow()
+            return .terminateNow
+        }
+        quitting = true
+        runs.stopAll()
+        // A little over the two seconds after which a stopped script is killed.
+        waitForRuns(until: Date().addingTimeInterval(2.5))
+        return .terminateLater
+    }
+
+    private func waitForRuns(until deadline: Date) {
+        let runs = AppModel.shared.runs
+        if runs.hasLiveRuns && Date() < deadline {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                MainActor.assumeIsolated { self?.waitForRuns(until: deadline) }
+            }
+            return
         }
         runs.saveNow()
-        NSApp.terminate(nil)
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }
