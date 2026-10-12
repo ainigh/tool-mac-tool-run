@@ -528,7 +528,7 @@ struct StatusLine: View {
     static func summary(_ r: RunRecord) -> String {
         switch r.state {
         case .succeeded: return r.seconds.map { RunRecord.duration($0) } ?? "Done"
-        case .failed: return "Failed" + (r.code.map { ", exit code \($0)" } ?? "")
+        case .failed: return "Failed" + (r.ending.map { ", \($0.summary)" } ?? "")
         case .stopped: return "Stopped"
         case .couldNotStart: return "Couldn't start: click to see why"
         case .running: return "Running"

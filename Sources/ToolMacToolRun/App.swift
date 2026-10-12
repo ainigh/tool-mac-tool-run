@@ -345,6 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // Still going: a second Stop kills each one's whole process group at once.
+        if runs.hasLiveRuns { runs.stopAll() }
+        runs.flush()
         runs.saveNow()
         NSApp.reply(toApplicationShouldTerminate: true)
     }

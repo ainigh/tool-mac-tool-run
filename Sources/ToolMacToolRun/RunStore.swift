@@ -138,8 +138,8 @@ final class RunStore: ObservableObject {
                 if pending.add(id, stream, text) {
                     Task { @MainActor in self?.scheduleFlush() }
                 }
-            }, exit: { [weak self] code in
-                Task { @MainActor in self?.finished(id, code: code) }
+            }, ended: { [weak self] ending in
+                Task { @MainActor in self?.finished(id, ending) }
             })
             processes[id] = p
         } catch {
@@ -153,12 +153,11 @@ final class RunStore: ObservableObject {
         }
     }
 
-    private func finished(_ id: UUID, code: Int32) {
+    private func finished(_ id: UUID, _ ending: RunEnding) {
         flush()
-        let stopped = processes[id]?.wasStopped == true
         processes[id] = nil
         objectWillChange.send()
-        change(id) { $0.finish(code: code, state: stopped ? .stopped : code == 0 ? .succeeded : .failed) }
+        change(id) { $0.finish(ending) }
         lastLines[id] = nil
         if let r = record(id) { tellIfLong(r) }
         save()
@@ -341,7 +340,7 @@ final class RunStore: ObservableObject {
         case let .stepFinished(id, _, result):
             if let i = index(id) {
                 if store[i].output.isEmpty && !result.err.isEmpty { append(at: i, .err, result.err) }
-                store[i].finish(code: result.code, state: result.ok ? .succeeded : .failed)
+                store[i].finish(result.ending)
             }
             lastLines[id] = nil
         case let .notify(text):
@@ -490,7 +489,7 @@ final class PendingOutput: @unchecked Sendable {
             addLocked(id, stream, text)
         case let .stepFinished(_, name, result):
             events.append((flow, e))
-            let line = result.ok ? "✅ \(name) · \(RunRecord.duration(result.seconds))" : "❌ \(name) · exit code \(result.code)"
+            let line = result.ok ? "✅ \(name) · \(RunRecord.duration(result.seconds))" : "❌ \(name) · \(result.ending.summary)"
             addLocked(flow, result.ok ? .out : .err, line + "\n")
         case let .notify(text):
             events.append((flow, e))

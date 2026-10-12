@@ -105,7 +105,7 @@ struct RunDetail: View {
                         Text(run.name).font(.title2.weight(.semibold)).lineLimit(1)
                         HStack(spacing: 6) {
                             Text(run.state.title)
-                            if let code = run.code, run.state != .running { Text("· exit code \(code)") }
+                            if let ending = run.ending, run.state == .failed { Text("· \(ending.summary)") }
                             Text("· started \(run.started.formatted(date: .abbreviated, time: .standard))")
                             if run.state == .running {
                                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
