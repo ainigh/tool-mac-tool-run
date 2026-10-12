@@ -36,6 +36,9 @@ final class ReleaseTests: XCTestCase {
         XCTAssertEqual(UpdatePlan.decide(head: head, installedCommit: nil, latestRelease: nil, assetName: zip), .buildHere(head))
         // "unknown" (built outside git) is never taken as up to date.
         XCTAssertEqual(UpdatePlan.decide(head: head, installedCommit: "unknown", latestRelease: release, assetName: zip), .prebuilt(head, release))
+        XCTAssertEqual(UpdatePlan.prebuilt(head, release).commit, head)
+        XCTAssertEqual(UpdatePlan.buildHere(newer).commit, newer)
+        XCTAssertNil(UpdatePlan.upToDate.commit)
         XCTAssertEqual(UpdatePlan.prebuilt(head, release).title, "Update to v0.1.70: Fix notify")
     }
 

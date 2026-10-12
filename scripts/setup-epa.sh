@@ -12,6 +12,13 @@ if ! command -v node >/dev/null 2>&1 || [ "$(major)" -lt 22 ]; then
   if command -v brew >/dev/null 2>&1; then
     echo "→ Installing Node.js with Homebrew (EPA needs version 22 or newer)…"
     brew install node || brew upgrade node
+    hash -r
+    # An older node earlier on PATH (nvm, a system one) still wins over Homebrew's.
+    if [ "$(major)" -lt 22 ]; then
+      echo "❌ The node on your PATH is still $(node --version) ($(command -v node)); EPA needs 22 or newer." >&2
+      echo "Next: put $(brew --prefix)/bin before it in your PATH (or nvm install 22), then run this again." >&2
+      exit 1
+    fi
   else
     echo "❌ EPA needs Node.js 22 or newer, and there's no Homebrew here to install it with." >&2
     echo "Next: install Node.js (the LTS) from https://nodejs.org, then run this again." >&2

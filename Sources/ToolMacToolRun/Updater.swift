@@ -44,8 +44,9 @@ final class Updater: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
-    /// The last update a notification was posted for (each is told about once).
-    private var told: UpdatePlan?
+    /// The commit of the last update a notification was posted for (each is told about once,
+    /// even when its build here becomes a download from GitHub).
+    private var toldSHA: String?
     private var timer: Timer?
     private let work = DispatchQueue(label: "ToolMacToolRun.updater", qos: .utility)
 
@@ -110,8 +111,8 @@ final class Updater: ObservableObject {
     /// for from the menu always says how it went.
     private func tell(_ outcome: State, userInitiated: Bool) {
         switch outcome {
-        case let .available(plan) where plan != told || userInitiated:
-            told = plan
+        case let .available(plan) where plan.commit?.sha != toldSHA || userInitiated:
+            toldSHA = plan.commit?.sha
             Notifier.post(title: "An update is ready", body: plan.title + ". Click to install it (the app restarts).", update: true)
         case .upToDate where userInitiated:
             Notifier.post(title: "Tool Mac Tool Run is up to date", body: versionLine, tone: .success)
@@ -207,14 +208,22 @@ final class Updater: ObservableObject {
         while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
         /usr/bin/open "$2"
         ok=0
-        for _ in 1 2 3 4 5 6; do sleep 1; if /usr/bin/pgrep -x "$5" >/dev/null; then ok=1; else ok=0; fi; done
+        for _ in 1 2 3 4 5 6; do sleep 1; if /usr/bin/pgrep -f "$2/Contents/MacOS/$5" >/dev/null; then ok=1; else ok=0; fi; done
         if [ "$ok" = 1 ]; then rm -rf "$3"; exit 0; fi
         rm -rf "$4"; mv "$2" "$4" && mv "$3" "$2" && /usr/bin/open "$2"
         """
         let relaunch = Process()
         relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
         relaunch.arguments = ["-c", script, "relaunch", String(getpid()), app.path, previous.path, failed.path, processName]
-        try relaunch.run()
+        do {
+            try relaunch.run()
+        } catch {
+            // Nothing would open the new copy or check it: put the old one back as it was.
+            try? fm.removeItem(at: failed)
+            try? fm.moveItem(at: app, to: failed)
+            try? fm.moveItem(at: previous, to: app)
+            throw Problem("couldn't restart into the new copy: \(error.localizedDescription)")
+        }
         DispatchQueue.main.async { MainActor.assumeIsolated { NSApp.terminate(nil) } }
     }
 
@@ -240,7 +249,7 @@ final class Updater: ObservableObject {
         guard (try? run("/usr/bin/xcode-select", ["-p"])) != nil else {
             throw Problem("building needs Apple's command line tools: run xcode-select --install in Terminal")
         }
-        try checkSwift()
+        let developerDir = try checkSwift()
         step("Downloading \(commit.short)…")
         let tarball = scratch.appendingPathComponent("source.tar.gz")
         if let gh = ghPath(), (try? run(gh, ["api", "repos/\(repo)/tarball/\(commit.sha)"], to: tarball)) != nil {
@@ -254,25 +263,30 @@ final class Updater: ObservableObject {
 
         step("Building \(commit.short) (a minute or two)…")
         log("building \(commit.short) in \(src.path)")
-        let env = ["VERSION": "0.1-\(commit.short)", "COMMIT": commit.sha, "BRANCH": branch, "UNIVERSAL": "0"]
+        var env = ["VERSION": "0.1-\(commit.short)", "COMMIT": commit.sha, "BRANCH": branch, "UNIVERSAL": "0"]
+        // The Xcode that passed the check, not the older command line tools.
+        if let developerDir { env["DEVELOPER_DIR"] = developerDir }
         try run("/bin/bash", [src.appendingPathComponent("scripts/build-app.sh").path], env: env, in: src, logOutput: true)
         return src.appendingPathComponent("build").appendingPathComponent(builtAppName)
     }
 
     /// The package needs Swift 5.9 or newer, from the command line tools or an installed Xcode.
-    nonisolated static func checkSwift() throws {
+    /// Returns the Xcode's developer folder when it's an Xcode's Swift that's new enough (nil: the
+    /// command line tools are).
+    nonisolated static func checkSwift() throws -> String? {
         func output(_ developerDir: String?) -> String {
             let env = developerDir.map { ["DEVELOPER_DIR": $0] } ?? [:]
             guard let data = try? run("/bin/sh", ["-c", "/usr/bin/xcrun swift --version 2>&1"], env: env) else { return "" }
             return String(decoding: data, as: UTF8.self)
         }
         let here = output(nil)
-        if SwiftToolchain.isNewEnough(here) { return }
+        if SwiftToolchain.isNewEnough(here) { return nil }
         let folders = ["/Applications", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
         for folder in folders {
             let names = (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
             for name in names where name.hasPrefix("Xcode") && name.hasSuffix(".app") {
-                if SwiftToolchain.isNewEnough(output("\(folder)/\(name)/Contents/Developer")) { return }
+                let dir = "\(folder)/\(name)/Contents/Developer"
+                if SwiftToolchain.isNewEnough(output(dir)) { return dir }
             }
         }
         let have = SwiftToolchain.version(in: here).map { "Swift \($0)" } ?? "no Swift"

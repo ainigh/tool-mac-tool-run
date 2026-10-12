@@ -136,7 +136,7 @@ open "$APPS/$NAME.app"
 started=0
 for _ in 1 2 3 4 5 6; do
   sleep 1
-  if pgrep -x "$NAME" >/dev/null; then started=1; else started=0; fi
+  if pgrep -f "$APPS/$NAME.app/Contents/MacOS/$NAME" >/dev/null; then started=1; else started=0; fi
 done
 if [[ "$started" == 1 ]]; then
   parked=0
