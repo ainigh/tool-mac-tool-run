@@ -244,14 +244,14 @@ final class RunStore: ObservableObject {
 /// Output and flow events gathered from the runs' threads until the main thread shows them.
 final class PendingOutput: @unchecked Sendable {
     enum Item {
-        case output(UUID, OutputStream, String)
+        case output(UUID, RunCore.OutputStream, String)
         case event(UUID, FlowEvent)
     }
 
     private let lock = NSLock()
     private var items: [Item] = []
 
-    func add(_ id: UUID, _ stream: OutputStream, _ text: String) {
+    func add(_ id: UUID, _ stream: RunCore.OutputStream, _ text: String) {
         lock.lock()
         items.append(.output(id, stream, text))
         lock.unlock()

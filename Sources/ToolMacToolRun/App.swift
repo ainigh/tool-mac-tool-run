@@ -187,7 +187,8 @@ final class AppModel: ObservableObject {
             let fd = open(folder.path, O_EVTONLY)
             guard fd >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-            source.setEventHandler { [weak self] in self?.reload() }
+            // The queue is the main one: the handler runs on the main actor.
+            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.reload() } }
             source.setCancelHandler { close(fd) }
             source.resume()
             watchers.append(source)

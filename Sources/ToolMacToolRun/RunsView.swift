@@ -195,7 +195,7 @@ struct OutputText: View {
         var s = AttributedString()
         for c in chunks {
             var part = AttributedString(c.text)
-            if c.stream == .err { part.foregroundColor = .red }
+            if c.stream == .err { part.foregroundColor = Color.red }
             s += part
         }
         return s

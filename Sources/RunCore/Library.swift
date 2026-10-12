@@ -11,6 +11,13 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     /// The first comment in it (after any #! line), as shown under the title.
     public var summary: String?
     public var modified: Date?
+
+    public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil) {
+        self.url = url
+        self.language = language
+        self.summary = summary
+        self.modified = modified
+    }
 }
 
 /// Which grid: every script, or the flows that compose them.

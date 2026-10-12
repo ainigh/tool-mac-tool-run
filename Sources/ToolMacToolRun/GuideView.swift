@@ -52,7 +52,7 @@ struct GuideView: View {
         return order.map { ($0, by[$0] ?? []) }
     }
 
-    static func loadGuide() -> String {
+    nonisolated static func loadGuide() -> String {
         if let url = Bundle.main.url(forResource: "FLOW-GUIDE", withExtension: "md"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
             return text
@@ -128,6 +128,13 @@ enum MarkdownBlocks {
         return blocks
     }
 
+    /// A table row's cells (a \\| inside a cell is a | of its own).
+    static func cells(_ row: String) -> [String] {
+        row.replacingOccurrences(of: "\\|", with: "\u{1}")
+            .split(separator: "|")
+            .map { $0.replacingOccurrences(of: "\u{1}", with: "|").trimmingCharacters(in: .whitespaces) }
+    }
+
     static func inline(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
     }
@@ -155,7 +162,7 @@ private struct BlockView: View {
         case let .table(rows):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(rows.indices), id: \.self) { i in
-                    let cells = rows[i].split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                    let cells = MarkdownBlocks.cells(rows[i])
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(Array(cells.indices), id: \.self) { c in
                             Text(MarkdownBlocks.inline(cells[c]))
