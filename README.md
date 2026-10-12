@@ -20,17 +20,26 @@ this borrows: the same cell colors and the same rows-closest-to-square layout.
 
 ## Install (and update)
 
-Paste this in Terminal. Run it again any time to update: it keeps your scripts, settings and
-run history.
+**The first time only:** the installer comes through `gh` (GitHub's command line tool), signed in
+to an account that can see this repository. With [Homebrew](https://brew.sh), paste this in
+Terminal (a browser window opens to sign in):
+
+```bash
+brew install gh && gh auth login --web --git-protocol https -h github.com
+```
+
+Then paste this. Run it again any time to update: it keeps your scripts, settings and run
+history.
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" repos/ainigh/tool-mac-tool-run/contents/install.sh | bash
 ```
 
-It installs `gh` (GitHub's command line tool, through Homebrew) and asks you to sign in if
-needed, downloads the latest build into `~/Applications`, links the `flow` command into
-`~/.local/bin`, and opens the app. With no build published yet, it builds the app on your Mac
-(needs Apple's command line tools: `xcode-select --install`). Needs macOS 14 (Sonoma) or newer.
+It checks `gh` can see the repository (and asks you to sign in again if it can't), downloads the
+latest build into `~/Applications`, links the `flow` command into `~/.local/bin`, and opens the
+app. If the new app quits as soon as it opens, or anything fails on the way, the app you had is
+put back. With no build published yet, it builds the app on your Mac (needs Apple's command line
+tools: `xcode-select --install`). Needs macOS 14 (Sonoma) or newer.
 
 The app adds itself to your login items the first time it runs (**Open at Login** in its menu
 turns that off).
@@ -64,9 +73,14 @@ turns that off).
 The grids follow the folder: add, rename or remove a file in the Finder and the grid changes
 with it. Each script's first comment line is shown on its cell, under its name.
 
-Scripts run in your scripts folder, with your login shell's PATH, so Homebrew's `python3`, `node`
-and the rest are found. When a language's program is missing, the run says which one and the
-command that installs it. **Check Setup…** in the menu looks at everything at once (the folder,
+Scripts run in your scripts folder, with your shell's PATH (what a new Terminal window has), so
+Homebrew's `python3`, `node` and the rest are found. A script with a `#!` line runs with exactly
+what that line names, flags and all (`#!/bin/sh -e`, a virtual environment's python,
+`#!/usr/bin/env -S deno run --allow-read`), whether or not it's marked executable; one without
+runs with its language's program (`python3`, `node`, `bash`…), and a text file with neither runs
+with `/bin/sh`, as a shell would. When the program is missing, the run says which one and the
+command that installs it. **Copy Command for Terminal** gives the same thing to paste:
+`cd` into the scripts folder, then the exact command. **Check Setup…** in the menu looks at everything at once (the folder,
 each language's program, each flow), changing nothing.
 
 ## The editor
