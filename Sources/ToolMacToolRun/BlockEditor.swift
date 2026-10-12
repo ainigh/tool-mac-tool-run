@@ -283,8 +283,16 @@ struct BlockCard: View {
         let step = status[block.id]
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         VStack(alignment: .leading, spacing: 8) {
-            header(step)
-            BlockFields(model: model, block: block)
+            // A click on its own title or settings picks it (one on a step inside it picks that one).
+            VStack(alignment: .leading, spacing: 8) {
+                header(step)
+                BlockFields(model: model, block: block)
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded {
+                model.selected = block.id
+                model.insertionSlot = nil
+            })
             if block.type.isContainer { inside }
             if problem, case let .problem(e) = model.check {
                 VStack(alignment: .leading, spacing: 3) {
@@ -307,10 +315,6 @@ struct BlockCard: View {
         }
         .shadow(color: .black.opacity(hover ? 0.10 : 0.05), radius: hover ? 4 : 2, y: 1)
         .onHover { hover = $0 }
-        .simultaneousGesture(TapGesture().onEnded {
-            model.selected = block.id
-            model.insertionSlot = nil
-        })
         .dropDestination(for: String.self) { items, _ in
             // Dropped on a step: it goes after it.
             guard let first = items.first, let s = model.doc.slot(of: block.id) else { return false }

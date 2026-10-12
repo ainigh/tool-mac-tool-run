@@ -764,7 +764,10 @@ struct ArgumentsSheet: View {
         if remember {
             app.update(kind) { s in s.arguments[item.id] = line.trimmingCharacters(in: .whitespaces).isEmpty ? nil : line }
         }
-        GridActions(app: app, kind: kind).run(item, arguments: line)
+        // The sheet goes first: a question before running (Ask Before Running) shows on the grid.
+        let actions = GridActions(app: app, kind: kind)
+        let item = self.item, line = self.line
         done()
+        DispatchQueue.main.async { actions.run(item, arguments: line) }
     }
 }
