@@ -14,7 +14,7 @@ import Foundation
 
 /// The kinds of block. Each is one way of writing a step in Flow (see `BlockWriter`).
 public enum BlockType: String, CaseIterable, Codable, Sendable {
-    case runScript, shell, show, notify, confirm, ask, askYesNo, choose, text, readFile, writeFile
+    case runScript, shell, epa, show, notify, confirm, ask, askYesNo, choose, text, readFile, writeFile
     case ifThen, repeatEach, repeatCount, wait, stop, comment, code
 
     /// What it's called, its symbol (SF Symbols), its group in the library, and what it does.
@@ -23,6 +23,7 @@ public enum BlockType: String, CaseIterable, Codable, Sendable {
         switch self {
         case .runScript: ("Run Script", "terminal", .scripts, "Runs one of your scripts, with arguments (and text as its input, if you like). Its output is kept under a name for the next steps.")
         case .shell: ("Run Shell Command", "chevron.left.forwardslash.chevron.right", .scripts, "Runs one line of shell (bash) and keeps what it printed.")
+        case .epa: ("EPA", "bolt.horizontal.circle", .epa, "Runs one of EPA's commands (connect a service, secure a site, onboard someone…) and keeps what it showed. EPA asks before it changes anything.")
         case .show: ("Show", "text.bubble", .tell, "Shows text (or a value from an earlier step) in the run's output.")
         case .notify: ("Show Notification", "bell.badge", .tell, "Shows a notification on the screen.")
         case .confirm: ("Ask to Continue", "hand.raised", .ask, "Stops and asks before going on: Continue carries on, Stop ends the flow there. Put it before anything that deletes, sends or costs.")
@@ -48,7 +49,7 @@ public enum BlockType: String, CaseIterable, Codable, Sendable {
     /// Whether its result is kept under a name.
     public var hasOutput: Bool {
         switch self {
-        case .runScript, .shell, .ask, .askYesNo, .choose, .text, .readFile: true
+        case .runScript, .shell, .epa, .ask, .askYesNo, .choose, .text, .readFile: true
         default: false
         }
     }
@@ -57,6 +58,7 @@ public enum BlockType: String, CaseIterable, Codable, Sendable {
 /// The library's groups, in the order they're listed.
 public enum BlockGroup: String, CaseIterable, Sendable {
     case scripts = "Scripts"
+    case epa = "EPA"
     case ask = "Ask"
     case tell = "Show"
     case values = "Text & Files"
@@ -152,15 +154,15 @@ public struct Condition: Equatable, Sendable {
 public struct FlowBlock: Identifiable, Equatable, Sendable {
     public var id = UUID()
     public var type: BlockType
-    /// Run Script: the script, as `run` names it.
+    /// Run Script: the script, as `run` names it. EPA: the `epa` command (`connect`…).
     public var script = ""
-    /// Run Script: its arguments. Choose from List: the choices.
+    /// Run Script, EPA: its arguments (the words after the command). Choose from List: the choices.
     public var args: [String] = []
     /// The main text: what's shown, asked, written; the command; the comment; the code; a path to read.
     public var text = ""
     /// Run Script: text handed to it as its input (empty: none). Save to File: where.
     public var input = ""
-    /// Run Script: when it fails, keep going (its result is kept, with .ok) rather than stop.
+    /// Run Script, EPA: when it fails, keep going (its result is kept, with .ok) rather than stop.
     public var keepGoing = false
     /// What its output is called (empty: it's thrown away). Repeat: what each item is called.
     public var name = ""
@@ -218,6 +220,7 @@ public struct FlowBlock: Identifiable, Equatable, Sendable {
     public var headline: String {
         switch type {
         case .runScript: script.isEmpty ? "Run Script" : "Run \(script)"
+        case .epa: EPA.command(named: script, args: args).map { "EPA: \($0.title)" } ?? "EPA \(script)"
         case .ifThen: "If"
         default: type.info.title
         }
@@ -539,6 +542,12 @@ extension FlowDocument {
         case .shell:
             b.text = "date +%A"
             b.name = freeName("shellOutput")
+        case .epa:
+            // `script`: a library entry's title, or a command's name.
+            let command = EPA.commands.first { $0.title == script } ?? EPA.command(named: script ?? "doctor") ?? EPA.commands[0]
+            b.script = command.name
+            b.args = command.args
+            b.name = freeName(FlowDocument.variableName(for: command.name == "doctor" ? "connections" : command.name))
         case .show:
             b.text = last.map(hole) ?? "Hello!"
         case .notify:
@@ -1052,7 +1061,7 @@ struct BlockWriter {
         var env = env
         if b.type.hasOutput, !b.name.isEmpty {
             let kind: ValueKind = switch b.type {
-            case .runScript: b.keepGoing ? .result : .text
+            case .runScript, .epa: b.keepGoing ? .result : .text
             case .askYesNo: .bool
             default: .text
             }
@@ -1119,6 +1128,9 @@ struct BlockWriter {
             let call = "\(fn) \(Template.quote(b.script)) [\(b.args.map { str($0, 1) }.joined(separator: "; "))]"
             return [named(b.input.isEmpty ? call : "\(str(b.input, 1)) |> \(call)")]
         case .shell: return [named("sh \(str(b.text))")]
+        case .epa:
+            let words = [Template.quote(b.script)] + b.args.map { str($0, 1) }
+            return [named("\(b.keepGoing ? "attemptEpa" : "epa") [\(words.joined(separator: "; "))]")]
         case .ask: return [named("ask \(str(b.text))")]
         case .askYesNo: return [named("askYesNo \(str(b.text))")]
         case .choose: return [named("choose \(str(b.text)) [\(b.args.map { str($0, 1) }.joined(separator: "; "))]")]
@@ -1430,6 +1442,14 @@ struct BlockReader {
                 b.input = input
                 if b.input.isEmpty { return nil }
             }
+            return b
+        case ("epa", 1), ("attemptEpa", 1):
+            guard let words = strings(args[0]), let command = words.first, !command.isEmpty,
+                  case let .list(items) = args[0].kind, case .str = items[0].kind else { return nil }
+            var b = FlowBlock(.epa)
+            b.script = command
+            b.args = Array(words.dropFirst())
+            b.keepGoing = head == "attemptEpa"
             return b
         case ("sh", 1), ("ask", 1), ("askYesNo", 1), ("read", 1):
             let type: BlockType = head == "sh" ? .shell : head == "ask" ? .ask : head == "askYesNo" ? .askYesNo : .readFile

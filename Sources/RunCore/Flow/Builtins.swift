@@ -26,7 +26,7 @@ public struct Builtin: @unchecked Sendable {
 
 extension Builtin {
     /// Every builtin, in the order the guide lists them.
-    public static let all: [Builtin] = scripts + asking + text + lists + logic + system
+    public static let all: [Builtin] = scripts + epa + asking + text + lists + logic + system
 
     /// What `for x in xs do …` is made of (`each`, by a name a flow can't write or hide).
     static let forName = "$for"
@@ -110,6 +110,26 @@ extension Builtin {
     ]
 
     // MARK: asking
+
+    // MARK: EPA (the kit for Cloudflare and the services around it)
+
+    static let epa: [Builtin] = [
+        Builtin("epa", "string list -> string", "EPA",
+                "Runs EPA's `epa` command with these words, in your scripts folder (its keys are in .env there), and gives back what it showed. Before changing anything EPA asks, in a window here, naming what will change. If it fails, the flow stops with EPA's own sentence and its next step.",
+                "epa [\"connect\"; \"resend\"; \"--domain\"; domain]", arity: 1) { i, a, pos in
+            let o = try i.epa(a[0].strings, pos: pos)
+            guard o.ok else {
+                throw FlowError(.run, pos, "EPA: " + (o.failure ?? "epa \(a[0].strings.first ?? "") didn't finish."),
+                                fix: o.next ?? "Its output above says what happened. `attemptEpa` keeps the flow going instead.")
+            }
+            return .str(o.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        },
+        Builtin("attemptEpa", "string list -> Run", "EPA",
+                "Runs `epa` like `epa`, but keeps going when it fails: .ok says whether it worked, .out what it showed, .err EPA's sentence for what failed and its next step.",
+                "let check = attemptEpa [\"doctor\"]\nif not check.ok then notify check.err", arity: 1) { i, a, pos in
+            .run(Interpreter.runValue(try i.epa(a[0].strings, pos: pos)))
+        },
+    ]
 
     static let asking: [Builtin] = [
         Builtin("confirm", "string -> unit", "Asking",

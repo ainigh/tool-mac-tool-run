@@ -293,7 +293,17 @@ final class OutputCache {
     }
 
     private static func part(_ stream: RunCore.OutputStream, _ text: String) -> AttributedString {
-        var p = AttributedString(text)
+        var p = AttributedString()
+        // Links (a page EPA's next step names, the Atlas) open with a click.
+        var at = text.startIndex
+        for link in Links.find(in: text) {
+            p += AttributedString(String(text[at..<link.range.lowerBound]))
+            var l = AttributedString(String(text[link.range]))
+            l.link = link.url
+            p += l
+            at = link.range.upperBound
+        }
+        p += AttributedString(String(text[at...]))
         if stream == .err { p.foregroundColor = Color.red }
         return p
     }

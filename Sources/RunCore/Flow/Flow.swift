@@ -173,6 +173,51 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
         return try execute(p, name: command, pos: pos)
     }
 
+    /// `epa` with these words, in the folder: a step of its own, showing EPA's own words (not
+    /// its JSON), with its questions asked through `ask`.
+    public func runEPA(_ words: [String], pos: Pos) throws -> EPA.Outcome {
+        let env = ShellEnvironment.shared.environment
+        guard let program = EPA.find(path: env["PATH"] ?? "") else {
+            throw FlowError(.run, pos, EPA.notSetUp, fix: EPA.setupFix)
+        }
+        let line = ([program] + EPA.arguments(words)).map(ShellEnvironment.quote).joined(separator: " ")
+        let p = ScriptProcess(shell: "exec " + line, workingDirectory: library.root, environment: env)
+        p.keepsInputOpen = true
+        let id = UUID()
+        let name = (["epa"] + words).joined(separator: " ")
+        let events = self.events
+        let session = EPA.Session(line: pos.line, ask: { [weak self] q in self?.ask(q) ?? .unavailable },
+                                  send: { p.send($0) }, closeInput: { p.endInput() },
+                                  show: { events(.stepOutput(id: id, stream: .out, text: $0)) })
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            throw FlowError(.stopped, pos, "Stopped.")
+        }
+        running[id] = p
+        lock.unlock()
+        defer {
+            lock.lock()
+            running[id] = nil
+            lock.unlock()
+        }
+        events(.stepStarted(id: id, name: name, command: EPA.commandLine(words, folder: library.root), line: pos.line))
+        do {
+            let r = try p.runToEnd { stream, text in
+                if stream == .out { session.feed(text) } else { events(.stepOutput(id: id, stream: stream, text: text)) }
+            }
+            session.finish()
+            let o = session.outcome(code: r.code)
+            events(.stepFinished(id: id, name: name, result: RunResult(code: o.ok ? 0 : max(r.code, 1), out: o.text, err: r.err,
+                                                                      seconds: r.seconds, signal: r.signal, stopped: r.stopped)))
+            if p.wasStopped { throw FlowError(.stopped, pos, "Stopped.") }
+            return o
+        } catch let e as LaunchError {
+            events(.stepFinished(id: id, name: name, result: RunResult(code: 127, out: "", err: e.description, seconds: 0)))
+            throw FlowError(.run, pos, e.message, fix: e.fix)
+        }
+    }
+
     private func execute(_ p: ScriptProcess, name: String, pos: Pos) throws -> RunResult {
         let id = UUID()
         lock.lock()

@@ -342,6 +342,42 @@ struct GridActions {
         }
     }
 
+    /// Adds the EPA recipes (setup-epa, epa-keys and the epa-… flows; nothing there is changed).
+    /// When EPA isn't set up on this Mac yet, setup-epa runs straight after, on its cell.
+    func addEPARecipes() {
+        guard let lib = app.library else { return }
+        do {
+            try lib.addEPARecipes()
+            app.problem = nil
+            app.reload()
+        } catch {
+            app.problem = "Couldn't add the EPA recipes: \(error.localizedDescription)"
+            return
+        }
+        let app = self.app
+        Task.detached {
+            let found = EPA.find(path: ShellEnvironment.shared.environment["PATH"] ?? "") != nil
+            await MainActor.run {
+                if !found { GridActions(app: app, kind: .scripts).runFile(EPA.setupScript) }
+            }
+        }
+    }
+
+    /// Runs a script (or a flow) from the folder by its file name. False when it isn't there.
+    @discardableResult
+    func runFile(_ file: String) -> Bool {
+        guard let lib = app.library else { return false }
+        if let script = lib.script(named: file) {
+            GridActions(app: app, kind: .scripts).run(script)
+            return true
+        }
+        if let flow = lib.flows().first(where: { $0.id == file }) {
+            GridActions(app: app, kind: .composer).run(flow)
+            return true
+        }
+        return false
+    }
+
     /// Moves it to the Trash. An editor open on it saves first (the Trash keeps the latest), then
     /// closes without saving again (which would make the file again).
     func trash(_ item: ScriptItem) {
@@ -436,6 +472,12 @@ struct ScriptCell: View {
                         .foregroundStyle(Color.orange.opacity(0.85))
                         .help("Asks before it runs. " + actions.askReason(item) + " (Right-click → Ask Before Running to change it.)")
                         .accessibilityLabel("Asks before it runs")
+                }
+                if item.usesEPA, roomy {
+                    Label("EPA", systemImage: "bolt.horizontal.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(red: 0.70, green: 0.16, blue: 0.32))
+                        .help("Runs EPA (Enter-Price Automation). EPA shows its plan and asks before it changes anything.")
                 }
                 if let arguments, !arguments.isEmpty, roomy {
                     Text(arguments)
@@ -703,6 +745,8 @@ struct EmptyFolderCard: View {
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .help("Adds 5 example scripts and 4 flows to the folder (nothing there is changed)")
+                Button { actions.addEPARecipes() } label: { Label("Add the EPA Recipes", systemImage: "bolt.horizontal.circle") }
+                    .help("Adds EPA's recipes: setup-epa, epa-keys, and flows to connect services, secure a site, onboard and offboard people… (nothing there is changed). If EPA isn't on this Mac yet, setup-epa then runs to install it.")
                 if kind == .scripts {
                     Menu("New Script") {
                         ForEach(ScriptLanguage.offered, id: \.self) { lang in Button(lang.title) { actions.newScript(lang) } }

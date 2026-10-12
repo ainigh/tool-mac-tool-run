@@ -15,6 +15,8 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     public var dangers: [String] = []
     /// It looks like it asks for a typed answer while it runs: its run keeps a way to type one.
     public var asksForInput = false
+    /// It runs EPA (a flow with an `epa` step, or one of EPA's own scripts): its cell says so.
+    public var usesEPA = false
 
     public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil) {
         self.url = url
@@ -29,6 +31,7 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
         let text = Caution.text(of: url)
         item.dangers = Caution.dangers(in: text)
         item.asksForInput = Caution.asksForInput(text)
+        item.usesEPA = Examples.epaScripts.contains { $0.0 == url.lastPathComponent }
         return item
     }
 }
@@ -75,7 +78,9 @@ public struct Library: Sendable {
     public func flows() -> [ScriptItem] {
         files(in: composerFolder).filter { $0.pathExtension.lowercased() == Self.flowExtension }.map { url in
             var item = ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url))
-            item.dangers = Caution.dangers(in: Caution.text(of: url))
+            let text = Caution.text(of: url)
+            item.dangers = Caution.dangers(in: text)
+            item.usesEPA = EPA.isUsed(in: text)
             return item
         }
     }
@@ -187,16 +192,22 @@ public struct Library: Sendable {
     /// Puts the examples in the folder, leaving any already there as they are. Returns the ones added.
     @discardableResult
     public func addExamples() throws -> [URL] {
+        try add(scripts: Examples.scripts, flows: Examples.flows)
+    }
+
+    /// Puts these scripts (marked executable) and flows in the folder, leaving any already there
+    /// as they are. Returns the ones added.
+    func add(scripts: [(String, String)], flows: [(String, String)]) throws -> [URL] {
         try ensure()
         var added: [URL] = []
-        for (name, contents) in Examples.scripts {
+        for (name, contents) in scripts {
             let url = root.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path) { continue }
             try contents.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
             added.append(url)
         }
-        for (name, contents) in Examples.flows {
+        for (name, contents) in flows {
             let url = composerFolder.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path) { continue }
             try contents.write(to: url, atomically: true, encoding: .utf8)

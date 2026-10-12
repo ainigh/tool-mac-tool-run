@@ -17,11 +17,19 @@ public protocol FlowHost: AnyObject, Sendable {
     /// Asks the person running the flow (`confirm`, `ask`, `choose`, `askYesNo`) and waits for the
     /// answer. `.stop` (or a stop while it waits) ends the flow, as stopped.
     func ask(_ question: FlowQuestion) -> FlowAnswer
+    /// Runs `epa` with these words (`epa`, `attemptEpa`), asking its questions through `ask`.
+    /// Throws a `FlowError` when it can't start (not set up) or is stopped.
+    func runEPA(_ words: [String], pos: Pos) throws -> EPA.Outcome
 }
 
 extension FlowHost {
     /// No one to ask (a host that doesn't take questions): the flow stops, saying why.
     public func ask(_ question: FlowQuestion) -> FlowAnswer { .unavailable }
+
+    /// A host that can't run EPA (a pretend one): says so.
+    public func runEPA(_ words: [String], pos: Pos) throws -> EPA.Outcome {
+        throw FlowError(.run, pos, EPA.notSetUp, fix: EPA.setupFix)
+    }
 }
 
 /// A question a flow asks the person running it, and waits for.
@@ -40,11 +48,18 @@ public struct FlowQuestion: Sendable, Equatable {
     public var prompt: String
     /// Where in the flow it's asked.
     public var line: Int
+    /// Going ahead can't be undone (EPA removing something): Continue is shown as such, and
+    /// `flow run --yes` doesn't answer it by itself.
+    public var destructive: Bool
+    /// The answer is a secret (a key EPA asks for): it isn't shown as it's typed, or kept.
+    public var secret: Bool
 
-    public init(kind: Kind, prompt: String, line: Int) {
+    public init(kind: Kind, prompt: String, line: Int, destructive: Bool = false, secret: Bool = false) {
         self.kind = kind
         self.prompt = prompt
         self.line = line
+        self.destructive = destructive
+        self.secret = secret
     }
 }
 
@@ -304,6 +319,25 @@ public final class Interpreter: @unchecked Sendable {
         try checkStop(pos)
         return RunValue(out: r.out.trimmingCharacters(in: .whitespacesAndNewlines),
                         err: r.err.trimmingCharacters(in: .whitespacesAndNewlines), code: Int(r.code))
+    }
+
+    /// Runs `epa` with these words. A Stop answered to one of its questions stops the flow.
+    func epa(_ words: [String], pos: Pos) throws -> EPA.Outcome {
+        try checkStop(pos)
+        if words.isEmpty || words[0].hasPrefix("-") {
+            throw FlowError(.run, pos, "`epa` needs the command first, such as [\"doctor\"] or [\"connect\"; \"resend\"].",
+                            fix: "Commands: " + EPA.commandNames.joined(separator: ", ") + ".")
+        }
+        let o = try host.runEPA(words, pos: pos)
+        try checkStop(pos)
+        if o.stoppedByPerson { throw FlowError(.stopped, pos, "Stopped: you chose Stop at one of EPA's questions.") }
+        return o
+    }
+
+    /// An EPA run as a script's result (`attemptEpa`): its words, what failed and the next step.
+    static func runValue(_ o: EPA.Outcome) -> RunValue {
+        let err = [o.failure, o.next.map { "Next: \($0)" }].compactMap { $0 }.joined(separator: "\n")
+        return RunValue(out: o.text.trimmingCharacters(in: .whitespacesAndNewlines), err: err, code: o.ok ? 0 : Int(max(o.code, 1)))
     }
 
     func requireSuccess(_ r: RunValue, name: String, pos: Pos) throws {

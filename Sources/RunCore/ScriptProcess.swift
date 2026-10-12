@@ -580,6 +580,7 @@ public enum Remedy {
         "swift": "xcode-select --install", "osascript": "AppleScript only runs on a Mac",
         "zsh": "brew install zsh", "bash": "brew install bash", "bun": "brew install oven-sh/bun/bun",
         "tsx": "npm install -g tsx", "ts-node": "npm install -g ts-node",
+        "epa": "Run setup-epa on the Scripts grid (Add the EPA Recipes puts it there)",
     ]
 
     /// The command that installs `program` (Homebrew's, on a Mac).
