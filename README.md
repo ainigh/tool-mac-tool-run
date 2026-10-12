@@ -17,6 +17,13 @@ A terminal icon in the macOS menu bar. Click it, and its menu opens one of two g
 The same menu has **Runs**: every run of a script or a flow, with how it went and everything it
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
 
+**Notifications you can't miss.** A run that ends while you're elsewhere, one that's taking long,
+a flow waiting for an answer, an update: each comes as a large notice in the middle of the
+screen (half its width and height), in its state's color, with the one thing to do next (Show
+Run, Answer, Install Update). It never takes the keyboard from what you're typing, goes by itself
+(a bar shows how long it has; the pointer on it keeps it), and several at once wait behind each
+other.
+
 It's the sibling of [Tool Mac Tool](https://github.com/ainigh/tool-mac-tool), whose boards' grid
 this borrows: the same cell colors and the same rows-closest-to-square layout.
 

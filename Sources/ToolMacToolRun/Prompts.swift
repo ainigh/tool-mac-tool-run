@@ -74,7 +74,7 @@ final class PromptCenter: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             MainActor.assumeIsolated {
                 guard let still = PromptCenter.shared.pending.first(where: { $0.id == id }) else { return }
-                Notifier.post(title: "❓ \(still.source) is waiting for you", body: still.question.prompt, run: still.run)
+                Notifier.post(title: "\(still.source) is waiting for you", body: still.question.prompt, run: still.run, tone: .waiting)
             }
         }
     }
@@ -118,13 +118,15 @@ struct PromptWindowView: View {
             if let p = center.pending.first {
                 PromptCard(pending: p, more: center.pending.count - 1, showRun: true)
                     .id(p.id)
+                    .padding(.top, 14)
             } else {
                 Text("Nothing's waiting for an answer.")
                     .foregroundStyle(.secondary)
                     .padding(30)
             }
         }
-        .frame(width: 460)
+        .frame(width: 520)
+        .background(Backdrop())
     }
 }
 
@@ -145,17 +147,15 @@ struct PromptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 8 : 14) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.system(size: compact ? 20 : 30))
-                    .foregroundStyle(q.destructive ? Color.red : Color.orange)
-                    .frame(width: compact ? 24 : 36)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(q.kind == .result ? "\(pending.source) shows you" : "\(pending.source) is waiting for you")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                IconTile(symbol: symbol, color: q.destructive ? .red : q.kind == .result ? .accentColor : .orange, size: compact ? 28 : 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text((q.kind == .result ? "\(pending.source) shows you" : "\(pending.source) is waiting for you").uppercased())
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(q.destructive ? Color.red : .secondary)
                     if q.kind != .result {
                         Text(q.prompt)
-                            .font(compact ? .headline : .title3.weight(.semibold))
+                            .font(compact ? .headline : .system(size: 19, weight: .semibold, design: .rounded))
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
@@ -188,21 +188,21 @@ struct PromptCard: View {
                 }
                 Spacer()
                 Button("Stop Flow") { answer(.stop) }
+                    .buttonStyle(SoftButtonStyle(large: !compact))
                     .shortcut(compact ? nil : .cancelAction)
                     .help("End the flow here: nothing after this question runs (Escape)")
                 if q.kind == .yesNo {
                     Button("No") { answer(.no) }
+                        .buttonStyle(SoftButtonStyle(large: !compact))
                 }
                 // What can't be undone isn't on Return: it takes a click on the button that says so.
                 Button(primaryTitle) { primary() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(q.destructive ? Color.red : nil)
+                    .buttonStyle(ProminentButtonStyle(color: q.destructive ? .red : .accentColor, large: !compact))
                     .shortcut(compact || q.destructive ? nil : .defaultAction)
                     .disabled(primaryDisabled)
             }
-            .controlSize(compact ? .regular : .large)
         }
-        .padding(compact ? 12 : 22)
+        .padding(compact ? 12 : 24)
         .onAppear {
             if case let .choice(options) = q.kind { choice = options.first }
             focused = true
@@ -273,9 +273,10 @@ struct PromptCard: View {
                                 Text(option)
                                 Spacer()
                             }
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 8)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(choice == option ? Color.accentColor.opacity(0.12) : .clear))
+                            .padding(.vertical, 7)
+                            .padding(.horizontal, 10)
+                            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(choice == option ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04)))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(choice == option ? Color.accentColor.opacity(0.5) : .clear))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -294,7 +295,7 @@ struct PromptCard: View {
             }
             .frame(maxHeight: compact ? 140 : 340)
             .fixedSize(horizontal: false, vertical: true)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.05)))
             HStack {
                 Spacer()
                 Button {

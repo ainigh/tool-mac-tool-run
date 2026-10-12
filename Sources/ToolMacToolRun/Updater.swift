@@ -114,9 +114,9 @@ final class Updater: ObservableObject {
             told = plan
             Notifier.post(title: "An update is ready", body: plan.title + ". Click to install it (the app restarts).", update: true)
         case .upToDate where userInitiated:
-            Notifier.post(title: "Tool Mac Tool Run is up to date", body: versionLine)
+            Notifier.post(title: "Tool Mac Tool Run is up to date", body: versionLine, tone: .success)
         case let .failed(message) where userInitiated:
-            Notifier.post(title: "Couldn't check for updates", body: message)
+            Notifier.post(title: "Couldn't check for updates", body: message, tone: .warning)
         default:
             break
         }
@@ -135,7 +135,7 @@ final class Updater: ObservableObject {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         self.state = .failed("Update failed: \(error.localizedDescription)")
-                        Notifier.post(title: "The update didn't install", body: "\(error.localizedDescription) The app you have is unchanged.")
+                        Notifier.post(title: "The update didn't install", body: "\(error.localizedDescription) The app you have is unchanged.", tone: .failure)
                     }
                 }
             }

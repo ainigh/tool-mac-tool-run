@@ -15,8 +15,12 @@ struct RunsView: View {
                 let top = records.reversed().filter { $0.parent == nil }
                 let steps = Self.stepsByParent(records)
                 if top.isEmpty {
-                    Text("No runs yet. Click a cell in a grid to run it.")
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Image(systemName: "tray").font(.title2).foregroundStyle(.tertiary)
+                        Text("No runs yet").font(.headline)
+                        Text("Click a cell in a grid to run it.").foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 12)
                 }
                 ForEach(top) { run in
                     RunRow(run: run, indent: false).tag(run.id)
@@ -37,15 +41,21 @@ struct RunsView: View {
             if let id = selection.selected, let run = runs.record(id) {
                 RunDetail(run: run, runs: runs)
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "list.bullet.rectangle").font(.system(size: 40)).foregroundStyle(.secondary)
-                    Text("Pick a run on the left to see what it printed.").foregroundStyle(.secondary)
-                    HStack {
-                        Button("Open the Scripts Grid") { AppModel.shared.openGrid(.scripts) }
-                        Button("Open the Composer Grid") { AppModel.shared.openGrid(.composer) }
+                VStack(spacing: 14) {
+                    IconTile(symbol: "list.bullet.rectangle.fill", size: 64)
+                    Text("Pick a run to see what it printed")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("Every run of a script or a flow is kept here, live while it runs.")
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button { AppModel.shared.openGrid(.scripts) } label: { Label("Scripts Grid", systemImage: "terminal") }
+                        Button { AppModel.shared.openGrid(.composer) } label: { Label("Composer Grid", systemImage: "point.3.connected.trianglepath.dotted") }
                     }
+                    .buttonStyle(SoftButtonStyle(large: true))
+                    .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Backdrop())
             }
         }
     }
@@ -67,14 +77,22 @@ struct RunRow: View {
 
     var body: some View {
         let waiting = run.state == .running && prompts.pending(for: run.id) != nil
-        HStack(spacing: 8) {
+        let color = waiting ? Color.orange : Theme.color(run.state)
+        HStack(spacing: 10) {
+            if indent {
+                // A flow's step hangs off its flow.
+                Rectangle().fill(Color.secondary.opacity(0.25)).frame(width: 2).padding(.vertical, -4)
+            }
             Image(systemName: waiting ? "hand.raised.fill" : Theme.symbol(run.state))
-                .foregroundStyle(waiting ? Color.orange : Theme.color(run.state))
+                .font(.system(size: indent ? 11 : 13, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: indent ? 22 : 28, height: indent ? 22 : 28)
+                .background(Circle().fill(color.opacity(0.14)))
                 .help(waiting ? "Waiting for your answer" : run.state.title)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(run.name + (run.arguments.isEmpty ? "" : " " + run.arguments.map(ShellEnvironment.quote).joined(separator: " ")))
                     .lineLimit(1)
-                    .font(indent ? .callout : .body)
+                    .font(indent ? .callout : .body.weight(.medium))
                 HStack(spacing: 4) {
                     Text(run.started.formatted(date: .omitted, time: .shortened))
                     if run.state == .running {
@@ -89,7 +107,8 @@ struct RunRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, indent ? 18 : 0)
+        .padding(.leading, indent ? 12 : 0)
+        .padding(.vertical, indent ? 1 : 3)
     }
 }
 
@@ -99,16 +118,14 @@ struct RunDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Image(systemName: Theme.symbol(run.state))
-                        .font(.title)
-                        .foregroundStyle(Theme.color(run.state))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(run.name).font(.title2.weight(.semibold)).lineLimit(1)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    IconTile(symbol: Theme.symbol(run.state), color: Theme.color(run.state), size: 48)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(run.name).font(.system(size: 22, weight: .bold, design: .rounded)).lineLimit(1)
                         HStack(spacing: 6) {
-                            Text(run.state.title)
-                            if let ending = run.ending, run.state == .failed { Text("· \(ending.summary)") }
+                            Pill(text: run.state.title, color: Theme.color(run.state), filled: true)
+                            if let ending = run.ending, run.state == .failed { Text(ending.summary) }
                             Text("· started \(run.started.formatted(date: .abbreviated, time: .standard))")
                             if run.state == .running {
                                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -121,37 +138,49 @@ struct RunDetail: View {
                         .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button { copy(run.text) } label: { Label("Copy Output", systemImage: "doc.on.doc") }
+                        .buttonStyle(SoftButtonStyle())
+                        .disabled(run.output.isEmpty)
                     if run.state == .running {
                         // A step is stopped by stopping its flow.
                         Button { runs.stop(run.id) } label: { Label(run.kind == .step ? "Stop Flow" : "Stop", systemImage: "stop.fill") }
+                            .buttonStyle(ProminentButtonStyle(color: .red))
                             .keyboardShortcut(".")
                             .help(run.kind == .step ? "Stop the flow this step is part of (⌘.)" : "Stop it (⌘.)")
                     } else if run.kind != .step {
                         Button { again() } label: { Label("Run Again", systemImage: "arrow.clockwise") }
+                            .buttonStyle(ProminentButtonStyle())
                             .help("Run it again with the same arguments")
                     }
-                    Button { copy(run.text) } label: { Label("Copy Output", systemImage: "doc.on.doc") }
-                        .disabled(run.output.isEmpty)
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("$").foregroundStyle(.tertiary)
                     Text(run.command)
-                        .font(.callout.monospaced())
                         .textSelection(.enabled)
                         .lineLimit(2)
                         .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
                     Button { copy(run.command) } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(CircleIconButtonStyle(size: 24))
                         .help("Copy the command, to run it in a terminal")
                 }
+                .font(.callout.monospaced())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
                 if let problem = run.problem {
-                    Text(problem)
-                        .textSelection(.enabled)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.color(run.state).opacity(0.1)))
+                    HStack(alignment: .top, spacing: 10) {
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(run.state)).frame(width: 4)
+                        Text(problem)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(10)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.color(run.state).opacity(0.1)))
                 }
             }
-            .padding(16)
+            .padding(20)
             Divider()
             RunAttention(run: run, runs: runs)
             OutputText(run: run, version: runs.version(run.id))
@@ -193,13 +222,13 @@ struct OutputText: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if run.trimmed {
                         Text("(The earliest output was dropped: only the last \(RunRecord.maxOutput / 1000) KB is kept.)")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.terminalText.opacity(0.5))
                             .padding(.bottom, 6)
                     }
                     if shown.hiddenBytes > 0 {
                         HStack(spacing: 8) {
                             Text("(Showing the last \(OutputCache.tailBytes / 1000) KB.)")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.terminalText.opacity(0.5))
                             Button("Show All (\(max(1, (shown.hiddenBytes + OutputCache.tailBytes) / 1000)) KB)") { showAll = true }
                                 .buttonStyle(.link)
                         }
@@ -207,18 +236,30 @@ struct OutputText: View {
                     }
                     if run.output.isEmpty {
                         Text(run.state == .running ? "Nothing printed yet…" : "It printed nothing.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.terminalText.opacity(0.5))
                     } else {
                         Text(shown.text)
+                            .foregroundStyle(Theme.terminalText)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    if run.state == .running {
+                        // A cursor: it's still going.
+                        TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+                            Rectangle().fill(Theme.terminalText)
+                                .frame(width: 7, height: 14)
+                                .opacity(Int(ctx.date.timeIntervalSinceReferenceDate * 2) % 2 == 0 ? 0.8 : 0)
+                        }
+                        .padding(.top, 2)
+                    }
                     Color.clear.frame(height: 1).id("end")
                 }
-                .font(.system(size: 12, design: .monospaced))
-                .padding(12)
+                .font(.system(size: 12.5, design: .monospaced))
+                .lineSpacing(2)
+                .padding(14)
             }
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(Theme.terminal)
+            .environment(\.colorScheme, .dark)
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
             // The version keeps going up even when the output is at its cap (its length the same).
             .onChange(of: version) { _, _ in
@@ -304,7 +345,7 @@ final class OutputCache {
             at = link.range.upperBound
         }
         p += AttributedString(String(text[at...]))
-        if stream == .err { p.foregroundColor = Color.red }
+        if stream == .err { p.foregroundColor = Theme.terminalError }
         return p
     }
 }
@@ -318,7 +359,7 @@ struct OutputPanel: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: Theme.symbol(run.state)).foregroundStyle(Theme.color(run.state))
-                Text(StatusLine.summary(run))
+                Text(StatusLine.summary(run)).fontWeight(.medium)
                 if run.state == .running {
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         Text(RunRecord.duration(ctx.date.timeIntervalSince(run.started))).monospacedDigit()
@@ -328,13 +369,15 @@ struct OutputPanel: View {
                 }
                 Spacer()
                 if run.state == .running {
-                    Button("Stop") { runs.stop(run.id) }
+                    Button { runs.stop(run.id) } label: { Label("Stop", systemImage: "stop.fill") }
+                        .buttonStyle(SoftButtonStyle(tint: .red))
                 }
-                Button("Open in Runs") { Windows.showRuns(run.id) }
+                Button { Windows.showRuns(run.id) } label: { Label("Open in Runs", systemImage: "arrow.up.forward.app") }
+                    .buttonStyle(SoftButtonStyle())
             }
             .font(.callout)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             if let problem = run.problem {
                 Text(problem)
                     .font(.callout)

@@ -568,9 +568,10 @@ struct EditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .padding(.horizontal, 16)
-                .padding(.top, 34)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 18)
+                .padding(.top, 36)
+                .padding(.bottom, 12)
+                .background(Backdrop())
             if model.missing {
                 missingBanner
             }
@@ -582,8 +583,9 @@ struct EditorView: View {
             }
             Divider()
             footer
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 18)
                 .padding(.vertical, 10)
+                .background(.bar)
         }
         .frame(minWidth: 720, minHeight: 440)
         .onAppear {
@@ -663,18 +665,29 @@ struct EditorView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            if model.isFlow {
+                IconTile(symbol: "point.3.connected.trianglepath.dotted", size: 40)
+            } else {
+                Text(model.language.badge)
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 40, minHeight: 40)
+                    .padding(.horizontal, 2)
+                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.badge(model.language)))
+                    .shadow(color: Theme.badge(model.language).opacity(0.35), radius: 5, y: 2)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     TextField("Name", text: $model.name)
                         .textFieldStyle(.plain)
-                        .font(.title2.weight(.semibold))
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
                         .focused($nameFocused)
                         .onSubmit { model.commitRename() }
                         .onChange(of: nameFocused) { _, focused in if !focused { model.commitRename() } }
                         .frame(maxWidth: 360)
                         .help("Its name: type to rename the file (Return)")
                     if !model.item.url.pathExtension.isEmpty {
-                        Text(".\(model.item.url.pathExtension)").font(.title2).foregroundStyle(.secondary)
+                        Text(".\(model.item.url.pathExtension)").font(.system(size: 22, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
                     }
                 }
                 if let problem = model.renameProblem {
@@ -708,10 +721,11 @@ struct EditorView: View {
             }
             if !model.isReadOnly { saveBadge }
             Button("Revert") { model.revert() }
+                .buttonStyle(SoftButtonStyle())
                 .disabled(model.isReadOnly || model.text == model.original)
                 .help("Back to how it was when this window opened")
             Button { model.saveAndRun() } label: { Label("Save & Run", systemImage: "play.fill") }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ProminentButtonStyle())
                 .keyboardShortcut("r")
                 .help("Save it and run it (⌘R); the output shows underneath")
         }
@@ -722,12 +736,12 @@ struct EditorView: View {
     private var saveBadge: some View {
         switch model.saveState {
         case .saved:
-            Label("Saved", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+            Pill(text: "Saved", symbol: "checkmark.circle.fill", color: .green)
         case .unsaved:
-            Label("Saving…", systemImage: "circle.dotted").foregroundStyle(.secondary)
+            Pill(text: "Saving…", symbol: "circle.dotted", color: .secondary)
         case let .failed(message):
-            Label("Not saved: \(message)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                .lineLimit(1)
+            Pill(text: "Not saved: \(message)", symbol: "exclamationmark.triangle.fill", color: .red)
+                .help(message)
         }
     }
 
@@ -862,5 +876,8 @@ struct FlowSidebar: View {
             Text(note).font(.caption).foregroundStyle(.secondary)
             content()
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(radius: 12, shadow: false)
     }
 }

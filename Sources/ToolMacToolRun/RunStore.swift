@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import RunCore
-import UserNotifications
 
 /// Every run: the ones going now (with what they print, as they print it) and the ones before,
 /// kept between launches. The cells, the Runs window and the menu all read it.
@@ -106,7 +105,7 @@ final class RunStore: ObservableObject {
             } else if let line = lastLines[r.id] {
                 body += " Last: \(line.prefix(80))"
             }
-            Notifier.post(title: "⏳ \(r.name)", body: body + " Click to watch it (or stop it).", run: r.id)
+            Notifier.post(title: r.name, body: body + " Click to watch it (or stop it).", run: r.id, tone: .running)
         }
     }
 
@@ -437,7 +436,7 @@ final class RunStore: ObservableObject {
             }
             lastLines[id] = nil
         case let .notify(text):
-            Notifier.post(title: record(flow)?.name ?? "Flow", body: text, run: flow)
+            Notifier.post(title: record(flow)?.name ?? "Flow", body: text, run: flow, tone: .info)
         }
     }
 
@@ -500,7 +499,7 @@ final class RunStore: ObservableObject {
         if NSApp.isActive && !toldSlow.contains(r.id) { return }
         var body = "\(r.state.title) after \(RunRecord.duration(secs))."
         if r.state == .failed, let problem = r.problem ?? r.ending.map(\.summary) { body += " \(problem.prefix(120))" }
-        Notifier.post(title: "\(r.state.mark) \(r.name)", body: body, run: r.id)
+        Notifier.post(title: r.name, body: body, run: r.id, tone: Theme.tone(r.state))
     }
 }
 
@@ -646,102 +645,13 @@ final class PendingOutput: @unchecked Sendable {
     }
 }
 
-/// Notifications (a flow's `notify`, a long run, a question waiting, an update). macOS asks once
-/// whether to allow them. Nothing is silent: when they're off (turned off in System Settings, or
-/// macOS won't let this copy post them), the same message shows as a banner of the app's own, and
-/// the menu offers to turn them on. A click on one about a run shows that run; on an update, it
-/// installs it.
+/// Notifications (a flow's `notify`, a long run, a question waiting, an update): the app's own
+/// large notice in the middle of the screen (`NoticeCenter`), never a corner banner that's easy
+/// to miss or that macOS may be hiding. A click on one about a run shows that run (or its
+/// question); on an update, it installs it.
 @MainActor
 enum Notifier {
-    /// Whether macOS lets the app post notifications (nil: not asked yet).
-    final class Permission: ObservableObject {
-        static let shared = Permission()
-        @Published var allowed: Bool?
-    }
-
-    /// Asks macOS once, at launch, so the first `notify` isn't the one that asks.
-    static func prepare() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            let status = settings.authorizationStatus
-            if status == .notDetermined {
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = granted } }
-                }
-            } else {
-                let ok = status == .authorized || status == .provisional
-                DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = ok } }
-            }
-        }
-    }
-
-    static func post(title: String, body: String, run: UUID? = nil, update: Bool = false) {
-        guard Bundle.main.bundleIdentifier != nil else {
-            Toast.show(title: title, body: body, run: run, update: update)
-            return
-        }
-        let center = UNUserNotificationCenter.current()
-        let fallback: @Sendable () -> Void = {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    Permission.shared.allowed = false
-                    Toast.show(title: title, body: body, run: run, update: update)
-                }
-            }
-        }
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return fallback() }
-            DispatchQueue.main.async { MainActor.assumeIsolated { Permission.shared.allowed = true } }
-            let content = UNMutableNotificationContent()
-            content.title = title
-            content.body = body
-            content.sound = .default
-            var info: [String: String] = [:]
-            if let run { info["run"] = run.uuidString }
-            if update { info["update"] = "1" }
-            content.userInfo = info
-            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { error in
-                if error != nil { fallback() }
-            }
-        }
-    }
-
-    /// System Settings → Notifications, at this app.
-    static func openSettings() {
-        let id = Bundle.main.bundleIdentifier ?? "com.ainigh.toolmactoolrun"
-        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}
-
-/// A click on a notification about a run: show that run (or its question, if it's waiting on one).
-final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
-    static let shared = NotificationClicks()
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        let info = response.notification.request.content.userInfo
-        let run = (info["run"] as? String).flatMap(UUID.init(uuidString:))
-        let update = info["update"] != nil
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                if update {
-                    AppModel.shared.installUpdate()
-                } else if let run, PromptCenter.shared.pending(for: run) != nil {
-                    Windows.showPrompt()
-                } else {
-                    Windows.showRuns(run)
-                }
-            }
-        }
-        completionHandler()
-    }
-
-    /// Shown even while the app is in front (it's a menu bar app: it often is).
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+    static func post(title: String, body: String, run: UUID? = nil, update: Bool = false, tone: Notice.Tone = .info) {
+        NoticeCenter.shared.post(Notice(tone: update ? .update : tone, title: title, body: body, run: run, update: update))
     }
 }

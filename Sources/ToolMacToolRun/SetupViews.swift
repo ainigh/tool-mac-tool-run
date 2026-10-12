@@ -16,8 +16,9 @@ struct FolderSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            IconTile(symbol: "folder.fill", size: 64)
             Text("Where do your scripts live?")
-                .font(.largeTitle.weight(.semibold))
+                .font(.system(size: 34, weight: .bold, design: .rounded))
             Text("Pick the folder your scripts are in, or let the app make one. Every script at the top of that folder gets a cell on the Scripts grid. Flows, which compose them, go in a \"composer\" folder inside it (made for you). Nothing else in the folder is touched.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
@@ -30,7 +31,7 @@ struct FolderSetupView: View {
                           systemImage: "folder.badge.plus")
                         .frame(minWidth: 320)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ProminentButtonStyle(large: true))
                 .keyboardShortcut(.defaultAction)
                 Button {
                     app.chooseFolder()
@@ -39,17 +40,23 @@ struct FolderSetupView: View {
                     Label("Choose Another Folder…", systemImage: "folder")
                         .frame(minWidth: 320)
                 }
-                Toggle("Add the examples if the folder has no scripts (5 small scripts and 4 flows that use them)", isOn: $examples)
-                    .padding(.top, 4)
-                Toggle("Add the EPA recipes (connect services, secure a site, onboard and offboard people…), and set EPA up if it isn't yet", isOn: $epa)
+                .buttonStyle(SoftButtonStyle(large: true))
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Add the examples if the folder has no scripts (5 small scripts and 4 flows that use them)", isOn: $examples)
+                    Toggle("Add the EPA recipes (connect services, secure a site, onboard and offboard people…), and set EPA up if it isn't yet", isOn: $epa)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .card(radius: 14, shadow: false)
+                .padding(.top, 6)
             }
-            .controlSize(.large)
             Text("You can change the folder any time from the menu bar icon (Change Folder…).")
                 .foregroundStyle(.secondary)
         }
         .padding(48)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Backdrop())
     }
 
     private func use(_ url: URL) {
@@ -74,58 +81,100 @@ struct DoctorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Check Setup").font(.title2.weight(.semibold))
+            HStack(spacing: 14) {
+                IconTile(symbol: "stethoscope", color: .teal, size: 46)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Check Setup").font(.system(size: 24, weight: .bold, design: .rounded))
                     Text("A look at your folder and the programs your scripts need. It doesn't change anything.")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(checking ? "Checking…" : "Check Again") { run() }
-                    .disabled(checking)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 34)
-            .padding(.bottom, 12)
-            Divider()
-            List(lines) { line in
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: Theme.symbol(line.status))
-                        .foregroundStyle(Theme.color(line.status))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(line.title).fontWeight(.medium)
-                        if let detail = line.detail { Text(detail).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
-                        if let fix = line.fix {
-                            HStack(spacing: 6) {
-                                Text("→ \(fix)").font(.callout.monospaced()).textSelection(.enabled)
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(fix.replacingOccurrences(of: ", then run it again.", with: ""), forType: .string)
-                                } label: { Image(systemName: "doc.on.doc") }
-                                    .buttonStyle(.borderless)
-                                    .help("Copy")
-                            }
-                        }
-                        // The fix is a script in the folder: one click runs it (and Check Again shows the result).
-                        if let file = line.run, app.library?.script(named: file) != nil {
-                            Button("Run \((file as NSString).deletingPathExtension)") { GridActions(app: app, kind: .scripts).runFile(file) }
-                                .controlSize(.small)
-                                .help("Runs \(file) from your folder: its cell on the Scripts grid shows it going, and Runs has its output")
-                        }
-                    }
+                Button { run() } label: {
+                    Label(checking ? "Checking…" : "Check Again", systemImage: "arrow.clockwise")
                 }
-                .padding(.vertical, 3)
+                .buttonStyle(SoftButtonStyle())
+                .disabled(checking)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 36)
+            .padding(.bottom, 12)
+            if !lines.isEmpty {
+                HStack(spacing: 8) {
+                    tally(.ok, "fine")
+                    tally(.warning, "to look at")
+                    tally(.problem, "to fix")
+                    Spacer()
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
+            }
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(lines) { line in row(line) }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
             }
             if app.library == nil {
                 HStack {
                     Button("Choose Your Scripts Folder…") { app.openGrid(.scripts) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(ProminentButtonStyle())
                     Spacer()
                 }
                 .padding(16)
             }
         }
+        .background(Backdrop())
         .onAppear(perform: run)
+    }
+
+    /// How many lines came out this way, when any did.
+    @ViewBuilder
+    private func tally(_ status: Doctor.Line.Status, _ words: String) -> some View {
+        let n = lines.filter { $0.status == status }.count
+        if n > 0 { Pill(text: "\(n) \(words)", symbol: Theme.symbol(status), color: Theme.color(status)) }
+    }
+
+    private func row(_ line: Doctor.Line) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: Theme.symbol(line.status))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.color(line.status))
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Theme.color(line.status).opacity(0.14)))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(line.title).fontWeight(.semibold)
+                if let detail = line.detail { Text(detail).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+                if let fix = line.fix {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.right").foregroundStyle(.tertiary)
+                        Text(fix).font(.callout.monospaced()).textSelection(.enabled)
+                        Spacer(minLength: 4)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(fix.replacingOccurrences(of: ", then run it again.", with: ""), forType: .string)
+                        } label: { Image(systemName: "doc.on.doc") }
+                            .buttonStyle(CircleIconButtonStyle(size: 24))
+                            .help("Copy")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+                }
+                // The fix is a script in the folder: one click runs it (and Check Again shows the result).
+                if let file = line.run, app.library?.script(named: file) != nil {
+                    Button { GridActions(app: app, kind: .scripts).runFile(file) } label: {
+                        Label("Run \((file as NSString).deletingPathExtension)", systemImage: "play.fill")
+                    }
+                    .buttonStyle(ProminentButtonStyle())
+                    .help("Runs \(file) from your folder: its cell on the Scripts grid shows it going, and Runs has its output")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(radius: 14, shadow: false)
     }
 
     private func run() {
