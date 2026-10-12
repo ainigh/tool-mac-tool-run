@@ -252,5 +252,38 @@ final class EPATests: XCTestCase {
         XCTAssertEqual(EPA.isUsed(in: "x |> attemptEpa[\"doctor\"]"), true)
         XCTAssertEqual(EPA.isUsed(in: "let sepa [1] // tepa"), false)
     }
+
+    /// macOS's bash 3.2 reads a byte of "…" (or any non-ASCII) right after `$NAME` as part of the
+    /// name: `"$KIT…"` was `KIT\xE2: unbound variable` under set -u. Every script we write says ${NAME}.
+    func testNoScriptPutsNonASCIIRightAfterAVariable() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        var scripts = (Examples.scripts + Examples.epaScripts).map { ($0.0, $0.1) }
+        for file in ["install.sh", "scripts/setup-epa.sh", "scripts/build-app.sh"] {
+            scripts.append((file, try String(contentsOf: repo.appendingPathComponent(file), encoding: .utf8)))
+        }
+        let risky = try NSRegularExpression(pattern: #"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]"#)
+        for (name, text) in scripts {
+            let hits = risky.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+            XCTAssertEqual(hits, [], "\(name): write ${NAME} before a non-ASCII character")
+        }
+    }
+
+    func testARecipeStillAsAnEarlierVersionWroteItIsUpdatedAndAnEditedOneIsNot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("epa-update-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lib = Library(root: root)
+        try lib.ensure()
+        let setup = root.appendingPathComponent(EPA.setupScript)
+        let earlier = try XCTUnwrap(Examples.earlierEPARecipes[EPA.setupScript]?.first)
+        XCTAssertTrue(earlier.contains("into $KIT…"))
+        try earlier.write(to: setup, atomically: true, encoding: .utf8)
+        XCTAssertEqual(lib.updateEPARecipes(), [setup])
+        XCTAssertEqual(try String(contentsOf: setup, encoding: .utf8), Examples.setupEPA)
+        XCTAssertEqual(lib.updateEPARecipes(), [])
+        // Changed by someone: left as it is.
+        try (earlier + "# mine\n").write(to: setup, atomically: true, encoding: .utf8)
+        XCTAssertEqual(lib.updateEPARecipes(), [])
+        XCTAssertTrue(try String(contentsOf: setup, encoding: .utf8).hasSuffix("# mine\n"))
+    }
 }
 
