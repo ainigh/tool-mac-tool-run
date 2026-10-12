@@ -22,13 +22,13 @@ echo "✅ Node.js $(node --version)"
 
 # 2. The kit: updated when it's here, fetched when it isn't (with gh when it's signed in).
 if [ -d "$KIT/.git" ]; then
-  echo "→ Updating EPA in $KIT…"
+  echo "→ Updating EPA in ${KIT}…"
   if ! git -C "$KIT" pull --ff-only --quiet; then
     echo "⚠️ Couldn't update $KIT (it has changes of its own), so the EPA there is kept as it is." >&2
     echo "   To start it fresh: move that folder to the Trash, then run this again." >&2
   fi
 else
-  echo "→ Fetching EPA into $KIT…"
+  echo "→ Fetching EPA into ${KIT}…"
   mkdir -p "$(dirname "$KIT")"
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     gh repo clone "$REPO" "$KIT" -- --quiet

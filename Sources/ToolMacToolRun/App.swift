@@ -213,6 +213,8 @@ final class AppModel: ObservableObject {
             problem = "Couldn't use \(url.path): \(error.localizedDescription)"
         }
         library = lib
+        // A recipe still exactly as an earlier version of the app wrote it is brought up to date.
+        lib.updateEPARecipes()
         if remember { UserDefaults.standard.set(url.path, forKey: Self.folderKey) }
         reload()
         watch()

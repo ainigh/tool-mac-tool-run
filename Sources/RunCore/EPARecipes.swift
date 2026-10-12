@@ -50,13 +50,13 @@ extension Examples {
 
     # 2. The kit: updated when it's here, fetched when it isn't (with gh when it's signed in).
     if [ -d "$KIT/.git" ]; then
-      echo "→ Updating EPA in $KIT…"
+      echo "→ Updating EPA in ${KIT}…"
       if ! git -C "$KIT" pull --ff-only --quiet; then
         echo "⚠️ Couldn't update $KIT (it has changes of its own), so the EPA there is kept as it is." >&2
         echo "   To start it fresh: move that folder to the Trash, then run this again." >&2
       fi
     else
-      echo "→ Fetching EPA into $KIT…"
+      echo "→ Fetching EPA into ${KIT}…"
       mkdir -p "$(dirname "$KIT")"
       if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         gh repo clone "$REPO" "$KIT" -- --quiet
@@ -79,6 +79,14 @@ extension Examples {
     case ":$PATH:" in *":$BIN:"*) ;; *) echo "   (Add $BIN to your PATH to type epa in a terminal: the app finds it either way.)";; esac
     echo "Next: run epa-check-connections on the Composer grid. It says what to connect first."
     """ + "\n"
+
+    /// Earlier versions of the recipes this app wrote, by file name. A file that is still exactly
+    /// one of them (nobody changed it) is brought up to date by `updateEPARecipes`.
+    public static let earlierEPARecipes: [String: [String]] = [
+        // 1st: "$KIT…" — macOS's bash 3.2 read the first byte of "…" as part of the name
+        // (`KIT\xE2: unbound variable` under set -u). Fixed with ${KIT}.
+        EPA.setupScript: [setupEPA.replacingOccurrences(of: "${KIT}…", with: "$KIT…")],
+    ]
 
     public static let epaFlows: [(String, String)] = [
         ("epa-check-connections.flow", """
@@ -155,7 +163,22 @@ extension Library {
     /// Puts the EPA recipes in the folder, leaving any already there as they are. Returns the ones added.
     @discardableResult
     public func addEPARecipes() throws -> [URL] {
-        try add(scripts: Examples.epaScripts, flows: Examples.epaFlows)
+        updateEPARecipes()
+        return try add(scripts: Examples.epaScripts, flows: Examples.epaFlows)
+    }
+
+    /// Brings each EPA recipe that is exactly an earlier version this app wrote up to date (one
+    /// someone changed, or that isn't there, is left alone). Returns the ones updated.
+    @discardableResult
+    public func updateEPARecipes() -> [URL] {
+        var updated: [URL] = []
+        for (name, contents) in Examples.epaScripts + Examples.epaFlows {
+            guard let earlier = Examples.earlierEPARecipes[name] else { continue }
+            let url = name.hasSuffix("." + Self.flowExtension) ? composerFolder.appendingPathComponent(name) : root.appendingPathComponent(name)
+            guard let now = try? String(contentsOf: url, encoding: .utf8), earlier.contains(now) else { continue }
+            if (try? contents.write(to: url, atomically: true, encoding: .utf8)) != nil { updated.append(url) }
+        }
+        return updated
     }
 
     /// Whether the folder has any of the EPA recipes (some may have been put in the Trash on purpose).
