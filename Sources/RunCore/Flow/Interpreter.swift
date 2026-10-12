@@ -19,9 +19,34 @@ public protocol FlowHost: AnyObject, Sendable {
 /// Runs a checked program, step by step.
 public final class Interpreter: @unchecked Sendable {
     let host: FlowHost
+    /// How many of the flow's own functions are running now, one inside another.
+    private var depth: Int
+    private let stack = StackGuard()
 
-    init(host: FlowHost) {
+    /// How deep functions may call functions. Each call of a flow's function takes several Swift
+    /// calls of the interpreter's own: measured on `1 + f (n - 1)`, about 5.5 KB of stack in a
+    /// debug build and 3 KB optimised. So on a thread with a big stack (the app runs flows on one)
+    /// this limit comes first; on a smaller one (the `flow` command's 8 MB main thread: about 1,400
+    /// calls debug, 2,700 optimised; a `parallel` step's) the stack guard stops it sooner. Either
+    /// way it's a message, not a crash.
+    static let maxCallDepth = 10_000
+
+    init(host: FlowHost, depth: Int = 0) {
         self.host = host
+        self.depth = depth
+    }
+
+    /// One for a step run on another thread (by `parallel`): made on that thread, so it watches
+    /// that thread's stack, and carrying on from how deep this one is.
+    func forked() -> Interpreter { Interpreter(host: host, depth: depth) }
+
+    private func tooDeep(_ pos: Pos) -> FlowError {
+        FlowError(.run, pos, "Functions calling functions went \(depth) deep, more than a flow has room for, so it stopped. A function that calls itself probably never stops.",
+                  fix: "Make sure it stops calling itself: an `if` whose other side doesn't call it again, such as: if n = 0 then 0 else n + f (n - 1).")
+    }
+
+    static func tooBig(_ what: String, _ pos: Pos) -> FlowError {
+        FlowError(.run, pos, "\(what) is too big a number.", fix: Lexer.tooBigFix)
     }
 
     static func globals(args: [String]) -> Env {
@@ -36,47 +61,82 @@ public final class Interpreter: @unchecked Sendable {
     }
 
     func eval(_ e: Expr, _ env: Env) throws -> Value {
+        guard stack.hasRoom else { throw tooDeep(e.pos) }
+        // Each case past the simplest is a function of its own: Swift gives a function one stack
+        // frame big enough for all its cases, and eval is in every level of a flow's calls, so a
+        // small eval lets a flow go deeper.
+        switch e.kind {
+        case .apply: return try call(e, env)
+        case .name: return try lookup(e, env)
+        case .cond: return try cond(e, env)
+        case .binary: return try binary(e, env)
+        default: return try other(e, env)
+        }
+    }
+
+    private func other(_ e: Expr, _ env: Env) throws -> Value {
         switch e.kind {
         case let .int(n): return .int(n)
         case let .str(s): return .str(s)
         case let .bool(b): return .bool(b)
         case .unit: return .unit
-        case let .interp(texts, holes):
-            var s = texts[0]
-            for (k, h) in holes.enumerated() {
-                s += try eval(h, env).text
-                s += texts[k + 1]
-            }
-            return .str(s)
-        case let .list(items):
-            return .list(try items.map { try eval($0, env) })
-        case let .name(n):
-            guard let v = env.lookup(n) else { throw FlowError(.run, e.pos, "`\(n)` isn't defined.") }
-            return v
-        case let .apply(f, a):
-            let fv = try eval(f, env)
-            let av = try eval(a, env)
-            return try apply(fv, av, pos: e.pos)
-        case let .lambda(params, body):
-            return .fn(FlowFunction(.closure(params: params, body: body, env: env)))
-        case let .binary(op, l, r):
-            return try binary(op, l, r, env, e.pos)
-        case let .negate(x):
-            return .int(-(try eval(x, env).int))
-        case let .cond(test, yes, no):
-            if try eval(test, env).bool { return try eval(yes, env) }
-            if let no { return try eval(no, env) }
-            return .unit
-        case let .field(x, name):
-            guard case let .run(r) = try eval(x, env) else { return .unit }
-            switch name {
-            case "out": return .str(r.out)
-            case "err": return .str(r.err)
-            case "code": return .int(r.code)
-            default: return .bool(r.ok)
-            }
-        case let .block(items):
-            return try block(items, env)
+        case let .interp(texts, holes): return try interpolate(texts, holes, env)
+        case let .list(items): return .list(try items.map { try eval($0, env) })
+        case let .lambda(params, body): return .fn(FlowFunction(.closure(params: params, body: body, env: env)))
+        case let .negate(x): return try negate(x, env, e.pos)
+        case let .field(x, name): return try field(x, name, env)
+        case let .block(items): return try block(items, env)
+        case .apply, .name, .cond, .binary: return try eval(e, env)
+        }
+    }
+
+    private func interpolate(_ texts: [String], _ holes: [Expr], _ env: Env) throws -> Value {
+        var s = texts[0]
+        for (k, h) in holes.enumerated() {
+            s += try eval(h, env).text
+            s += texts[k + 1]
+        }
+        return .str(s)
+    }
+
+    private func lookup(_ e: Expr, _ env: Env) throws -> Value {
+        guard case let .name(n) = e.kind else { return .unit }
+        guard let v = env.lookup(n) else { throw Self.undefined(n, e.pos) }
+        return v
+    }
+
+    private static func undefined(_ n: String, _ pos: Pos) -> FlowError {
+        FlowError(.run, pos, "`\(n)` isn't defined.")
+    }
+
+    private func call(_ e: Expr, _ env: Env) throws -> Value {
+        guard case let .apply(f, a) = e.kind else { return .unit }
+        let fv = try eval(f, env)
+        let av = try eval(a, env)
+        return try apply(fv, av, pos: e.pos)
+    }
+
+    private func negate(_ x: Expr, _ env: Env, _ pos: Pos) throws -> Value {
+        let n = try eval(x, env).int
+        let (r, overflow) = 0.subtractingReportingOverflow(n)
+        if overflow { throw Self.tooBig("-(\(n))", pos) }
+        return .int(r)
+    }
+
+    private func cond(_ e: Expr, _ env: Env) throws -> Value {
+        guard case let .cond(test, yes, no) = e.kind else { return .unit }
+        if try eval(test, env).bool { return try eval(yes, env) }
+        if let no { return try eval(no, env) }
+        return .unit
+    }
+
+    private func field(_ x: Expr, _ name: String, _ env: Env) throws -> Value {
+        guard case let .run(r) = try eval(x, env) else { return .unit }
+        switch name {
+        case "out": return .str(r.out)
+        case "err": return .str(r.err)
+        case "code": return .int(r.code)
+        default: return .bool(r.ok)
         }
     }
 
@@ -86,13 +146,14 @@ public final class Interpreter: @unchecked Sendable {
         for item in items {
             try checkStop(item.pos)
             switch item.kind {
-            case let .bind(name, params, body):
+            case let .bind(name, rec, params, body):
                 let inner = Env(parent: scope)
                 if params.isEmpty {
                     inner.define(name, try eval(body, scope))
                 } else {
-                    // Defined in its own scope, so it can call itself.
-                    inner.define(name, .fn(FlowFunction(.closure(params: params, body: body, env: inner))))
+                    // A `let rec` is defined in its own scope, so it can call itself; a plain
+                    // `let` sees the scope before it (so its name inside is the old one).
+                    inner.define(name, .fn(FlowFunction(.closure(params: params, body: body, env: rec ? inner : scope))))
                 }
                 scope = inner
                 last = .unit
@@ -105,35 +166,72 @@ public final class Interpreter: @unchecked Sendable {
 
     func apply(_ f: Value, _ arg: Value, pos: Pos) throws -> Value {
         try checkStop(pos)
-        guard case let .fn(fn) = f else { throw FlowError(.run, pos, "That isn't a function.") }
+        guard case let .fn(fn) = f else { throw Self.notAFunction(pos) }
         let args = fn.applied + [arg]
         guard args.count >= fn.arity else { return .fn(FlowFunction(fn.impl, applied: args)) }
-        switch fn.impl {
-        case let .builtin(b):
-            return try b.body(self, args, pos)
-        case let .closure(params, body, env):
-            let scope = Env(parent: env)
-            for (p, v) in zip(params, args) {
-                if let n = p.name { scope.define(n, v) }
-            }
-            return try eval(body, scope)
-        }
+        guard case let .closure(params, body, env) = fn.impl else { return try builtin(fn, args, pos) }
+        depth += 1
+        defer { depth -= 1 }
+        if depth > Self.maxCallDepth { throw tooDeep(pos) }
+        return try eval(body, Self.scope(env, params, args))
     }
 
-    private func binary(_ op: String, _ l: Expr, _ r: Expr, _ env: Env, _ pos: Pos) throws -> Value {
+    private static func notAFunction(_ pos: Pos) -> FlowError { FlowError(.run, pos, "That isn't a function.") }
+
+    private func builtin(_ fn: FlowFunction, _ args: [Value], _ pos: Pos) throws -> Value {
+        guard case let .builtin(b) = fn.impl else { return .unit }
+        return try b.body(self, args, pos)
+    }
+
+    /// A function's parameters, named for its body.
+    private static func scope(_ env: Env, _ params: [Param], _ args: [Value]) -> Env {
+        let scope = Env(parent: env)
+        for (p, v) in zip(params, args) {
+            if let n = p.name { scope.define(n, v) }
+        }
+        return scope
+    }
+
+    /// Whole-number arithmetic that stops the flow when the answer doesn't fit, rather than
+    /// crashing or quietly wrapping round to a wrong one.
+    static func arithmetic(_ op: String, _ a: Int, _ b: Int, _ pos: Pos) throws -> Int {
+        let (r, overflow): (Int, Bool)
+        switch op {
+        case "+": (r, overflow) = a.addingReportingOverflow(b)
+        case "-": (r, overflow) = a.subtractingReportingOverflow(b)
+        case "*": (r, overflow) = a.multipliedReportingOverflow(by: b)
+        case "/", "%":
+            guard b != 0 else { throw FlowError(.run, pos, "Divided by zero.") }
+            // The one case that overflows: -9223372036854775808 / -1. Its remainder is 0.
+            if op == "%" { return b == -1 ? 0 : a % b }
+            (r, overflow) = a.dividedReportingOverflow(by: b)
+        default: throw FlowError(.run, pos, "\(op) isn't an operator I know.")
+        }
+        if overflow { throw tooBig("\(a) \(op) \(b)", pos) }
+        return r
+    }
+
+    private func binary(_ e: Expr, _ env: Env) throws -> Value {
+        guard case let .binary(op, l, r) = e.kind else { return .unit }
         // && and || only look at the right side when they need to.
-        if op == "&&" { return try eval(l, env).bool ? .bool(try eval(r, env).bool) : .bool(false) }
-        if op == "||" { return try eval(l, env).bool ? .bool(true) : .bool(try eval(r, env).bool) }
-        let a = try eval(l, env), b = try eval(r, env)
+        if op == "&&" || op == "||" {
+            let left = try eval(l, env).bool
+            if left == (op == "||") { return .bool(left) }
+            return .bool(try eval(r, env).bool)
+        }
+        let a = try eval(l, env)
+        let b = try eval(r, env)
+        return try Self.combine(op, a, b, e.pos)
+    }
+
+    /// What an operator gives for these two values (kept apart from `binary`, so the frame
+    /// that stays on the stack while its sides are worked out is small).
+    private static func combine(_ op: String, _ a: Value, _ b: Value, _ pos: Pos) throws -> Value {
         switch op {
         case "+":
             if case let .str(x) = a { return .str(x + b.string) }
-            return .int(a.int &+ b.int)
-        case "-": return .int(a.int &- b.int)
-        case "*": return .int(a.int &* b.int)
-        case "/", "%":
-            guard b.int != 0 else { throw FlowError(.run, pos, "Divided by zero.") }
-            return .int(op == "/" ? a.int / b.int : a.int % b.int)
+            return .int(try arithmetic(op, a.int, b.int, pos))
+        case "-", "*", "/", "%": return .int(try arithmetic(op, a.int, b.int, pos))
         case "@": return .list(a.items + b.items)
         case "=": return .bool(Value.equal(a, b))
         case "<>": return .bool(!Value.equal(a, b))

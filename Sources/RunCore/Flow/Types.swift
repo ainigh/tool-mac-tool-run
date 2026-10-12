@@ -11,10 +11,15 @@ final class TVar {
     var numberOrText: Bool
     /// What made it so, for the message when it isn't.
     var constraintPos: Pos?
+    /// It's compared with = or <>, so it can't be a function, or have one inside it (a list of
+    /// functions). Unlike numberOrText, it stays generic: `let same a b = a = b` works on
+    /// anything that can be compared.
+    var equatable: Bool
 
-    init(id: Int, level: Int) {
+    init(id: Int, level: Int, equatable: Bool = false) {
         self.id = id
         self.level = level
+        self.equatable = equatable
         numberOrText = false
     }
 }

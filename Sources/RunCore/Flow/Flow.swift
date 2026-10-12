@@ -32,6 +32,49 @@ public enum Flow {
     }
 }
 
+/// Room left on this thread's stack. Reading, checking and running a flow each go one call deeper
+/// for each level of nesting (and running, for each call of a function in the flow), so something
+/// nested very deeply, or a function that calls itself forever, would use up the stack and crash
+/// the app. Each stage asks this first, and stops with a message while there's still room.
+/// Made on the thread that uses it: each thread has a stack of its own.
+struct StackGuard {
+    /// The stack may not go below this address (0: unknown, so no limit).
+    private let floor: UInt
+
+    init() {
+        var low: UInt = 0, size: UInt = 0
+        #if canImport(Darwin)
+        let thread = pthread_self()
+        size = UInt(pthread_get_stacksize_np(thread))
+        low = UInt(bitPattern: pthread_get_stackaddr_np(thread)) - size
+        #elseif os(Linux)
+        // pthread_getattr_np is a GNU extension Swift's Glibc doesn't show, so it's looked up.
+        typealias GetAttr = @convention(c) (pthread_t, UnsafeMutablePointer<pthread_attr_t>) -> Int32
+        var attr = pthread_attr_t()
+        if let symbol = dlsym(nil, "pthread_getattr_np"),
+           unsafeBitCast(symbol, to: GetAttr.self)(pthread_self(), &attr) == 0 {
+            var addr: UnsafeMutableRawPointer?
+            var bytes = 0
+            if pthread_attr_getstack(&attr, &addr, &bytes) == 0 {
+                low = UInt(bitPattern: addr)
+                size = UInt(bytes)
+            }
+            pthread_attr_destroy(&attr)
+        }
+        #endif
+        // Keep a quarter of the stack (at most 256 KB) for what runs between two checks: a
+        // builtin, Foundation, printing the message.
+        floor = size == 0 ? 0 : low + min(size / 4, 256 * 1024)
+    }
+
+    /// False when the stack is nearly used up.
+    var hasRoom: Bool {
+        guard floor != 0 else { return true }
+        var marker: UInt8 = 0
+        return withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) } > floor
+    }
+}
+
 /// What happens while a flow runs, for whoever shows it.
 public enum FlowEvent: Sendable {
     /// A line from `print` (or from the flow itself: a step starting, a warning).

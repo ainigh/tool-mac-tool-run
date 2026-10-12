@@ -180,10 +180,97 @@ final class FlowTests: XCTestCase {
     func testRecursion() throws {
         let host = FakeHost()
         try run("""
-        let fact n = if n <= 1 then 1 else n * fact (n - 1)
+        let rec fact n = if n <= 1 then 1 else n * fact (n - 1)
         print (fact 10)
+        let rec countdown = fun n -> if n > 0 then countdown (n - 1) else "liftoff"
+        print (countdown 3)
         """, host)
-        XCTAssertEqual(host.said, ["3628800"])
+        XCTAssertEqual(host.said, ["3628800", "liftoff"])
+    }
+
+    func testOnlyLetRecSeesItsOwnName() throws {
+        // A plain let that uses its own name means the one above it: no recursion, no crash.
+        let host = FakeHost()
+        try run("""
+        let f x = x + 1
+        let f x = f (x * 10)
+        print (f 2)
+        """, host)
+        XCTAssertEqual(host.said, ["21"])
+        // With nothing above it, it says how to make it call itself.
+        for source in ["let f n = if n = 0 then 0 else f (n - 1)", "let f = fun n -> if n = 0 then 0 else f (n - 1)"] {
+            let e = checkError(source)
+            XCTAssertEqual(e?.stage, .type, source)
+            XCTAssertTrue(e?.fix?.contains("let rec f") == true, e?.description ?? source)
+        }
+        // let rec needs a function.
+        XCTAssertEqual(checkError("let rec x = 5")?.stage, .syntax)
+        XCTAssertEqual(try types("let rec f = fun n -> if n = 0 then 0 else f (n - 1)")["f"], "int -> int")
+    }
+
+    func testRecursionWithoutEndStopsWithAMessage() {
+        // Runs out of room (or reaches the call limit) and says so, rather than crashing.
+        for source in ["let rec f n = if n = 0 then 0 else 1 + f (n - 1)\nprint (f 100000000)",
+                       "let rec f n = f (n + 1)\nf 0 |> ignore",
+                       // On parallel's own threads too.
+                       "let rec f n = 1 + f (n - 1)\nparallel [ (fun () -> f 1); (fun () -> f 2) ] |> ignore",
+                       "let f x = x + 1\nlet rec f x = f (x - 0)\nprint (f 2)"] {
+            XCTAssertThrowsError(try run(source), source) { e in
+                let fe = e as? FlowError
+                XCTAssertEqual(fe?.stage, .run)
+                XCTAssertTrue(fe?.message.contains("deep") == true, fe?.message ?? "")
+                XCTAssertNotNil(fe?.fix)
+            }
+        }
+    }
+
+    func testDeepRecursionOnABigStackReachesTheCallLimit() throws {
+        // On a thread with a big stack (as the app runs flows), a function can go thousands of
+        // calls deep, and the limit stops one that never ends.
+        let host = FakeHost()
+        var outcome: Result<Value, Error>?
+        onThread(stack: 512 << 20) {
+            outcome = Result { try self.run("let rec f n = if n = 0 then 0 else 1 + f (n - 1)\nprint (f 5000)\nprint (f 100000000)", host) }
+        }
+        XCTAssertEqual(host.said, ["5000"])
+        XCTAssertThrowsError(try outcome?.get()) { e in
+            XCTAssertTrue((e as? FlowError)?.message.contains("went \(Interpreter.maxCallDepth + 1) deep") == true, "\(e)")
+        }
+    }
+
+    func testSmallStacksStopWithAMessage() {
+        // A thread with a small stack (512 KB, as GCD and Swift's tasks give): deep nesting and
+        // endless recursion are both a FlowError, never a crash.
+        var errors: [FlowError?] = []
+        onThread(stack: 512 << 10) {
+            for source in ["let rec f n = 1 + f (n - 1)\nprint (f 1)",
+                           "print " + String(repeating: "(", count: 290) + "1" + String(repeating: ")", count: 290),
+                           "print (" + Array(repeating: "1", count: 290).joined(separator: " + ") + ")"] {
+                do {
+                    try self.run(source)
+                    errors.append(nil)
+                } catch {
+                    errors.append(error as? FlowError)
+                }
+            }
+        }
+        XCTAssertEqual(errors.count, 3)
+        XCTAssertNotNil(errors[0])
+        XCTAssertEqual(errors[0]?.stage, .run)
+        // The other two may fit; if they don't, they say so.
+        for e in errors.dropFirst() { if let e { XCTAssertTrue(e.message.contains("deep"), e.message) } }
+    }
+
+    /// Runs `body` on a thread of its own with this much stack, and waits for it.
+    func onThread(stack: Int, _ body: @escaping () -> Void) {
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            body()
+            done.signal()
+        }
+        thread.stackSize = stack
+        thread.start()
+        done.wait()
     }
 
     func testFoldRangeSumAndLists() throws {
@@ -299,8 +386,49 @@ final class FlowTests: XCTestCase {
     }
 
     func testTooManyArguments() {
+        // As the guide's table says it.
         let e = checkError("print \"a\" \"b\"")
-        XCTAssertTrue(e?.message.contains("not a function") == true, e?.message ?? "")
+        XCTAssertTrue(e?.message.contains("`print` is a function given one value too many") == true, e?.message ?? "")
+        XCTAssertEqual(e?.pos?.col, 11)
+        let e2 = checkError("replace \"a\" \"b\" \"c\" \"d\"")
+        XCTAssertTrue(e2?.message.contains("it takes 3, so \"d\" is left over") == true, e2?.message ?? "")
+        // A value that was never a function still says what it is.
+        let e3 = checkError("let n = 5\nprint (n 3)")
+        XCTAssertTrue(e3?.message.contains("is a number (int), not a function") == true, e3?.message ?? "")
+    }
+
+    func testAStepMissingValues() {
+        let e = checkError("map upper [\"a\"] |> ignore\nmap upper\nprint \"x\"")
+        XCTAssertEqual(e?.pos?.line, 2)
+        XCTAssertTrue(e?.message.contains("`map` is missing a value: it needs 1 more") == true, e?.message ?? "")
+        XCTAssertTrue(checkError("print")?.message.contains("`print` is missing a value") == true)
+        XCTAssertTrue(checkError("print \"a\"\nreplace \"a\"\nprint \"b\"")?.message.contains("needs 2 more") == true)
+        // A function as a block's value (the last line) is what it gives back, which is fine.
+        XCTAssertNil(checkError("let tidy =\n    let t = trim\n    t >> lower\nprint (tidy \" A \")"))
+        // Steps that give back a value that isn't a function are still allowed.
+        XCTAssertNil(checkError("run \"x\" []\nprint \"done\""))
+    }
+
+    func testAConstrainedValueUsedAsAFunction() {
+        let e = checkError("let f x = (x + x) 1")
+        XCTAssertTrue(e?.message.contains("number or text") == true, e?.message ?? "")
+        XCTAssertFalse(e?.message.contains("itself") == true)
+    }
+
+    func testFunctionsCantBeComparedEvenInsideLists() {
+        XCTAssertTrue(checkError("print (print = print)")?.message.contains("Functions can't be compared") == true)
+        XCTAssertTrue(checkError("print ([print] = [print])")?.message.contains("Functions can't be compared") == true)
+        XCTAssertTrue(checkError("let fs = [upper; lower]\nprint (fs <> [])")?.message.contains("Functions can't be compared") == true)
+        // A function that compares its values stays generic, for anything but functions.
+        let eq = "let eq a b = a = b\n"
+        XCTAssertEqual(try types(eq)["eq"], "'a -> 'a -> bool")
+        let host = FakeHost()
+        XCTAssertNoThrow(try run(eq + "print (eq 1 1)\nprint (eq \"a\" \"b\")\nprint (eq [[1]] [[1]])", host))
+        XCTAssertEqual(host.said, ["true", "false", "true"])
+        let e = checkError(eq + "eq print print |> print")
+        XCTAssertTrue(e?.message.contains("functions can't be compared") == true, e?.message ?? "")
+        XCTAssertNotNil(checkError(eq + "print (eq [print] [print])"))
+        XCTAssertNotNil(checkError("let has x xs = xs |> filter (fun y -> y = x) |> isEmpty |> not\nprint (has upper [lower])"))
     }
 
     func testFieldOnlyOnRun() {
@@ -325,6 +453,141 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(checkError("if true print 1")?.stage, .syntax)
         let e = checkError("print 1\n    print 2")
         XCTAssertNotNil(e)
+    }
+
+    func testUnclosedTextSaysTextCanSpanLines() {
+        let e = checkError("print \"abc\nprint 1")
+        XCTAssertEqual(e?.message, "This text is never closed.")
+        XCTAssertFalse(e?.fix?.contains("same line") == true)
+        XCTAssertTrue(e?.fix?.contains("several lines") == true, e?.fix ?? "")
+        // And text over several lines is fine.
+        let host = FakeHost()
+        XCTAssertNoThrow(try run("print \"a\nb\"", host))
+        XCTAssertEqual(host.said, ["a\nb"])
+    }
+
+    // MARK: numbers
+
+    func testWholeNumbersNeverOverflowQuietlyOrCrash() throws {
+        let host = FakeHost()
+        try run("""
+        let m = -9223372036854775808
+        print m
+        print (m + 1)
+        print (m % -1)
+        print (9223372036854775807 - 1)
+        print (range 9223372036854775806 9223372036854775807)
+        print (sum [9223372036854775806; 1])
+        print (- -5)
+        print (-2 * 3)
+        """, host)
+        XCTAssertEqual(host.said, ["-9223372036854775808", "-9223372036854775807", "0", "9223372036854775806",
+                                   "[9223372036854775806; 9223372036854775807]", "9223372036854775807", "5", "-6"])
+        let m = "let m = -9223372036854775808\n"
+        for source in [m + "print (- m)", m + "print (m / -1)", m + "print (m - 1)", m + "print (m * -1)",
+                       "print (9223372036854775807 + 1)", "print (4611686018427387904 * 2)",
+                       "print (sum [9223372036854775807; 1])"] {
+            XCTAssertThrowsError(try run(source), source) { e in
+                XCTAssertEqual((e as? FlowError)?.stage, .run, source)
+                XCTAssertTrue((e as? FlowError)?.message.contains("too big a number") == true, "\(e)")
+            }
+        }
+        // range's own size check can't overflow either.
+        XCTAssertThrowsError(try run(m + "print (range m 9223372036854775807)")) { e in
+            XCTAssertTrue((e as? FlowError)?.message.contains("over a million") == true, "\(e)")
+        }
+        XCTAssertThrowsError(try run("print (5 / 0)")) { e in XCTAssertEqual((e as? FlowError)?.message, "Divided by zero.") }
+    }
+
+    func testNumberLiterals() {
+        // Only 0-9 are digits.
+        XCTAssertEqual(checkError("print ²")?.stage, .syntax)
+        XCTAssertFalse(checkError("print ²")?.message.contains("too big") == true)
+        XCTAssertEqual(checkError("print ٣")?.stage, .syntax)
+        // One past the largest, without its minus, is too big; so is anything past that.
+        XCTAssertTrue(checkError("print 9223372036854775808")?.message.contains("too big a number") == true)
+        XCTAssertTrue(checkError("print -9223372036854775809")?.message.contains("too big a number") == true)
+        XCTAssertTrue(checkError("print 99999999999999999999999")?.message.contains("too big a number") == true)
+        XCTAssertNil(checkError("print 1_000_000"))
+    }
+
+    // MARK: deep nesting, caught before anything runs
+
+    func testDeepNestingIsAMistakeNotACrash() {
+        let cases = [
+            "parens": "print " + String(repeating: "(", count: 1000) + "1" + String(repeating: ")", count: 1000),
+            "unclosed brackets": "print " + String(repeating: "[", count: 3000),
+            "minus signs": "print (" + String(repeating: "- ", count: 5000) + "1)",
+            "a long sum": "print (" + Array(repeating: "1", count: 20000).joined(separator: " + ") + ")",
+            "elifs": "let x = 1\nprint (if x = 0 then 0 " + (1..<3000).map { "elif x = \($0) then \($0) " }.joined() + "else 1)",
+            "appends": "print (" + Array(repeating: "[1]", count: 5000).joined(separator: " @ ") + ")",
+            "pipes": "print (1 " + String(repeating: "|> (fun x -> x) ", count: 5000) + ")",
+            "texts in texts": "print " + String(repeating: "$\"{", count: 2000) + "1" + String(repeating: "}\"", count: 2000),
+            "blocks": (0..<400).map { String(repeating: "  ", count: $0) + "let a\($0) =\n" }.joined() + String(repeating: "  ", count: 400) + "1",
+            "funs": "let f = " + String(repeating: "fun x -> ", count: 3000) + "1",
+        ]
+        for (name, source) in cases {
+            let e = checkError(source)
+            XCTAssertEqual(e?.stage, .syntax, name)
+            XCTAssertTrue(e?.message.contains("nested too deeply") == true, "\(name): \(e?.description ?? "no error")")
+        }
+        // Just under the limit is fine, checked and run.
+        let host = FakeHost()
+        XCTAssertNoThrow(try run("print (" + Array(repeating: "1", count: 250).joined(separator: " + ") + ")", host))
+        XCTAssertNoThrow(try run("print " + String(repeating: "(", count: 250) + "1" + String(repeating: ")", count: 250), host))
+        XCTAssertEqual(host.said, ["250", "1"])
+    }
+
+    func testCheckingNeverCrashesOnJumbledInput() {
+        // The editor checks on every key: whatever is typed gets an answer, never a crash.
+        let pieces = ["(", ")", "[", "]", "{", "}", "\"", "$\"", "\\", "-", "+", "*", "/", "%", "=", "|>", ">>", "@", ";",
+                      "let ", "rec ", "fun ", "->", "if ", "then ", "elif ", "else ", "x", "f", "print", "map", "1", "0",
+                      "9223372036854775808", " ", " ", "\n", "\n    ", "\r\n", "\r", ".", "out", "//", "(*", "*)", "{{", "}}"]
+        var seed: UInt64 = 42
+        for _ in 0..<3000 {
+            var source = ""
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            for _ in 0..<Int(seed >> 58) * 4 {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                source += pieces[Int(seed >> 33) % pieces.count]
+            }
+            _ = try? Flow.check(source)
+        }
+    }
+
+    func testTypesBuiltOnTypesAreAMistakeNotACrash() {
+        // Each let doubles how deep the type goes; then, how big it is.
+        let deep = "let w0 x = [x]\n" + (1..<25).map { "let w\($0) = w\($0 - 1) >> w\($0 - 1)\n" }.joined() + "print (w24 1)"
+        XCTAssertTrue(checkError(deep)?.message.contains("too big to work with") == true)
+        let wide = "let p0 x = fun f -> f x x\n" + (1..<30).map { "let p\($0) x = p\($0 - 1) (p\($0 - 1) x)\n" }.joined()
+        XCTAssertTrue(checkError(wide)?.message.contains("too big to work with") == true)
+    }
+
+    // MARK: the text of a flow
+
+    func testWindowsAndOldMacLineEndings() throws {
+        let host = FakeHost()
+        try run("// a comment\r\nlet x = 1\r\nprint x\r\n// another\rprint (x + 1)\r\nlet s = \"a\r\nb\"\r\nprint s\r\n", host)
+        XCTAssertEqual(host.said, ["1", "2", "a\nb"])
+        let e = checkError("let x = 1\r\nlet y = 2\r\nprnt y\r\n")
+        XCTAssertEqual(e?.pos?.line, 3)
+    }
+
+    func testBracesAndQuotesInsideInterpolationHoles() throws {
+        let host = FakeHost()
+        try run(#"""
+        let name = "n"
+        print $"a {"}"} b"
+        print $"{ "{" }"
+        print $"{name + \"!\"}"
+        print $"x{ $"{ "}" + name }" }y"
+        print $"{{literal}} {name}"
+        print $"{ "\"" }"
+        print $"{name + "!"}"
+        """#, host)
+        XCTAssertEqual(host.said, ["a } b", "{", "n!", "x}ny", "{literal} n", "\"", "n!"])
+        XCTAssertEqual(checkError(#"print $"{ "}" "#)?.stage, .syntax)
+        XCTAssertEqual(checkError(#"print $"{ 1 "#)?.message, "A { in this text is never closed.")
     }
 
     func testEveryExampleChecks() throws {

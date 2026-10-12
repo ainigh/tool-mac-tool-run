@@ -39,17 +39,28 @@ public enum Doctor {
         let flows = library.flows()
         lines.append(Line(status: .ok, title: "\(scripts.count) script\(scripts.count == 1 ? "" : "s"), \(flows.count) flow\(flows.count == 1 ? "" : "s")",
                           detail: nil, fix: nil))
-        var used: [ScriptLanguage: Int] = [:]
-        for s in scripts { used[s.language, default: 0] += 1 }
-        for lang in ScriptLanguage.allCases where used[lang] != nil {
-            guard let cmd = lang.command else { continue }
-            let n = used[lang] ?? 0
-            if let path = environment.find(cmd.program) {
-                lines.append(Line(status: .ok, title: "\(lang.title) (\(n)): \(cmd.program)", detail: path, fix: nil))
+        // Each language, and each program its scripts are run by: the one their #! line names, or
+        // the language's own.
+        struct Need: Hashable { var language: ScriptLanguage; var program: String }
+        var used: [Need: (count: Int, found: String?)] = [:]
+        let path = environment.environment["PATH"] ?? ""
+        for s in scripts {
+            guard let need = ScriptProcess.requirement(script: s.url, language: s.language, path: path) else { continue }
+            let key = Need(language: s.language, program: need.program)
+            used[key] = ((used[key]?.count ?? 0) + 1, need.found)
+        }
+        let order = ScriptLanguage.allCases
+        for (need, use) in used.sorted(by: { a, b in
+            a.key.language == b.key.language ? a.key.program < b.key.program
+                : order.firstIndex(of: a.key.language)! < order.firstIndex(of: b.key.language)!
+        }) {
+            let n = use.count
+            if let found = use.found {
+                lines.append(Line(status: .ok, title: "\(need.language.title) (\(n)): \(need.program)", detail: found, fix: nil))
             } else {
-                lines.append(Line(status: .problem, title: "\(lang.title) (\(n)): \(cmd.program) not found",
+                lines.append(Line(status: .problem, title: "\(need.language.title) (\(n)): \(need.program) not found",
                                   detail: "\(n) script\(n == 1 ? "" : "s") can't run until it's installed.",
-                                  fix: Remedy.install(cmd.program)))
+                                  fix: need.program.hasPrefix("/") ? Remedy.interpreter(need.program) : Remedy.install(need.program)))
             }
         }
         for flow in flows {

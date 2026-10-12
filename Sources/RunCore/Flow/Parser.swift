@@ -33,18 +33,44 @@ public final class Expr: @unchecked Sendable {
 
     public let kind: Kind
     public let pos: Pos
+    /// How many levels deep the tree under it goes (1 for a value on its own). The checker and
+    /// the interpreter go one call deeper per level, so the parser keeps it in bounds.
+    let depth: Int
 
     init(_ kind: Kind, _ pos: Pos) {
         self.kind = kind
         self.pos = pos
+        depth = 1 + (Self.children(of: kind).map(\.depth).max() ?? 0)
+    }
+
+    private static func children(of kind: Kind) -> [Expr] {
+        switch kind {
+        case .int, .str, .bool, .unit, .name: []
+        case let .interp(_, holes): holes
+        case let .list(items): items
+        case let .apply(f, a): [f, a]
+        case let .lambda(_, body): [body]
+        case let .binary(_, l, r): [l, r]
+        case let .negate(x): [x]
+        case let .cond(test, yes, no): [test, yes] + (no.map { [$0] } ?? [])
+        case let .field(x, _): [x]
+        case let .block(items): items.map {
+            switch $0.kind {
+            case let .bind(_, _, _, body): body
+            case let .expr(x): x
+            }
+        }
+        }
     }
 }
 
 /// A line of a block: a `let` (a name for a value, or a function with its parameters), or an
-/// expression whose value is used (the last one) or that's run for what it does.
+/// expression whose value is used (the last one) or that's run for what it does. Only a
+/// `let rec` function sees its own name inside its body (so it can call itself); in a plain
+/// `let`, the name inside is whatever it meant above (`let f x = f (x * 10)` uses the old `f`).
 public struct Item: Sendable {
     public enum Kind: Sendable {
-        case bind(name: String, params: [Param], body: Expr)
+        case bind(name: String, rec: Bool, params: [Param], body: Expr)
         case expr(Expr)
     }
     public let kind: Kind
@@ -60,9 +86,18 @@ struct Parser {
     /// The column a token starting a line must be right of to carry on the current item.
     private var offside: [Int] = [0]
     private var fresh = 0
+    /// How many brackets, blocks, `if`s and `fun`s deep the parser is now.
+    private var nesting = 0
+    private let stack: StackGuard
 
-    init(tokens: [Token]) {
+    /// How deep things may nest (brackets in brackets, or a chain like 1 + 1 + … with this many
+    /// terms). Far more than a flow needs, and little enough that reading, checking and running
+    /// it stay well inside even a small (512 KB) thread stack.
+    static let maxDepth = 300
+
+    init(tokens: [Token], stack: StackGuard = StackGuard()) {
         self.tokens = tokens
+        self.stack = stack
     }
 
     static func parse(_ source: String) throws -> Expr {
@@ -126,10 +161,34 @@ struct Parser {
         }
     }
 
+    // MARK: how deep
+
+    static func tooDeep(_ pos: Pos) -> FlowError {
+        FlowError(.syntax, pos, "This is nested too deeply: more than \(maxDepth) levels of brackets, blocks, `if`s, `fun`s or operators inside one another.",
+                  fix: "Split it up: give the inner parts names with `let`, one per line.")
+    }
+
+    /// A piece of the tree, as long as it isn't too deep.
+    private func node(_ kind: Expr.Kind, _ pos: Pos) throws -> Expr {
+        let e = Expr(kind, pos)
+        if e.depth > Self.maxDepth { throw Self.tooDeep(pos) }
+        return e
+    }
+
+    /// Goes one level deeper (a bracket, a block, an `if`…), as long as that isn't too deep.
+    private mutating func enter() throws {
+        nesting += 1
+        if nesting > Self.maxDepth || !stack.hasRoom { throw Self.tooDeep(peek.pos) }
+    }
+
+    private mutating func leave() { nesting -= 1 }
+
     // MARK: blocks and items
 
     /// Items lined up at `col`, one after another; its value is the last one's.
     private mutating func block(col: Int) throws -> Expr {
+        try enter()
+        defer { leave() }
         let start = peek.pos
         var items: [Item] = []
         while true {
@@ -146,14 +205,15 @@ struct Parser {
             }
             break
         }
-        return Expr(.block(items), start)
+        return try node(.block(items), start)
     }
 
     private mutating func item() throws -> Item {
         let t = peek
         if isKeyword("let") {
             _ = next()
-            if isKeyword("rec") { _ = next() }
+            let rec = isKeyword("rec")
+            if rec { _ = next() }
             guard case let .ident(name) = peek.kind else {
                 throw FlowError(.syntax, peek.pos, "A `let` needs a name next, found \(Self.describe(peek)).",
                                 fix: "Write it as: let name = value")
@@ -174,7 +234,17 @@ struct Parser {
             }
             _ = next()
             let body = try branch(after: "let \(name) =")
-            return Item(kind: .bind(name: name, params: params, body: body), pos: t.pos)
+            if rec && params.isEmpty {
+                // let rec f = fun x -> … is let rec f x = … (the `fun` may be on the line under it).
+                var fn = body
+                if case let .block(items) = fn.kind, items.count == 1, case let .expr(x) = items[0].kind { fn = x }
+                guard case let .lambda(ps, inner) = fn.kind else {
+                    throw FlowError(.syntax, body.pos, "Only a function can call itself, so `let rec \(name)` needs to be a function.",
+                                    fix: "Give it parameters (let rec \(name) x = …), or make it a `fun` (let rec \(name) = fun x -> …). Or leave out `rec`.")
+                }
+                return Item(kind: .bind(name: name, rec: true, params: ps, body: inner), pos: t.pos)
+            }
+            return Item(kind: .bind(name: name, rec: rec, params: params, body: body), pos: t.pos)
         }
         if t.kind == .eof {
             throw FlowError(.syntax, t.pos, "I expected a step here, found \(Self.describe(t)).")
@@ -198,14 +268,18 @@ struct Parser {
 
     // MARK: expressions, loosest first
 
-    private mutating func expr() throws -> Expr { try pipe() }
+    private mutating func expr() throws -> Expr {
+        try enter()
+        defer { leave() }
+        return try pipe()
+    }
 
     private mutating func pipe() throws -> Expr {
         var left = try compose()
         while !atBoundary && isSymbol("|>") {
             let op = next()
             let f = try compose()
-            left = Expr(.apply(f, left), op.pos)
+            left = try node(.apply(f, left), op.pos)
         }
         return left
     }
@@ -218,7 +292,7 @@ struct Parser {
             fresh += 1
             let x = "$x\(fresh)"
             let arg = Expr(.name(x), op.pos)
-            left = Expr(.lambda([.name(x)], Expr(.apply(right, Expr(.apply(left, arg), op.pos)), op.pos)), op.pos)
+            left = try node(.lambda([.name(x)], try node(.apply(right, try node(.apply(left, arg), op.pos)), op.pos)), op.pos)
         }
         return left
     }
@@ -231,20 +305,44 @@ struct Parser {
         while !atBoundary, case let .symbol(s) = peek.kind, Self.levels[level].contains(s) {
             let op = next()
             // @ joins to the right; comparisons don't chain.
-            let right = s == "@" ? try binary(level: level) : try binary(level: level + 1)
+            let right: Expr
+            if s == "@" {
+                try enter()
+                right = try binary(level: level)
+                leave()
+            } else {
+                right = try binary(level: level + 1)
+            }
             let name = s == "==" ? "=" : s == "!=" ? "<>" : s
-            left = Expr(.binary(name, left, right), op.pos)
+            left = try node(.binary(name, left, right), op.pos)
             if s == "@" || level == 2 { break }
         }
         return left
     }
 
     private mutating func unary() throws -> Expr {
-        if isSymbol("-") {
-            let op = next()
-            return Expr(.negate(try unary()), op.pos)
+        // The minus signs first (a loop, so - - - … can't run the parser out of room), then
+        // what they apply to, inside out.
+        var minuses: [Pos] = []
+        while isSymbol("-") { minuses.append(next().pos) }
+        var e: Expr
+        if let last = minuses.last, case let .int(n) = peek.kind {
+            // A minus sign right before a number is part of it: -3 is a number, and so is
+            // -9223372036854775808 (whose digits alone are one too big to be one).
+            let t = next()
+            guard n <= UInt64(Int.max) + 1 else { throw Self.tooBig(n, t.pos) }
+            e = Expr(.int(n == UInt64(Int.max) + 1 ? Int.min : -Int(n)), last)
+            minuses.removeLast()
+            e = try postfixAndArguments(e)
+        } else {
+            e = try application()
         }
-        return try application()
+        for pos in minuses.reversed() { e = try node(.negate(e), pos) }
+        return e
+    }
+
+    static func tooBig(_ n: UInt64, _ pos: Pos) -> FlowError {
+        FlowError(.syntax, pos, "\(n) is too big a number.", fix: Lexer.tooBigFix)
     }
 
     private var startsArgument: Bool {
@@ -258,23 +356,28 @@ struct Parser {
 
     private mutating func application() throws -> Expr {
         if isKeyword("if") || isKeyword("fun") { return try atom() }
-        var f = try postfix()
+        return try postfixAndArguments(try atom())
+    }
+
+    /// The fields after `e` (`.out`), then the arguments it's given.
+    private mutating func postfixAndArguments(_ e: Expr) throws -> Expr {
+        var f = try postfix(e)
         while !atBoundary && startsArgument {
-            let arg = try postfix()
-            f = Expr(.apply(f, arg), arg.pos)
+            let arg = try postfix(try atom())
+            f = try node(.apply(f, arg), arg.pos)
         }
         return f
     }
 
-    private mutating func postfix() throws -> Expr {
-        var e = try atom()
+    private mutating func postfix(_ atom: Expr) throws -> Expr {
+        var e = atom
         while isSymbol(".") && !peek.startsLine {
             _ = next()
             guard case let .ident(field) = peek.kind else {
                 throw FlowError(.syntax, peek.pos, "A field name should follow the `.`, such as .out, .err, .code or .ok.")
             }
             let t = next()
-            e = Expr(.field(e, field), t.pos)
+            e = try node(.field(e, field), t.pos)
         }
         return e
     }
@@ -284,21 +387,13 @@ struct Parser {
         switch t.kind {
         case let .int(n):
             _ = next()
-            return Expr(.int(n), t.pos)
+            guard let value = Int(exactly: n) else { throw Self.tooBig(n, t.pos) }
+            return Expr(.int(value), t.pos)
         case let .string(s):
             _ = next()
             return Expr(.str(s), t.pos)
-        case let .interpolated(texts, holes):
-            _ = next()
-            var exprs: [Expr] = []
-            for (source, pos) in holes {
-                var sub = Parser(tokens: try Lexer.tokenize(source, origin: pos))
-                if sub.peek.kind == .eof { throw FlowError(.syntax, pos, "This {} is empty.", fix: "Put a name or an expression in it, such as {count}.") }
-                let e = try sub.expr()
-                if sub.peek.kind != .eof { throw FlowError(.syntax, sub.peek.pos, "I didn't expect \(Self.describe(sub.peek)) inside {…}.") }
-                exprs.append(e)
-            }
-            return Expr(.interp(texts: texts, holes: exprs), t.pos)
+        case .interpolated:
+            return try interpolated()
         case .keyword("true"), .keyword("false"):
             _ = next()
             return Expr(.bool(t.kind == .keyword("true")), t.pos)
@@ -306,58 +401,11 @@ struct Parser {
             _ = next()
             return Expr(.name(name), t.pos)
         case .symbol("("):
-            _ = next()
-            if isSymbol(")") {
-                _ = next()
-                return Expr(.unit, t.pos)
-            }
-            offside.append(0)
-            let e = try expr()
-            offside.removeLast()
-            _ = try expect(")", "`)` to close the `(` on \(t.pos)")
-            return e
+            return try parenthesised()
         case .symbol("["):
-            _ = next()
-            var items: [Expr] = []
-            if isSymbol("]") {
-                _ = next()
-                return Expr(.list([]), t.pos)
-            }
-            let col = peek.pos.col
-            while true {
-                offside.append(col)
-                items.append(try expr())
-                offside.removeLast()
-                if isSymbol(";") || isSymbol(",") {
-                    _ = next()
-                    if isSymbol("]") { break }
-                    continue
-                }
-                if isSymbol("]") { break }
-                if peek.startsLine && peek.pos.col == col { continue }
-                throw FlowError(.syntax, peek.pos, "Expected `;` or `]` in the list started on \(t.pos), found \(Self.describe(peek)).",
-                                fix: "Separate items with ; (or put each on its own line) and end the list with ].")
-            }
-            _ = next()
-            return Expr(.list(items), t.pos)
+            return try list()
         case .keyword("fun"):
-            _ = next()
-            var params: [Param] = []
-            while !isSymbol("->") {
-                if case let .ident(p) = peek.kind {
-                    _ = next()
-                    params.append(.name(p))
-                } else if isSymbol("(") && tokens[index + 1].kind == .symbol(")") {
-                    _ = next(); _ = next()
-                    params.append(.unit)
-                } else {
-                    throw FlowError(.syntax, peek.pos, "Expected `->` after `fun` and its parameters, found \(Self.describe(peek)).",
-                                    fix: "Write it as: fun x -> …")
-                }
-            }
-            guard !params.isEmpty else { throw FlowError(.syntax, peek.pos, "`fun` needs a parameter before `->`.", fix: "fun x -> …, or fun () -> … for none") }
-            _ = next()
-            return Expr(.lambda(params, try branch(after: "->")), t.pos)
+            return try lambda()
         case .keyword("if"):
             return try conditional()
         default:
@@ -365,7 +413,86 @@ struct Parser {
         }
     }
 
+    // The bigger atoms are functions of their own: Swift gives a function one stack frame big
+    // enough for all its cases, and atom is in every level of nesting.
+
+    private mutating func interpolated() throws -> Expr {
+        let t = next()
+        guard case let .interpolated(texts, holes) = t.kind else { return Expr(.unit, t.pos) }
+        var exprs: [Expr] = []
+        for (source, pos) in holes {
+            var sub = Parser(tokens: try Lexer.tokenize(source, origin: pos), stack: stack)
+            sub.nesting = nesting
+            if sub.peek.kind == .eof { throw FlowError(.syntax, pos, "This {} is empty.", fix: "Put a name or an expression in it, such as {count}.") }
+            let e = try sub.expr()
+            if sub.peek.kind != .eof { throw FlowError(.syntax, sub.peek.pos, "I didn't expect \(Self.describe(sub.peek)) inside {…}.") }
+            exprs.append(e)
+        }
+        return try node(.interp(texts: texts, holes: exprs), t.pos)
+    }
+
+    private mutating func parenthesised() throws -> Expr {
+        let t = next()
+        if isSymbol(")") {
+            _ = next()
+            return Expr(.unit, t.pos)
+        }
+        offside.append(0)
+        let e = try expr()
+        offside.removeLast()
+        _ = try expect(")", "`)` to close the `(` on \(t.pos)")
+        return e
+    }
+
+    private mutating func list() throws -> Expr {
+        let t = next()
+        var items: [Expr] = []
+        if isSymbol("]") {
+            _ = next()
+            return Expr(.list([]), t.pos)
+        }
+        let col = peek.pos.col
+        while true {
+            offside.append(col)
+            items.append(try expr())
+            offside.removeLast()
+            if isSymbol(";") || isSymbol(",") {
+                _ = next()
+                if isSymbol("]") { break }
+                continue
+            }
+            if isSymbol("]") { break }
+            if peek.startsLine && peek.pos.col == col { continue }
+            throw FlowError(.syntax, peek.pos, "Expected `;` or `]` in the list started on \(t.pos), found \(Self.describe(peek)).",
+                            fix: "Separate items with ; (or put each on its own line) and end the list with ].")
+        }
+        _ = next()
+        return try node(.list(items), t.pos)
+    }
+
+    private mutating func lambda() throws -> Expr {
+        let t = next()
+        var params: [Param] = []
+        while !isSymbol("->") {
+            if case let .ident(p) = peek.kind {
+                _ = next()
+                params.append(.name(p))
+            } else if isSymbol("(") && tokens[index + 1].kind == .symbol(")") {
+                _ = next(); _ = next()
+                params.append(.unit)
+            } else {
+                throw FlowError(.syntax, peek.pos, "Expected `->` after `fun` and its parameters, found \(Self.describe(peek)).",
+                                fix: "Write it as: fun x -> …")
+            }
+        }
+        guard !params.isEmpty else { throw FlowError(.syntax, peek.pos, "`fun` needs a parameter before `->`.", fix: "fun x -> …, or fun () -> … for none") }
+        _ = next()
+        return try node(.lambda(params, try branch(after: "->")), t.pos)
+    }
+
     private mutating func conditional() throws -> Expr {
+        try enter()
+        defer { leave() }
         let start = next()  // if or elif
         let test = try expr()
         guard isKeyword("then") && !atBoundary else {
@@ -380,6 +507,6 @@ struct Parser {
             _ = next()
             no = try branch(after: "else")
         }
-        return Expr(.cond(test, yes, no), start.pos)
+        return try node(.cond(test, yes, no), start.pos)
     }
 }

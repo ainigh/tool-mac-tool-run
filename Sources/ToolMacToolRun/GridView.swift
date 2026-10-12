@@ -54,6 +54,16 @@ struct GridView: View {
             .padding(.horizontal, 20)
             footer
         }
+        // The page showing is kept when it had to be brought back in range (fewer scripts than
+        // before), so it doesn't jump to the old page when there are more again.
+        .onAppear { keepPage(page, count: all.count) }
+        .onChange(of: page) { _, shown in keepPage(shown, count: all.count) }
+    }
+
+    private func keepPage(_ shown: Int, count: Int) {
+        // With nothing read yet (or nothing there), the remembered page stays as it is.
+        guard count > 0, settings.page != shown else { return }
+        app.update(kind) { $0.page = shown }
     }
 
     private func cells(all: [ScriptItem], page: Int) -> some View {
@@ -80,8 +90,9 @@ struct GridView: View {
     private func cell(at index: Int, all: [ScriptItem], count: Int) -> some View {
         if index < all.count {
             let item = all[index]
+            let run = runs.latest(file: item.id, kind: kind)
             ScriptCell(item: item, kind: kind, tint: settings.tint(for: item.id), arguments: settings.arguments[item.id],
-                       run: runs.latest(file: item.id, kind: kind), count: count, actions: actions,
+                       run: run, lastLine: run.flatMap { runs.lastLine($0.id) }, count: count, actions: actions,
                        askArguments: { askingArguments = item }, askTrash: { trashing = item })
         } else if index == all.count {
             NewCell(kind: kind, count: count, actions: actions)
@@ -97,6 +108,10 @@ struct GridView: View {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .lineLimit(2)
+                Button { app.problem = nil } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Dismiss")
             } else {
                 Text(kind == .scripts
                      ? "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
@@ -232,6 +247,7 @@ struct GridActions {
         guard let lib = app.library else { return }
         do {
             let url = try lib.newScript(name: "untitled", language: lang)
+            app.problem = nil
             app.reload()
             Windows.showEditor(ScriptItem(url: url, language: lang, summary: nil, modified: Date()), kind: .scripts)
         } catch {
@@ -243,6 +259,7 @@ struct GridActions {
         guard let lib = app.library else { return }
         do {
             let url = try lib.newFlow(name: "untitled")
+            app.problem = nil
             app.reload()
             Windows.showEditor(ScriptItem(url: url, language: .unknown, summary: nil, modified: Date()), kind: .composer)
         } catch {
@@ -254,15 +271,21 @@ struct GridActions {
         guard let lib = app.library else { return }
         do {
             try lib.addExamples()
+            app.problem = nil
             app.reload()
         } catch {
             app.problem = "Couldn't add the examples: \(error.localizedDescription)"
         }
     }
 
+    /// Moves it to the Trash. An editor open on it saves first (the Trash keeps the latest), then
+    /// closes without saving again (which would make the file again).
     func trash(_ item: ScriptItem) {
+        Windows.editor(for: item.url)?.save()
         do {
             try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
+            Windows.closeEditor(for: item.url, deleted: true)
+            app.problem = nil
             app.reload()
         } catch {
             app.problem = "Couldn't move \(item.id) to the Trash: \(error.localizedDescription)"
@@ -286,7 +309,8 @@ struct GridActions {
         let argv = ShellEnvironment.split(app.settings(kind).arguments[item.id] ?? "")
         let line: String
         if kind == .scripts {
-            line = ScriptProcess(script: item.url, language: item.language, arguments: argv).commandLine
+            // Only the command is wanted: no environment (reading it can wait on the login shell).
+            line = ScriptProcess(script: item.url, language: item.language, arguments: argv, environment: [:]).commandLine
         } else {
             line = (["flow", "run", item.url.path] + argv).map(ShellEnvironment.quote).joined(separator: " ")
         }
@@ -315,6 +339,8 @@ struct ScriptCell: View {
     let tint: Int
     let arguments: String?
     let run: RunRecord?
+    /// While it runs: the last line it printed.
+    let lastLine: String?
     let count: Int
     let actions: GridActions
     let askArguments: () -> Void
@@ -375,7 +401,7 @@ struct ScriptCell: View {
                     .lineLimit(count <= 9 ? 4 : 2)
             }
             Spacer(minLength: 0)
-            StatusLine(run: run, compact: !roomy) {
+            StatusLine(run: run, lastLine: lastLine, compact: !roomy) {
                 if let run { Windows.showRuns(run.id) }
             } stop: {
                 if let run { actions.app.runs.stop(run.id) }
@@ -450,6 +476,7 @@ struct ScriptCell: View {
 /// how long it's been going, its last line, and Stop.
 struct StatusLine: View {
     let run: RunRecord?
+    let lastLine: String?
     let compact: Bool
     let show: () -> Void
     let stop: () -> Void
@@ -466,7 +493,7 @@ struct StatusLine: View {
                                 Text(RunRecord.duration(ctx.date.timeIntervalSince(run.started)))
                                     .monospacedDigit()
                             }
-                            if !compact, let line = run.lastLine {
+                            if !compact, let line = lastLine {
                                 Text(line).lineLimit(1).foregroundStyle(Color.black.opacity(0.55))
                             }
                         } else {
@@ -501,7 +528,7 @@ struct StatusLine: View {
     static func summary(_ r: RunRecord) -> String {
         switch r.state {
         case .succeeded: return r.seconds.map { RunRecord.duration($0) } ?? "Done"
-        case .failed: return "Failed" + (r.code.map { ", exit code \($0)" } ?? "")
+        case .failed: return "Failed" + (r.ending.map { ", \($0.summary)" } ?? "")
         case .stopped: return "Stopped"
         case .couldNotStart: return "Couldn't start: click to see why"
         case .running: return "Running"

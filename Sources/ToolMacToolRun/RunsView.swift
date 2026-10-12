@@ -11,14 +11,16 @@ struct RunsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection.selected) {
-                let top = runs.records.reversed().filter { $0.parent == nil }
+                let records = runs.records
+                let top = records.reversed().filter { $0.parent == nil }
+                let steps = Self.stepsByParent(records)
                 if top.isEmpty {
                     Text("No runs yet. Click a cell in a grid to run it.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(top) { run in
                     RunRow(run: run, indent: false).tag(run.id)
-                    ForEach(runs.steps(of: run.id)) { step in
+                    ForEach(steps[run.id] ?? []) { step in
                         RunRow(run: step, indent: true).tag(step.id)
                     }
                 }
@@ -46,6 +48,15 @@ struct RunsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// Each flow's steps, in order, gathered in one pass.
+    static func stepsByParent(_ records: [RunRecord]) -> [UUID: [RunRecord]] {
+        var steps: [UUID: [RunRecord]] = [:]
+        for r in records {
+            if let parent = r.parent { steps[parent, default: []].append(r) }
+        }
+        return steps
     }
 }
 
@@ -94,7 +105,7 @@ struct RunDetail: View {
                         Text(run.name).font(.title2.weight(.semibold)).lineLimit(1)
                         HStack(spacing: 6) {
                             Text(run.state.title)
-                            if let code = run.code, run.state != .running { Text("· exit code \(code)") }
+                            if let ending = run.ending, run.state == .failed { Text("· \(ending.summary)") }
                             Text("· started \(run.started.formatted(date: .abbreviated, time: .standard))")
                             if run.state == .running {
                                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -108,9 +119,10 @@ struct RunDetail: View {
                     }
                     Spacer()
                     if run.state == .running {
-                        Button { runs.stop(run.id) } label: { Label("Stop", systemImage: "stop.fill") }
+                        // A step is stopped by stopping its flow.
+                        Button { runs.stop(run.id) } label: { Label(run.kind == .step ? "Stop Flow" : "Stop", systemImage: "stop.fill") }
                             .keyboardShortcut(".")
-                            .help("Stop it (⌘.)")
+                            .help(run.kind == .step ? "Stop the flow this step is part of (⌘.)" : "Stop it (⌘.)")
                     } else if run.kind != .step {
                         Button { again() } label: { Label("Run Again", systemImage: "arrow.clockwise") }
                             .help("Run it again with the same arguments")
@@ -138,7 +150,8 @@ struct RunDetail: View {
             }
             .padding(16)
             Divider()
-            OutputText(run: run)
+            OutputText(run: run, version: runs.version(run.id))
+                .id(run.id)
         }
         .controlSize(.large)
     }
@@ -157,11 +170,16 @@ struct RunDetail: View {
     }
 }
 
-/// What a run printed, its errors in red, following the end while it runs.
+/// What a run printed, its errors in red, following the end while it runs. A lot of output
+/// shows its end (the rest a click away), and is built once per change, not once per showing.
 struct OutputText: View {
     let run: RunRecord
+    /// Goes up each time the output changes (`RunStore.version`).
+    let version: Int
+    @State private var showAll = false
 
     var body: some View {
+        let shown = OutputCache.shared.shown(run, version: version, all: showAll)
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -170,11 +188,20 @@ struct OutputText: View {
                             .foregroundStyle(.secondary)
                             .padding(.bottom, 6)
                     }
+                    if shown.hiddenBytes > 0 {
+                        HStack(spacing: 8) {
+                            Text("(Showing the last \(OutputCache.tailBytes / 1000) KB.)")
+                                .foregroundStyle(.secondary)
+                            Button("Show All (\(max(1, (shown.hiddenBytes + OutputCache.tailBytes) / 1000)) KB)") { showAll = true }
+                                .buttonStyle(.link)
+                        }
+                        .padding(.bottom, 6)
+                    }
                     if run.output.isEmpty {
                         Text(run.state == .running ? "Nothing printed yet…" : "It printed nothing.")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text(Self.attributed(run.output))
+                        Text(shown.text)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -185,20 +212,82 @@ struct OutputText: View {
             }
             .background(Color(nsColor: .textBackgroundColor))
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: run.text.utf8.count) { _, _ in
+            // The version keeps going up even when the output is at its cap (its length the same).
+            .onChange(of: version) { _, _ in
                 if run.state == .running { proxy.scrollTo("end", anchor: .bottom) }
             }
         }
     }
+}
 
-    static func attributed(_ chunks: [RunRecord.Chunk]) -> AttributedString {
+/// The output as shown, built once for each change of a run's output.
+@MainActor
+final class OutputCache {
+    static let shared = OutputCache()
+    /// How much of a long output shows until Show All.
+    static let tailBytes = 64_000
+
+    struct Shown {
+        let text: AttributedString
+        /// How much from the start isn't shown.
+        let hiddenBytes: Int
+    }
+
+    private struct Entry {
+        let version: Int
+        let chunks: Int
+        let all: Bool
+        let shown: Shown
+    }
+
+    private var entries: [UUID: Entry] = [:]
+
+    func shown(_ run: RunRecord, version: Int, all: Bool) -> Shown {
+        if let e = entries[run.id], e.version == version, e.chunks == run.output.count, e.all == all { return e.shown }
+        let shown = Self.build(run.output, all: all)
+        if entries.count > 16 { entries.removeAll() }
+        entries[run.id] = Entry(version: version, chunks: run.output.count, all: all, shown: shown)
+        return shown
+    }
+
+    static func build(_ chunks: [RunRecord.Chunk], all: Bool) -> Shown {
+        var total = 0
+        for c in chunks { total += c.text.utf8.count }
         var s = AttributedString()
-        for c in chunks {
-            var part = AttributedString(c.text)
-            if c.stream == .err { part.foregroundColor = Color.red }
-            s += part
+        if all || total <= tailBytes {
+            for c in chunks { s += part(c.stream, c.text) }
+            return Shown(text: s, hiddenBytes: 0)
         }
-        return s
+        // The end only: whole pieces from the last back, the first of them cut.
+        var picked: [(RunCore.OutputStream, String)] = []
+        var need = tailBytes
+        for c in chunks.reversed() {
+            let n = c.text.utf8.count
+            if n <= need {
+                picked.append((c.stream, c.text))
+                need -= n
+            } else {
+                let utf8 = c.text.utf8
+                var start = utf8.index(utf8.endIndex, offsetBy: -need)
+                // Not in the middle of a character.
+                while start < utf8.endIndex, utf8[start] & 0xC0 == 0x80 { utf8.formIndex(after: &start) }
+                picked.append((c.stream, String(c.text[start...])))
+                need = 0
+            }
+            if need == 0 { break }
+        }
+        var shownBytes = 0
+        for (stream, text) in picked.reversed() {
+            s += part(stream, text)
+            shownBytes += text.utf8.count
+        }
+        return Shown(text: s, hiddenBytes: max(0, total - shownBytes))
+    }
+
+    private static func part(_ stream: RunCore.OutputStream, _ text: String) -> AttributedString {
+        var p = AttributedString(text)
+        if stream == .err { p.foregroundColor = Color.red }
+        return p
     }
 }
 
@@ -238,7 +327,8 @@ struct OutputPanel: View {
                     .foregroundStyle(Theme.color(run.state))
             }
             Divider()
-            OutputText(run: run)
+            OutputText(run: run, version: runs.version(run.id))
+                .id(run.id)
         }
     }
 }

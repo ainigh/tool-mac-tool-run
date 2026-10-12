@@ -1,8 +1,8 @@
 import Foundation
 
 /// The language a script is written in, told from its first line (`#!`), else its extension, else
-/// what's in it. Each knows how it's run: the program and the arguments that go before the
-/// script's path.
+/// what's in it. Each knows how a script with no `#!` line is run: the program and the arguments
+/// that go before the script's path.
 public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
     case bash, zsh, sh, fish
     case python, node, typescript, deno, ruby, perl, php, lua
@@ -81,8 +81,9 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// The program that runs it, and what goes before the script's path. `executable` runs the
-    /// file itself; `unknown` has none.
+    /// The program that runs it, and what goes before the script's path, for a script with no `#!`
+    /// line (one with a `#!` line is run by what that line names: see `Shebang`). `executable`
+    /// runs the file itself; `unknown` has none.
     public var command: (program: String, leading: [String])? {
         switch self {
         case .bash: ("bash", [])
@@ -160,18 +161,8 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
 
     /// The language a `#!` line names (`#!/bin/bash`, `#!/usr/bin/env python3`, `#!/usr/bin/env -S deno run`).
     static func fromShebang(_ contents: String) -> ScriptLanguage? {
-        guard contents.hasPrefix("#!") else { return nil }
-        let line = contents.prefix { $0 != "\n" }.dropFirst(2).trimmingCharacters(in: .whitespaces)
-        var words = line.split(separator: " ").map(String.init)
-        guard !words.isEmpty else { return nil }
-        var program = (words.removeFirst() as NSString).lastPathComponent
-        if program == "env" {
-            // env's own options (-S, -i, NAME=value) come before the program.
-            while let w = words.first, w.hasPrefix("-") || w.contains("=") { words.removeFirst() }
-            guard let next = words.first else { return nil }
-            program = (next as NSString).lastPathComponent
-        }
-        return byProgram(program)
+        guard let program = Shebang.parse(contents)?.program else { return nil }
+        return byProgram((program as NSString).lastPathComponent)
     }
 
     static func byProgram(_ program: String) -> ScriptLanguage? {
@@ -209,4 +200,57 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         if head.range(of: #"(?m)^\s*(display (dialog|notification)|tell application)"#, options: .regularExpression) != nil { return .applescript }
         return nil
     }
+}
+
+/// A script's `#!` line: the interpreter it names and the words after it. A script with one is run
+/// the way the system runs it (its interpreter, these words, then the script's path), so
+/// `#!/bin/sh -e`, a virtual environment's python or `#!/usr/bin/env -S deno run --allow-read`
+/// mean what they say.
+///
+/// The words are split on spaces and tabs, as macOS does. (Linux hands everything after the
+/// interpreter over as one word; macOS is where the app runs scripts.)
+public struct Shebang: Equatable, Sendable {
+    /// The program named, as written: `/bin/bash`, `/usr/bin/env`, `/Users/me/proj/.venv/bin/python`.
+    public var interpreter: String
+    /// The words after it.
+    public var arguments: [String]
+
+    public init(interpreter: String, arguments: [String]) {
+        self.interpreter = interpreter
+        self.arguments = arguments
+    }
+
+    /// The `#!` line at the very start of `contents`, if there is one naming a program.
+    public static func parse(_ contents: String) -> Shebang? {
+        guard contents.hasPrefix("#!") else { return nil }
+        // Unicode scalars, so a Windows line end ("\r\n", one Character) still ends the line.
+        let line = contents.unicodeScalars.dropFirst(2).prefix { $0 != "\n" && $0 != "\r" }
+        let words = String(String.UnicodeScalarView(line)).split { $0 == " " || $0 == "\t" }.map(String.init)
+        guard let first = words.first else { return nil }
+        return Shebang(interpreter: first, arguments: Array(words.dropFirst()))
+    }
+
+    /// The interpreter is `env`, which finds the program on the PATH.
+    public var usesEnv: Bool { (interpreter as NSString).lastPathComponent == "env" }
+
+    /// What really runs the script: the interpreter, or for `env`, the program it's asked to find
+    /// (after its own options and NAME=value settings). Nil when `env` is given no program.
+    public var program: String? {
+        guard usesEnv else { return interpreter }
+        var words = arguments[...]
+        while let w = words.first {
+            if ["-u", "-C", "-P", "--unset", "--chdir"].contains(w) {
+                words = words.dropFirst(2)  // an option and its value
+            } else if w.hasPrefix("-") || w.contains("=") {
+                words = words.dropFirst()
+            } else {
+                return w
+            }
+        }
+        return nil
+    }
+
+    /// `env` with just a program and no options of its own: in a terminal it reads the same
+    /// without the `/usr/bin/env` (`python3 script.py`).
+    var plainEnv: Bool { usesEnv && arguments.first != nil && arguments.first == program }
 }

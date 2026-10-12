@@ -14,6 +14,11 @@ COMMIT="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 BRANCH="${BRANCH:-main}"
 NAME=ToolMacToolRun
 APP="build/$NAME.app"
+# CFBundleVersion must be numbers with dots: VERSION's leading numbers (0.1-abc1234 → 0.1), or 0.
+if [[ "$VERSION" =~ ^([0-9]+(\.[0-9]+){0,2}) ]]; then BUNDLE_VERSION="${BUNDLE_VERSION:-${BASH_REMATCH[1]}}"; else BUNDLE_VERSION="${BUNDLE_VERSION:-0}"; fi
+
+# A value as it can go inside the plist's XML.
+xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"; }
 
 command -v swift >/dev/null 2>&1 || {
   echo "error: building needs Swift. Install Apple's command line tools (xcode-select --install), then try again." >&2
@@ -40,10 +45,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Tool Mac Tool Run</string>
   <key>CFBundleExecutable</key><string>$NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
-  <key>ToolMacToolRunCommit</key><string>$COMMIT</string>
-  <key>ToolMacToolRunBranch</key><string>$BRANCH</string>
+  <key>CFBundleShortVersionString</key><string>$(xml "$VERSION")</string>
+  <key>CFBundleVersion</key><string>$(xml "$BUNDLE_VERSION")</string>
+  <key>ToolMacToolRunCommit</key><string>$(xml "$COMMIT")</string>
+  <key>ToolMacToolRunBranch</key><string>$(xml "$BRANCH")</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
