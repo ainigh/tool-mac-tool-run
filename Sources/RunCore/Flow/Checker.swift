@@ -469,11 +469,11 @@ final class Checker {
         }
     }
 
-    // MARK: the scripts named in run, attempt and pipe
+    // MARK: the scripts named in run, attempt, pipe and attemptPipe
 
     private func checkScriptName(_ f: Expr, _ a: Expr) throws {
         try checkEPACommand(f, a)
-        guard let scripts, case let .name(fn) = f.kind, ["run", "attempt", "pipe"].contains(fn),
+        guard let scripts, case let .name(fn) = f.kind, ["run", "attempt", "pipe", "attemptPipe"].contains(fn),
               case let .str(name) = a.kind else { return }
         if ScriptNames.match(name, in: scripts) != nil { return }
         let near = Self.closest(name, among: scripts)

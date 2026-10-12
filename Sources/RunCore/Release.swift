@@ -118,6 +118,14 @@ public enum UpdatePlan: Equatable, Sendable {
         return .buildHere(head)
     }
 
+    /// The commit it updates to (none when up to date).
+    public var commit: GitHubCommit? {
+        switch self {
+        case .upToDate: nil
+        case let .prebuilt(c, _), let .buildHere(c): c
+        }
+    }
+
     /// What the menu offers, in a line.
     public var title: String {
         switch self {

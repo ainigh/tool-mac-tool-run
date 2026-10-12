@@ -7,7 +7,7 @@ import Foundation
 public enum Caution {
     /// What each danger looks like, and what it does, in plain words.
     static let dangers: [(pattern: String, what: String)] = [
-        (#"(^|[\s;&|("'`])rm\s+(-[A-Za-z]*[rRf][A-Za-z]*\s+)+"#, "deletes files for good (rm -r / rm -f)"),
+        (#"(^|[\s;&|("'`])rm\s+(-[A-Za-z]*[rRf][A-Za-z]*\s+|--(recursive|force)\s+)+"#, "deletes files for good (rm -r / rm -f)"),
         (#"(^|[\s;&|("'`])sudo\s"#, "runs commands as the administrator (sudo)"),
         (#"(^|[\s;&|("'`])dd\s+.*\bof="#, "writes straight onto a disk or file (dd)"),
         (#"(^|[\s;&|("'`])(mkfs|newfs_\w+)\b|diskutil\s+(erase\w*|partitionDisk|zeroDisk|secureErase|reformat)"#, "erases a disk"),

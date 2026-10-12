@@ -251,7 +251,9 @@ public final class LocalFlowHost: FlowHost, @unchecked Sendable {
         guard depth < 8 else {
             throw FlowError(.run, pos, "Flows running flows went 8 deep: \(flow.id) probably runs itself.")
         }
-        let source = (try? String(contentsOf: flow.url, encoding: .utf8)) ?? ""
+        guard let source = try? String(contentsOf: flow.url, encoding: .utf8) else {
+            throw FlowError(.run, pos, "Couldn't read \(flow.id).", fix: "Check it's still there and is UTF-8 text.")
+        }
         let id = UUID()
         let started = Date()
         events(.stepStarted(id: id, name: flow.id, command: "flow run \(ShellEnvironment.quote(flow.id))", line: pos.line))

@@ -172,7 +172,7 @@ final class TerminalAsker: @unchecked Sendable {
                 say("   Pick 1–\(options.count) (or stop): ")
                 guard let a = line() else { return .stop }
                 if a.lowercased() == "stop" { return .stop }
-                if let n = Int(a), options.indices.contains(n - 1) { return .text(options[n - 1]) }
+                if let n = Int(a), n >= 1, n <= options.count { return .text(options[n - 1]) }
                 if let o = options.first(where: { $0.lowercased() == a.lowercased() }) { return .text(o) }
             case .result:
                 return .yes

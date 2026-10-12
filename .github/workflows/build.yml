@@ -6,8 +6,9 @@ on:
   push:
   workflow_dispatch:
 
+# Read-only by default; only the job that publishes the release gets to write.
 permissions:
-  contents: write
+  contents: read
 
 # A newer push to the same branch replaces a run still going.
 concurrency:
@@ -29,6 +30,8 @@ jobs:
   build:
     needs: test
     runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - run: swift --version

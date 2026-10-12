@@ -283,7 +283,8 @@ enum Lexer {
             }
             throw FlowError(.syntax, pos, "\(c) isn't something a flow can contain here.")
         }
-        tokens.append(Token(kind: .eof, pos: Pos(line: line + 1, col: 1), startsLine: true))
+        // Just after the last token, so "nothing follows" points at a line that's there.
+        tokens.append(Token(kind: .eof, pos: tokens.last?.end ?? origin, startsLine: true))
         return (tokens, commentLines)
     }
 
