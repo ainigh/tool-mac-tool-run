@@ -162,6 +162,20 @@ struct PromptCard: View {
                 }
             }
             answerField
+            if q.link != nil || q.savedAs != nil {
+                // Where the answer comes from (EPA opened it in the browser too), and where it's kept.
+                HStack(spacing: 10) {
+                    if let link = q.link {
+                        Button { NSWorkspace.shared.open(link) } label: { Label("Open the Page", systemImage: "safari") }
+                            .help("Where it's made: \(link.absoluteString)")
+                    }
+                    if let saved = q.savedAs {
+                        Text("EPA checks it, then saves it to .env as \(saved).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             Text(note)
                 .font(.caption)
                 .foregroundStyle(.secondary)

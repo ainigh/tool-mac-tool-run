@@ -140,6 +140,22 @@ final class EPATests: XCTestCase {
         XCTAssertTrue(host.shown.contains("Temporary password:\n\n      pa55"))
     }
 
+    func testSigningInAsksForAKeyWithItsPageAndAPlainValueInSight() throws {
+        // `epa connect freshdesk` with nothing set: the address in plain sight, then the key
+        // hidden, with the page it's made on and where EPA keeps it.
+        let host = EPAHost()
+        host.printed = [json(["type": "ask", "id": 1, "kind": "secret", "question": "FRESHDESK_DOMAIN:", "visible": true, "envName": "FRESHDESK_DOMAIN"]),
+                        json(["type": "ask", "id": 2, "kind": "secret", "question": "FRESHDESK_API_KEY:", "url": "https://acme.freshdesk.com/", "envName": "FRESHDESK_API_KEY"])]
+        host.answers = [.text("acme"), .text("k3y")]
+        _ = try Flow.run("epa [\"connect\"; \"freshdesk\"]", host: host)
+        XCTAssertEqual(host.asked.map(\.secret), [false, true])
+        XCTAssertEqual(host.asked.last?.link, URL(string: "https://acme.freshdesk.com/"))
+        XCTAssertEqual(host.asked.last?.savedAs, "FRESHDESK_API_KEY")
+        XCTAssertEqual(host.sent, ["acme\n", "k3y\n"])
+        XCTAssertTrue(host.shown.contains("FRESHDESK_DOMAIN: → acme"))
+        XCTAssertFalse(host.shown.contains("k3y"))
+    }
+
     func testAMistypedCommandIsCaughtBeforeAnythingRuns() {
         XCTAssertThrowsError(try Flow.check("epa [\"conect\"; \"resend\"]")) { e in
             let e = e as! FlowError
