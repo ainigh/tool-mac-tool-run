@@ -3,8 +3,8 @@
 A terminal icon in the macOS menu bar. Click it, and its menu opens one of two grids, each filling
 90% of the screen:
 
-- **Scripts** — a cell for every script in your scripts folder: bash, zsh, Python, JavaScript,
-  TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, PowerShell, fish, or any
+- **Scripts** — a cell for every script in your scripts folder: bash, zsh, PowerShell, Python, JavaScript,
+  TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, or any
   executable. The language is told by itself: from the script's `#!` line, else its extension,
   else a look at what's in it. **Click a cell to run it. Click its pencil to edit it.**
 - **Composer** — a cell for every **flow**: a small program in **Flow**, a little F#-like language
@@ -105,3 +105,7 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 
 Every change is checked against [docs/DOCTRINE.md](docs/DOCTRINE.md): the guided-UX promises, who
 it's for, and the cold-start walks.
+
+## The brief
+
+The original request this app was built from is in [docs/BRIEF.md](docs/BRIEF.md).
