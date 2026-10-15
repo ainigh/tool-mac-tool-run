@@ -88,10 +88,25 @@ final class TerminalAsker: @unchecked Sendable {
     private let lock = NSLock()
     private let yes: Bool
     private let flush: () -> Void
+    private let cancelLock = NSLock()
+    private var cancelled = false
 
     init(yes: Bool, flush: @escaping () -> Void) {
         self.yes = yes
         self.flush = flush
+    }
+
+    /// Control-C: a question being asked ends now, as Stop (and so does any asked after).
+    func cancel() {
+        cancelLock.lock()
+        cancelled = true
+        cancelLock.unlock()
+    }
+
+    private var isCancelled: Bool {
+        cancelLock.lock()
+        defer { cancelLock.unlock() }
+        return cancelled
     }
 
     func ask(_ q: FlowQuestion) -> FlowAnswer {
@@ -125,11 +140,27 @@ final class TerminalAsker: @unchecked Sendable {
             fputs(s, tty)
             fflush(tty)
         }
+        // A line typed, read a byte at a time (and not through stdio's buffer) so a Control-C
+        // ends the wait at once rather than at the next Return. Nil: end of input, or Control-C.
         func line() -> String? {
-            var buffer = [CChar](repeating: 0, count: 4096)
-            guard fgets(&buffer, Int32(buffer.count), tty) != nil else { return nil }
-            let s = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            return s.trimmingCharacters(in: .newlines)
+            let fd = fileno(tty)
+            var bytes: [UInt8] = []
+            while !isCancelled {
+                var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&p, 1, 100)
+                if ready < 0, errno != EINTR { return nil }
+                if ready <= 0 { continue }
+                var b: UInt8 = 0
+                let n = read(fd, &b, 1)
+                if n < 0 {
+                    if errno == EINTR || errno == EAGAIN { continue }
+                    return nil
+                }
+                if n == 0 { return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self) }
+                if b == UInt8(ascii: "\n") { return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .newlines) }
+                bytes.append(b)
+            }
+            return nil
         }
         while true {
             switch q.kind {
@@ -182,6 +213,9 @@ final class TerminalAsker: @unchecked Sendable {
     }
 }
 
+/// Where the Control-C handler writes (a handler can only do something this small).
+var interruptFD: Int32 = -1
+
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(("❌ " + message + "\n").data(using: .utf8)!)
     exit(code)
@@ -189,15 +223,21 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
 
 setvbuf(stdout, nil, _IOLBF, 0)
 var arguments = Array(CommandLine.arguments.dropFirst())
+// The options come before the .flow file: what follows it is the flow's own arguments, passed
+// on as they are (a flow can be given --folder or --yes of its own).
+func optionIndex(_ name: String) -> Int? {
+    let fileAt = arguments.firstIndex { $0.hasSuffix(".flow") } ?? arguments.count
+    return arguments[..<fileAt].firstIndex(of: name)
+}
 var folder: URL?
-if let k = arguments.firstIndex(of: "--folder") {
-    guard k + 1 < arguments.count else { fail("--folder needs a path after it.") }
+if let k = optionIndex("--folder") {
+    guard k + 1 < arguments.count, !arguments[k + 1].hasSuffix(".flow") else { fail("--folder needs a path after it.") }
     folder = URL(fileURLWithPath: (arguments[k + 1] as NSString).expandingTildeInPath)
     arguments.removeSubrange(k...(k + 1))
 }
-// --yes: nobody's at the keyboard; every confirm goes on (only before the file's own arguments).
+// --yes: nobody's at the keyboard; every confirm goes on.
 var answerYes = false
-if let k = arguments.firstIndex(of: "--yes"), k <= 1 || arguments.prefix(k).allSatisfy({ !$0.hasSuffix(".flow") }) {
+if let k = optionIndex("--yes") {
     answerYes = true
     arguments.remove(at: k)
 }
@@ -295,10 +335,27 @@ case "run":
             print("🔔 \(text)")
         }
     }
-    signal(SIGINT, SIG_IGN)
-    let source2 = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-    source2.setEventHandler { host.cancel() }
-    source2.resume()
+    // Control-C stops the flow: its scripts are stopped too, and a question waiting is answered
+    // Stop at once. Caught by a handler rather than ignored, so a script it starts never inherits
+    // an ignored Control-C (a caught signal goes back to its default in a program started).
+    var pipeEnds: [Int32] = [0, 0]
+    guard pipe(&pipeEnds) == 0 else { fail("Couldn't set up Control-C.") }
+    interruptFD = pipeEnds[1]
+    let readEnd = pipeEnds[0]
+    signal(SIGINT) { _ in
+        var b: UInt8 = 1
+        _ = write(interruptFD, &b, 1)
+    }
+    Thread.detachNewThread {
+        var b: UInt8 = 0
+        while true {
+            let n = read(readEnd, &b, 1)
+            if n < 0, errno == EINTR { continue }
+            if n <= 0 { return }
+            asker.cancel()
+            host.cancel()
+        }
+    }
     do {
         defer { steps.flush() }
         try Flow.run(source, host: host, scripts: LocalFlowHost.names(in: lib), args: Array(arguments.dropFirst(2)))

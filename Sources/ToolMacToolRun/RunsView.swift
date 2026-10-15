@@ -188,6 +188,7 @@ struct RunDetail: View {
             if run.state == .running && runs.acceptsInput(run.id) {
                 Divider()
                 InputBar(run: run.id, runs: runs)
+                    .id(run.id)  // what was typed for one run never goes to another
             }
         }
         .controlSize(.large)
@@ -394,6 +395,7 @@ struct OutputPanel: View {
             if run.state == .running && runs.acceptsInput(run.id) {
                 Divider()
                 InputBar(run: run.id, runs: runs)
+                    .id(run.id)  // what was typed for one run never goes to another
             }
         }
     }

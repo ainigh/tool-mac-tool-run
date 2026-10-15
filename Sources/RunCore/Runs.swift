@@ -252,7 +252,13 @@ public enum RunHistory {
 
     public static func load() -> [RunRecord] {
         guard let data = try? Data(contentsOf: url) else { return [] }
-        var runs = (try? decode(data)) ?? []
+        guard var runs = try? decode(data) else {
+            // Not readable at all: kept aside, so the next save doesn't write over the only copy.
+            let aside = url.deletingLastPathComponent().appendingPathComponent("runs.unreadable.json")
+            try? FileManager.default.removeItem(at: aside)
+            try? FileManager.default.moveItem(at: url, to: aside)
+            return []
+        }
         // A run that was going when the app quit didn't finish: say so rather than show it running forever.
         for i in runs.indices where runs[i].state == .running {
             runs[i].finish(code: nil, state: .stopped, at: runs[i].ended ?? runs[i].started)
@@ -292,7 +298,16 @@ public enum RunHistory {
             if let d = try? Date.ISO8601FormatStyle().parse(s) { return d }
             throw DecodingError.dataCorruptedError(in: c, debugDescription: "Not an ISO 8601 date: \(s)")
         }
-        return try dec.decode([RunRecord].self, from: data)
+        // Each run on its own: one that can't be read (a newer app's, a hand edit) is left out,
+        // not the whole history with it. A step whose flow was left out goes too.
+        let runs = try dec.decode([Lossy].self, from: data).compactMap(\.run)
+        let ids = Set(runs.map(\.id))
+        return runs.filter { $0.parent.map(ids.contains) ?? true }
+    }
+
+    private struct Lossy: Decodable {
+        let run: RunRecord?
+        init(from decoder: Decoder) { run = try? RunRecord(from: decoder) }
     }
 
     /// The latest `keep` top-level runs (scripts and flows), each with its steps, in their order.

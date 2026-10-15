@@ -38,7 +38,11 @@ else
   echo "→ Fetching EPA into ${KIT}…"
   mkdir -p "$(dirname "$KIT")"
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    gh repo clone "$REPO" "$KIT" -- --quiet
+    if ! gh repo clone "$REPO" "$KIT" -- --quiet; then
+      echo "❌ Couldn't fetch $REPO with gh (is it signed in to an account that can see it?)." >&2
+      echo "Next: gh auth login --web, with an account that can see $REPO, then run this again." >&2
+      exit 1
+    fi
   elif ! git clone --quiet "https://github.com/$REPO.git" "$KIT"; then
     echo "❌ Couldn't fetch $REPO (it's private: GitHub needs to know it's you)." >&2
     echo "Next: brew install gh && gh auth login --web, then run this again." >&2
@@ -54,6 +58,12 @@ echo "✅ EPA kit in $KIT ($(git -C "$KIT" log -1 --format='%h, %cr'))"
 mkdir -p "$BIN"
 ln -sf "$KIT/packages/cli/bin/epa.js" "$BIN/epa"
 chmod +x "$KIT/packages/cli/bin/epa.js"
-echo "✅ $("$BIN/epa" --version), as $BIN/epa"
+# Checked on its own line: a failure inside echo's words wouldn't stop the script (set -e).
+if ! VERSION="$("$BIN/epa" --version)"; then
+  echo "❌ EPA is installed but doesn't start (what it said is above)." >&2
+  echo "Next: run this again; if it still fails, move $KIT to the Trash and run this again." >&2
+  exit 1
+fi
+echo "✅ $VERSION, as $BIN/epa"
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "   (Add $BIN to your PATH to type epa in a terminal: the app finds it either way.)";; esac
 echo "Next: run epa-check-connections on the Composer grid. It says what to connect first."

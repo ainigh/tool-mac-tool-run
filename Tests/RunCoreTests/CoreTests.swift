@@ -477,6 +477,22 @@ final class ProcessTests: XCTestCase {
         XCTAssertFalse(isRunning(pid), "the background child is still running")
     }
 
+    func testStopsSIGKILLReachesAChildThatIgnoredTERMOnceTheScriptHasEnded() throws {
+        // The script dies at SIGTERM and its output closes (the run ends), but what it left in
+        // the background ignores SIGTERM: Stop's SIGKILL, two seconds on, still reaches it.
+        let pidFile = folder.appendingPathComponent("bg.pid")
+        let url = try script("bg.sh", "#!/bin/bash\n(trap '' TERM; sleep 30) </dev/null >/dev/null 2>&1 &\necho $! > \(ShellEnvironment.quote(pidFile.path))\necho ready\nsleep 30\n")
+        defer { killPid(in: pidFile) }
+        let p = process(url)
+        p.killGrace = 0.5
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { p.stop() }
+        let r = try p.runToEnd()
+        XCTAssertTrue(r.stopped)
+        let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertFalse(isRunning(pid), "the child that ignored SIGTERM is still running")
+    }
+
     /// A process is running (a zombie, ended but not yet reaped, isn't).
     func isRunning(_ pid: Int32) -> Bool {
         if let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8),
@@ -755,6 +771,20 @@ final class RunRecordTests: XCTestCase {
         XCTAssertEqual(runs.first?.seconds, 2)
         XCTAssertEqual(runs.first?.receivedBytes, "héllo\n".utf8.count)
         XCTAssertNil(runs.first?.signal)
+    }
+
+    func testOneRunThatCantBeReadDoesntLoseTheRest() throws {
+        var flow = RunRecord(kind: .flow, name: "f", file: "f", command: "flow")
+        flow.finish(code: 0, state: .succeeded)
+        var step = RunRecord(kind: .step, name: "s", file: nil, command: "s", parent: flow.id)
+        step.finish(code: 0, state: .succeeded)
+        var script = RunRecord(kind: .script, name: "x", file: "x", command: "x")
+        script.finish(code: 0, state: .succeeded)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: RunHistory.encode([flow, step, script])) as? [[String: Any]])
+        // A state a newer app wrote: that run can't be read, and its step goes with it.
+        saved[0]["state"] = "queued"
+        let runs = try RunHistory.decode(JSONSerialization.data(withJSONObject: saved))
+        XCTAssertEqual(runs.map(\.id), [script.id])
     }
 
     func testHistoryCountsOnlyTopLevelRunsAndCapsSavedOutput() throws {

@@ -103,7 +103,7 @@ public enum Doctor {
         }
         let keys = library.root.appendingPathComponent(EPA.keysFile)
         if let text = try? String(contentsOf: keys, encoding: .utf8) {
-            let count = text.split(separator: "\n").filter { line in
+            let count = text.split(whereSeparator: \.isNewline).filter { line in
                 let t = line.trimmingCharacters(in: .whitespaces)
                 return !t.hasPrefix("#") && t.contains("=")
             }.count

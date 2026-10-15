@@ -355,7 +355,7 @@ struct GridActions {
         app.update(kind) { $0.ask[item.id] = on }
     }
 
-    static func list(_ parts: [String]) -> String {
+    nonisolated static func list(_ parts: [String]) -> String {
         switch parts.count {
         case 0: return ""
         case 1: return parts[0]

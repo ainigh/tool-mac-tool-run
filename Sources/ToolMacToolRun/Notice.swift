@@ -169,11 +169,14 @@ final class NoticeCenter: ObservableObject {
         }
     }
 
+    /// The last one went (the panel hides): the pointer isn't on a notice any more, though no
+    /// card said so (a card that's taken away never hears the pointer leave).
     private func stopClock() {
         timer?.invalidate()
         timer = nil
         since = nil
         used = 0
+        hovering = false
     }
 
     private func pause() {
