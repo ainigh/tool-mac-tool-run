@@ -138,7 +138,8 @@ final class FlowTests: XCTestCase {
         out |> pipe "upper.py" [] |> print
         """, host)
         XCTAssertEqual(host.said, ["A|3|N=3"])
-        XCTAssertEqual(host.calls.last?.2, "a|3|n=3")
+        // Input ends with a line break, as output does, so a script reading lines gets the last one.
+        XCTAssertEqual(host.calls.last?.2, "a|3|n=3\n")
     }
 
     func testRunStopsOnFailureAttemptKeepsGoing() throws {
@@ -726,5 +727,191 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(e?.message.contains("`for`") == true, e?.message ?? "")
         // `$for` isn't a name a flow can write.
         XCTAssertEqual(checkError("$for")?.stage, .syntax)
+    }
+
+    // MARK: minus signs, pipes and >>
+
+    func testANegativeNumberStartingALineIsAnItemOfItsOwn() throws {
+        let host = FakeHost()
+        try run("""
+        let xs = [
+            1
+            -2
+            3
+        ]
+        print xs
+        print 1
+        -2 |> print
+        let a = 5
+        let b =
+            a
+            - 1
+        print b
+        """, host)
+        // A minus with a space after it still carries on the line above.
+        XCTAssertEqual(host.said, ["[1; -2; 3]", "1", "-2", "4"])
+    }
+
+    func testANegativeNumberCanBeGivenToAFunction() throws {
+        let host = FakeHost()
+        try run("""
+        let twice x = x * 2
+        print (twice -3)
+        print (range -1 1)
+        let a = 5
+        print (a-1)
+        print (a - 1)
+        print (a - -1)
+        print [1;-2]
+        print (-9223372036854775808 |> string |> size)
+        """, host)
+        XCTAssertEqual(host.said, ["-6", "[-1; 0; 1]", "4", "4", "6", "[1; -2]", "20"])
+        // n -1 gives n the number -1, as in F#; the message says how to subtract.
+        let e = checkError("let n = 5\nprint (n -1)")
+        XCTAssertEqual(e?.stage, .type)
+        XCTAssertTrue(e?.fix?.contains("- 1") == true, e?.description ?? "")
+    }
+
+    func testAPipeWorksOutItsValueFirst() throws {
+        let host = FakeHost()
+        host.scripts["a"] = FakeHost.ok("a")
+        host.scripts["b"] = FakeHost.ok("a")
+        try run("run \"a\" [] |> replace (run \"b\" []) \"x\" |> print", host)
+        XCTAssertEqual(host.calls.map(\.0), ["a", "b"])
+        XCTAssertEqual(host.said, ["x"])
+    }
+
+    func testAComposedFunctionWorksOutItsPartsOnce() throws {
+        let host = FakeHost()
+        host.scripts["word"] = FakeHost.ok("hi")
+        try run("""
+        let keep = contains (run "word" []) >> not
+        ["hi"; "x"; "y"] |> filter keep |> print
+        let loud = trim >> upper >> (fun s -> s + "!")
+        print (loud " a ")
+        """, host)
+        XCTAssertEqual(host.calls.map(\.0), ["word"])
+        XCTAssertEqual(host.said, ["[\"x\"; \"y\"]", "A!"])
+    }
+
+    // MARK: running scripts
+
+    func testAttemptKeepsGoingWhenTheScriptCantRun() throws {
+        let host = FakeHost()
+        try run("""
+        let r = attempt ("no" + "pe") []
+        print $"{r.ok} {r.code}"
+        let p = "text" |> attemptPipe "nope" []
+        print p.ok
+        let e = attemptEpa ["doctor"]
+        print e.ok
+        """, host)
+        XCTAssertEqual(host.said, ["false 127", "false", "false"])
+        // A stop still stops it.
+        host.scripts["stops"] = { _, _ in
+            host.cancelled = true
+            return RunResult(code: 0, out: "", err: "", seconds: 0)
+        }
+        XCTAssertThrowsError(try run("attempt \"stops\" [] |> ignore", host)) { e in
+            XCTAssertEqual((e as? FlowError)?.stage, .stopped)
+        }
+    }
+
+    func testInputToAScriptEndsWithALineBreak() throws {
+        let host = FakeHost()
+        host.scripts["cat"] = { _, input in RunResult(code: 0, out: input ?? "", err: "", seconds: 0) }
+        try run("""
+        "a\\nb" |> pipe "cat" [] |> ignore
+        "a\\n" |> pipe "cat" [] |> ignore
+        "" |> attemptPipe "cat" [] |> ignore
+        """, host)
+        XCTAssertEqual(host.calls.map { $0.2 }, ["a\nb\n", "a\n", ""])
+    }
+
+    func testParallelRunsEveryStepAtOnce() throws {
+        // Each step waits until all of them have started: more steps than processors still
+        // finish together.
+        let host = FakeHost()
+        let count = 3 * ProcessInfo.processInfo.activeProcessorCount + 2
+        let lock = NSLock()
+        var started = 0
+        host.scripts["meet"] = { _, _ in
+            lock.lock()
+            started += 1
+            lock.unlock()
+            let end = Date().addingTimeInterval(10)
+            while Date() < end {
+                lock.lock()
+                let all = started == count
+                lock.unlock()
+                if all { return RunResult(code: 0, out: "met", err: "", seconds: 0) }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            return RunResult(code: 0, out: "alone", err: "", seconds: 0)
+        }
+        try run("""
+        let step = fun () -> run "meet" []
+        parallel (range 1 \(count) |> map (fun _ -> step)) |> unique |> print
+        """, host)
+        XCTAssertEqual(host.said, ["[\"met\"]"])
+    }
+
+    func testAStopInAParallelStepSaysStopped() {
+        let host = FakeHost()
+        host.scripts["stops"] = { _, _ in
+            host.cancelled = true
+            return RunResult(code: 0, out: "", err: "", seconds: 0)
+        }
+        XCTAssertThrowsError(try run("parallel [(fun () -> fail \"boom\"); (fun () -> run \"stops\" [])] |> ignore", host)) { e in
+            XCTAssertEqual((e as? FlowError)?.stage, .stopped)
+        }
+    }
+
+    func testScriptNamesAreOnlyCheckedForTheBuiltins() {
+        let scripts = ["hello.sh"]
+        XCTAssertNil(checkError("let run name xs = name + \"!\"\nprint (run \"nope\" [])", scripts: scripts))
+        XCTAssertNil(checkError("let epa words = \"x\"\nprint (epa [\"conect\"])", scripts: scripts))
+        XCTAssertNotNil(checkError("print (run \"nope\" [])", scripts: scripts))
+        XCTAssertNotNil(checkError("print (epa [\"conect\"])", scripts: scripts))
+    }
+
+    // MARK: builtins
+
+    func testUniqueIsQuickAndComparesOnlyWhatCanBeCompared() throws {
+        let host = FakeHost()
+        try run("""
+        range 1 200000 |> map (fun n -> string (n % 100000)) |> unique |> length |> print
+        [[1]; [2]; [1]] |> unique |> print
+        """, host)
+        XCTAssertEqual(host.said, ["100000", "[[1]; [2]]"])
+        let e = checkError("print (unique [print; print])")
+        XCTAssertEqual(e?.stage, .type)
+        XCTAssertTrue(e?.message.contains("can't be compared") == true, e?.description ?? "")
+    }
+
+    func testTextSearchesAgree() throws {
+        let host = FakeHost()
+        host.scripts["crlf"] = FakeHost.ok("a\r\nb\r\nc")
+        try run("""
+        let t = run "crlf" []
+        print (contains "" "abc")
+        print (startsWith "" "abc")
+        print (endsWith "" "abc")
+        print (contains "\\n" t)
+        print (split "\\n" t |> length)
+        print (startsWith "e" "é")
+        """, host)
+        XCTAssertEqual(host.said, ["true", "true", "true", "true", "3", "false"])
+    }
+
+    // MARK: characters
+
+    func testByteOrderMarksAndOtherSpacesAreFine() throws {
+        let host = FakeHost()
+        try run("\u{FEFF}print 1\u{00A0}\nprint\u{00A0}2", host)
+        XCTAssertEqual(host.said, ["1", "2"])
+        let e = checkError("print\u{200B}1")
+        XCTAssertEqual(e?.stage, .syntax)
+        XCTAssertTrue(e?.message.contains("U+200B") == true, e?.description ?? "")
     }
 }

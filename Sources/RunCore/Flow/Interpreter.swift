@@ -153,7 +153,9 @@ public final class Interpreter: @unchecked Sendable {
         case .unit: return .unit
         case let .interp(texts, holes): return try interpolate(texts, holes, env)
         case let .list(items): return .list(try items.map { try eval($0, env) })
-        case let .lambda(params, body): return .fn(FlowFunction(.closure(params: params, body: body, env: env)))
+        case let .lambda(params, body):
+            if e.composed, let (f, g) = Self.composition(body) { return try compose(f, g, env) }
+            return .fn(FlowFunction(.closure(params: params, body: body, env: env)))
         case let .negate(x): return try negate(x, env, e.pos)
         case let .field(x, name): return try field(x, name, env)
         case let .block(items): return try block(items, env)
@@ -182,9 +184,28 @@ public final class Interpreter: @unchecked Sendable {
 
     private func call(_ e: Expr, _ env: Env) throws -> Value {
         guard case let .apply(f, a) = e.kind else { return .unit }
+        // x |> f works out x first, as it reads: run "a" [] |> pipe "b" [run "c" []] runs a before c.
+        if e.piped {
+            let av = try eval(a, env)
+            return try apply(try eval(f, env), av, pos: e.pos)
+        }
         let fv = try eval(f, env)
         let av = try eval(a, env)
         return try apply(fv, av, pos: e.pos)
+    }
+
+    /// The f and g of `f >> g`, from the body the parser made for it (`g (f $x)`).
+    private static func composition(_ body: Expr) -> (Expr, Expr)? {
+        guard case let .apply(g, inner) = body.kind, case let .apply(f, _) = inner.kind else { return nil }
+        return (f, g)
+    }
+
+    /// `f >> g`: f and g are worked out now, once (a script run to make f runs once, not at
+    /// every call), into a function that does f, then g.
+    private func compose(_ f: Expr, _ g: Expr, _ env: Env) throws -> Value {
+        let fv = try eval(f, env)
+        let gv = try eval(g, env)
+        return .fn(FlowFunction(.composed(fv, gv)))
     }
 
     private func negate(_ x: Expr, _ env: Env, _ pos: Pos) throws -> Value {
@@ -240,11 +261,15 @@ public final class Interpreter: @unchecked Sendable {
         guard case let .fn(fn) = f else { throw Self.notAFunction(pos) }
         let args = fn.applied + [arg]
         guard args.count >= fn.arity else { return .fn(FlowFunction(fn.impl, applied: args)) }
-        guard case let .closure(params, body, env) = fn.impl else { return try builtin(fn, args, pos) }
+        if case .builtin = fn.impl { return try builtin(fn, args, pos) }
         depth += 1
         defer { depth -= 1 }
         if depth > Self.maxCallDepth { throw tooDeep(pos) }
-        return try eval(body, Self.scope(env, params, args))
+        switch fn.impl {
+        case let .closure(params, body, env): return try eval(body, Self.scope(env, params, args))
+        case let .composed(f, g): return try apply(g, try apply(f, arg, pos: pos), pos: pos)
+        case .builtin: return .unit
+        }
     }
 
     private static func notAFunction(_ pos: Pos) -> FlowError { FlowError(.run, pos, "That isn't a function.") }
@@ -349,6 +374,17 @@ public final class Interpreter: @unchecked Sendable {
     static func runValue(_ o: EPA.Outcome) -> RunValue {
         let err = [o.failure, o.next.map { "Next: \($0)" }].compactMap { $0 }.joined(separator: "\n")
         return RunValue(out: o.text.trimmingCharacters(in: .whitespacesAndNewlines), err: err, code: o.ok ? 0 : Int(max(o.code, 1)))
+    }
+
+    /// A script's result for `attempt` and `attemptPipe`, which keep going whatever happens: a
+    /// script that can't run at all (there's none by that name, or it won't start) is a failed
+    /// result too (exit code 127, the shell's for "not found"). A stop still stops the flow.
+    func attempt(_ name: String, args: [String], stdin: String?, pos: Pos) throws -> RunValue {
+        do {
+            return try script(name, args: args, stdin: stdin, pos: pos)
+        } catch let e as FlowError where e.stage != .stopped {
+            return RunValue(out: "", err: e.message + (e.fix.map { "\n→ fix: \($0)" } ?? ""), code: 127)
+        }
     }
 
     func requireSuccess(_ r: RunValue, name: String, pos: Pos) throws {

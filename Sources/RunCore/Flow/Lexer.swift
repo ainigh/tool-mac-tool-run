@@ -85,7 +85,9 @@ enum Lexer {
         var commentLines = Set<Int>()
         // Windows (\r\n) and old Mac (\r) line endings read as \n: Swift counts \r\n as one
         // Character, which would hide the line break from everything below.
-        let chars = Array(source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
+        var chars = Array(source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
+        // A byte order mark (some editors start a file with one) isn't part of the flow.
+        if chars.first == "\u{FEFF}" { chars.removeFirst() }
         var i = 0
         var line = origin.line, col = origin.col
         var lineHasToken = false
@@ -176,7 +178,8 @@ enum Lexer {
 
         while i < chars.count {
             let c = chars[i]
-            if c == " " || c == "\t" || c == "\n" {
+            // Any space counts as one: a no-break space pasted in from a web page is a space too.
+            if c.isWhitespace {
                 advance()
                 continue
             }
@@ -281,7 +284,8 @@ enum Lexer {
                 add(.symbol(sym), pos)
                 continue
             }
-            throw FlowError(.syntax, pos, "\(c) isn't something a flow can contain here.")
+            throw FlowError(.syntax, pos, "\(Self.shown(c)) isn't something a flow can contain here.",
+                            fix: Self.isInvisible(c) ? "Delete it: it's there, but can't be seen (it often comes with text copied from elsewhere)." : nil)
         }
         // Just after the last token, so "nothing follows" points at a line that's there.
         tokens.append(Token(kind: .eof, pos: tokens.last?.end ?? origin, startsLine: true))
@@ -289,6 +293,21 @@ enum Lexer {
     }
 
     static let tooBigFix = "Whole numbers in a flow go from -9223372036854775808 to 9223372036854775807."
+
+    /// A character as a message shows it: by its code (U+200B) when it can't be seen.
+    static func shown(_ c: Character) -> String {
+        guard isInvisible(c) else { return String(c) }
+        return "The invisible character " + c.unicodeScalars.map { "U+" + String(format: "%04X", $0.value) }.joined(separator: " ")
+    }
+
+    static func isInvisible(_ c: Character) -> Bool {
+        c.unicodeScalars.allSatisfy { s in
+            switch s.properties.generalCategory {
+            case .control, .format, .spaceSeparator, .lineSeparator, .paragraphSeparator, .privateUse, .unassigned, .surrogate, .nonspacingMark, .enclosingMark: true
+            default: false
+            }
+        }
+    }
 
     /// 0 to 9 only: other numerals (², ٣) aren't numbers to a flow.
     private static func isDigit(_ c: Character) -> Bool { c.isASCII && c.isWholeNumber }
