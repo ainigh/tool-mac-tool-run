@@ -194,7 +194,10 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         let head = String(contents.prefix(2000))
         if head.hasPrefix("<?php") { return .php }
         if head.contains("package main") && head.contains("func main()") { return .go }
-        if head.range(of: #"(?m)^\s*(import \w+|from \w+ import|def \w+\(.*\):)"#, options: .regularExpression) != nil { return .python }
+        // `import name` alone on its line is Python's, but Swift's too (`import Foundation`), and
+        // JavaScript's has a `from`: only Python's own forms count, and a Swift module says Swift.
+        if head.range(of: #"(?m)^\s*import (Foundation|Darwin|Dispatch|AppKit|Cocoa|SwiftUI)\s*$"#, options: .regularExpression) != nil { return .swift }
+        if head.range(of: #"(?m)^\s*(import [\w.]+(\s*,\s*[\w.]+)*(\s+as\s+\w+)?\s*$|from [\w.]+ import |def \w+\(.*\):)"#, options: .regularExpression) != nil { return .python }
         if head.range(of: #"(?m)^\s*(const|let|var) \w+ = require\(|console\.log\("#, options: .regularExpression) != nil { return .node }
         if head.range(of: #"(?m)^\s*(echo |set -e|export \w+=|if \[)"#, options: .regularExpression) != nil { return .bash }
         if head.range(of: #"(?m)^\s*(display (dialog|notification)|tell application)"#, options: .regularExpression) != nil { return .applescript }
@@ -239,7 +242,11 @@ public struct Shebang: Equatable, Sendable {
         guard usesEnv else { return interpreter }
         var words = arguments[...]
         while let w = words.first {
-            if ["-u", "-C", "-P", "--unset", "--chdir"].contains(w) {
+            // --split-string=python3 -u: the program is the first word of its value.
+            if w.hasPrefix("--split-string=") {
+                if let p = w.dropFirst("--split-string=".count).split(separator: " ").first { return String(p) }
+                words = words.dropFirst()
+            } else if ["-u", "-C", "-P", "--unset", "--chdir"].contains(w) {
                 words = words.dropFirst(2)  // an option and its value
             } else if w.hasPrefix("-") || w.contains("=") {
                 words = words.dropFirst()

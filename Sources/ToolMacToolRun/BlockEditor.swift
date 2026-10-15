@@ -861,7 +861,9 @@ struct NumberField: View {
                 .blockField()
                 .frame(width: max(54, ArgumentChips.width(text.wrappedValue)))
             if let n = Int(text.wrappedValue.trimmingCharacters(in: .whitespaces)) {
-                Stepper("", onIncrement: { text.wrappedValue = String(n + 1) }, onDecrement: { text.wrappedValue = String(max(0, n - 1)) })
+                // Held at the ends rather than going past them (which would stop the app).
+                Stepper("", onIncrement: { text.wrappedValue = String(n < Int.max ? n + 1 : n) },
+                        onDecrement: { text.wrappedValue = String(n > 0 ? n - 1 : 0) })
                     .labelsHidden()
             }
             let numbers = vars.filter { $0.kind == .number || $0.kind == .other || $0.kind == .text }.filter { $0.name != "args" }
