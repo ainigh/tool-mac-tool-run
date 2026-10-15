@@ -240,8 +240,7 @@ extension Builtin {
         Builtin("split", "string -> string -> string list", "Text", "Splits text wherever the separator (first) appears.", "\"a,b,c\" |> split \",\"", arity: 2) { _, a, _ in
             let sep = a[0].string
             guard !sep.isEmpty else { return .list(a[1].string.map { .str(String($0)) }) }
-            // As NSString, so it finds what `contains` and `replace` find (\n inside a \r\n too).
-            return .list((a[1].string as NSString).components(separatedBy: sep).map { .str($0) })
+            return .list(Builtin.split(a[1].string, at: sep).map { .str($0) })
         },
         Builtin("join", "string -> string list -> string", "Text", "Joins a list of text with a separator (first) between them.", "[\"a\"; \"b\"] |> join \", \"", arity: 2) { _, a, _ in
             .str(a[1].strings.joined(separator: a[0].string))
@@ -252,16 +251,16 @@ extension Builtin {
         Builtin("upper", "string -> string", "Text", "IN CAPITALS.", "\"hello\" |> upper", arity: 1) { _, a, _ in .str(a[0].string.uppercased()) },
         Builtin("lower", "string -> string", "Text", "in small letters.", "\"HELLO\" |> lower", arity: 1) { _, a, _ in .str(a[0].string.lowercased()) },
         Builtin("contains", "string -> string -> bool", "Text", "Whether the text (second) has this piece (first) in it.", "files |> filter (contains \".swift\")", arity: 2) { _, a, _ in
-            .bool(Builtin.find(a[0].string, in: a[1].string, []))
+            .bool(a[0].string.isEmpty || !Builtin.occurrences(of: a[0].string, in: a[1].string, first: true).isEmpty)
         },
         Builtin("startsWith", "string -> string -> bool", "Text", "Whether the text (second) begins with this (first).", "lines |> filter (startsWith \"ERROR\")", arity: 2) { _, a, _ in
-            .bool(Builtin.find(a[0].string, in: a[1].string, .anchored))
+            .bool(a[1].string.unicodeScalars.starts(with: a[0].string.unicodeScalars))
         },
         Builtin("endsWith", "string -> string -> bool", "Text", "Whether the text (second) ends with this (first).", "files |> filter (endsWith \".log\")", arity: 2) { _, a, _ in
-            .bool(Builtin.find(a[0].string, in: a[1].string, [.anchored, .backwards]))
+            .bool(a[1].string.unicodeScalars.reversed().starts(with: a[0].string.unicodeScalars.reversed()))
         },
         Builtin("replace", "string -> string -> string -> string", "Text", "Replaces every `old` (first) with `new` (second) in the text (third).", "name |> replace \" \" \"-\"", arity: 3) { _, a, _ in
-            .str(a[2].string.replacingOccurrences(of: a[0].string, with: a[1].string))
+            .str(Builtin.split(a[2].string, at: a[0].string).joined(separator: a[1].string))
         },
         Builtin("size", "string -> int", "Text", "How many characters the text has.", "if size name > 20 then print \"long name\"", arity: 1) { _, a, _ in .int(a[0].string.count) },
     ]
@@ -393,8 +392,45 @@ extension Builtin {
 
     /// Whether `piece` is in `text` (where `options` say): the same search `replace` and `split`
     /// do, so they all agree, and the empty text is in every text.
-    static func find(_ piece: String, in text: String, _ options: String.CompareOptions) -> Bool {
-        piece.isEmpty || text.range(of: piece, options: options) != nil
+    // The text searches (contains, startsWith, endsWith, split, replace) go by Unicode scalar,
+    // as grep and the scripts see text: "\n" is found inside a "\r\n" (one Character to Swift,
+    // and to Foundation's search on a Mac), and they agree with each other on every system.
+
+    /// Where `piece` is in `text`, left to right, not overlapping (`first`: stop at the first).
+    static func occurrences(of piece: String, in text: String, first: Bool = false) -> [Range<String.Index>] {
+        let s = text.unicodeScalars, p = Array(piece.unicodeScalars)
+        guard !p.isEmpty else { return [] }
+        var found: [Range<String.Index>] = []
+        var i = s.startIndex
+        while i != s.endIndex {
+            var j = i, k = 0
+            while k < p.count, j != s.endIndex, s[j] == p[k] {
+                s.formIndex(after: &j)
+                k += 1
+            }
+            if k == p.count {
+                found.append(i..<j)
+                if first { break }
+                i = j
+            } else {
+                s.formIndex(after: &i)
+            }
+        }
+        return found
+    }
+
+    /// The pieces of `text` between each `separator` (all of it, when there's none).
+    static func split(_ text: String, at separator: String) -> [String] {
+        guard !separator.isEmpty else { return [text] }
+        let s = text.unicodeScalars
+        var pieces: [String] = []
+        var from = s.startIndex
+        for r in occurrences(of: separator, in: text) {
+            pieces.append(String(String.UnicodeScalarView(s[from..<r.lowerBound])))
+            from = r.upperBound
+        }
+        pieces.append(String(String.UnicodeScalarView(s[from...])))
+        return pieces
     }
 }
 
