@@ -57,6 +57,8 @@ indirect enum FType {
 struct Scheme {
     var generic: [Int]
     var type: FType
+    /// A builtin's, not one the flow defined (which may hide a builtin's name).
+    var builtin = false
 }
 
 /// Writes types as F# does: `int`, `string list`, `'a -> 'b`, `(int -> bool) -> int list -> int list`.

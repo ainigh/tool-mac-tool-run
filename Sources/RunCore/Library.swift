@@ -128,7 +128,11 @@ public struct Library: Sendable {
 
     /// The first comment line in a script (not the #! line, not an editor's settings line).
     public static func summary(_ contents: String) -> String? {
-        for raw in contents.split(separator: "\n", omittingEmptySubsequences: false).prefix(15) {
+        // A byte-order mark first isn't text; any line end ends a line (\r\n is one Character,
+        // so splitting on \n alone would leave a Windows file one long line).
+        var contents = contents
+        if contents.unicodeScalars.first == "\u{FEFF}" { contents = String(contents.unicodeScalars.dropFirst()) }
+        for raw in contents.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).prefix(15) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("#!") || line.hasPrefix("<?php") || line.isEmpty { continue }
             for marker in ["//", "#", "--", "\"\"\"", "'''", ";"] where line.hasPrefix(marker) {
@@ -146,6 +150,13 @@ public struct Library: Sendable {
 
     // MARK: making things (each says what it did)
 
+    /// A name as typed, made into a file's: no `/` (it would be a folder), and no `.` first
+    /// (that would hide it, from the grid too).
+    public static func fileName(_ typed: String) -> String {
+        let clean = typed.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
+        return String(clean.drop { $0 == "." }).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Makes the folder and its `composer` folder when they aren't there. Returns what it made.
     @discardableResult
     public func ensure() throws -> [String] {
@@ -160,7 +171,7 @@ public struct Library: Sendable {
 
     /// A name not taken yet in `folder`: `name.ext`, else `name-2.ext`, `name-3.ext`…
     public static func freeName(_ name: String, ext: String, in folder: URL) -> URL {
-        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
+        let clean = fileName(name)
         let base = clean.isEmpty ? "untitled" : clean
         func url(_ n: String) -> URL { folder.appendingPathComponent(ext.isEmpty ? n : "\(n).\(ext)") }
         var candidate = url(base)

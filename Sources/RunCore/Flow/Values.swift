@@ -42,6 +42,22 @@ public enum Value: Sendable {
         }
     }
 
+    /// A value that can be looked up in a set (`unique`), equal exactly when `equal` says so;
+    /// nil for lists and results, which are compared one by one.
+    enum Key: Hashable {
+        case int(Int), str(String), bool(Bool), unit
+    }
+
+    var key: Key? {
+        switch self {
+        case let .int(n): .int(n)
+        case let .str(s): .str(s)
+        case let .bool(b): .bool(b)
+        case .unit: .unit
+        case .list, .fn, .run: nil
+        }
+    }
+
     /// Ordering for `<` and `sort`: numbers by size, text alphabetically.
     static func less(_ a: Value, _ b: Value) -> Bool {
         switch (a, b) {
@@ -87,6 +103,8 @@ public final class FlowFunction: @unchecked Sendable {
     enum Impl {
         case closure(params: [Param], body: Expr, env: Env)
         case builtin(Builtin)
+        /// `f >> g`, with f and g already worked out: f, then g.
+        case composed(Value, Value)
     }
 
     let impl: Impl
@@ -101,6 +119,7 @@ public final class FlowFunction: @unchecked Sendable {
         switch impl {
         case let .closure(params, _, _): params.count
         case let .builtin(b): b.arity
+        case .composed: 1
         }
     }
 }

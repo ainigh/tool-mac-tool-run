@@ -61,7 +61,7 @@ final class PromptCenter: ObservableObject {
 
     private func add(_ p: Pending) {
         // Stopped while the question was on its way: it's answered at once.
-        guard AppModel.shared.runs.isRunning(p.run) else {
+        guard AppModel.shared.runs.isRunning(p.run), !AppModel.shared.runs.isStopping(p.run) else {
             p.reply.give(.stop)
             return
         }
@@ -379,6 +379,7 @@ struct RunAttention: View {
         if run.state == .running {
             if let p = prompts.pending(for: run.id) {
                 PromptCard(pending: p, compact: true)
+                    .id(p.id)  // a new question (or another run's) starts with nothing typed
                     .background(Color.orange.opacity(0.08))
             } else {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in

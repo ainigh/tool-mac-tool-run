@@ -133,7 +133,8 @@ final class EditorModel: ObservableObject {
         if let s = selected, let slot = doc.slot(of: s) {
             return BlockSlot(parent: slot.parent, branch: slot.branch, index: slot.index + 1)
         }
-        if let slot = insertionSlot { return slot }
+        // Asked for inside a block that has since gone (removed, undone): not there any more.
+        if let slot = insertionSlot, slot.parent.map({ doc.block($0) != nil }) ?? true { return slot }
         return BlockSlot(parent: nil, index: doc.blocks.count)
     }
 
@@ -378,7 +379,8 @@ final class EditorModel: ObservableObject {
     /// Renames the file to what's typed in the name field. Its extension stays, unless one a
     /// script can have is typed; a flow always ends in .flow ("morning.v2" is "morning.v2.flow").
     func commitRename() {
-        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
+        // No `/`, and no `.` first: a hidden file would leave the grid.
+        let typed = Library.fileName(name)
         guard !typed.isEmpty else {
             name = item.title
             return
@@ -427,7 +429,12 @@ final class EditorModel: ObservableObject {
     func saveAndRun() {
         commitRename()
         save()
-        var current = item
+        // As it's now saved: what it looks like it does (and whether it reads input) is read
+        // from what was just typed, not from when the editor opened.
+        let saved = app.library.flatMap { lib in
+            (isFlow ? lib.flows() : lib.scripts()).first { $0.url.standardizedFileURL == item.url.standardizedFileURL }
+        }
+        var current = saved ?? item
         current.language = language
         GridActions(app: app, kind: kind).run(current)
     }

@@ -417,4 +417,144 @@ final class BlockTests: XCTestCase {
             XCTAssertEqual(a.asked.map { "\($0.kind) \($0.prompt)" }, b.asked.map { "\($0.kind) \($0.prompt)" }, fresh)
         }
     }
+
+    // MARK: - Edges found in review
+
+    /// What a flow prints.
+    private func said(_ source: String, file: StaticString = #filePath, line: UInt = #line) -> [String] {
+        let h = FakeHost()
+        do { try Flow.run(source, host: h) } catch { XCTFail("\(error)\n---\n\(source)", file: file, line: line) }
+        return h.said
+    }
+
+    func testATextOverSeveralLinesKeepsItsLinesWhenItsBlockMoves() {
+        // Its If written afresh: the text inside isn't indented with it.
+        var doc = FlowDocument.read("if true then\n    print \"first\nsecond\"\n")
+        doc.update(doc.blocks[0].id) { $0.condition = Condition(subject: "1 = 1", test: .code) }
+        XCTAssertEqual(said(doc.written().text), ["first\nsecond"])
+        // Moved into an If, and back out.
+        doc = FlowDocument.read("print \"first\nsecond\"\nif true then\n    print \"in\"\n")
+        let show = doc.blocks[0].id, test = doc.blocks[1].id
+        doc.move(show, to: BlockSlot(parent: test, index: 0))
+        let inside = doc.written().text
+        XCTAssertEqual(said(inside), ["first\nsecond", "in"])
+        doc = FlowDocument.read(inside)
+        doc.move(doc.blocks[0].children[0].id, to: BlockSlot(parent: nil, index: 0))
+        XCTAssertEqual(said(doc.written().text), ["first\nsecond", "in"])
+        // A Flow Code block's text too.
+        let code = FlowDocument(blocks: [block(.ifThen) {
+            $0.condition = Condition(subject: "1 = 1", test: .code)
+            $0.children = [block(.code) { $0.text = "print \"first\nsecond\"" }]
+        }])
+        XCTAssertEqual(said(code.written().text), ["first\nsecond"])
+    }
+
+    func testRenamingReachesTheHolesOfTextsInCode() throws {
+        var doc = FlowDocument(blocks: [
+            block(.ask) { $0.text = "Who?"; $0.name = "answer" },
+            block(.code) { $0.text = "print $\"Got {answer}, {$\"again {answer}\"}\"\nprint $\"{answer + \\\"!\\\"}\"" },
+            block(.show) { $0.text = "{upper $\"x{answer}\"}" },
+            block(.ifThen) {
+                $0.condition = Condition(subject: "contains \"y\" $\"{answer}\"", test: .code)
+                $0.children = [block(.show) { $0.text = "yes" }]
+            },
+            block(.repeatEach) {
+                $0.subject = "split \",\" $\"{answer} and \\\"answer\\\"\""
+                $0.eachLine = false
+                $0.name = "word"
+                $0.children = [block(.show) { $0.text = "{word}" }]
+            },
+        ])
+        doc.update(doc.blocks[0].id) { $0.name = "reply" }
+        doc.rename("answer", to: "reply")
+        let text = doc.written().text
+        XCTAssertNoThrow(try Flow.check(text), text)
+        XCTAssertFalse(text.contains("{answer"), text)
+        // Text in quotes is left as it is.
+        XCTAssertTrue(text.contains("\\\"answer\\\""), text)
+    }
+
+    func testABranchWithOnlyCommentsInCodeStillReads() {
+        for comment in ["(* a note *)", "(* a note\n   over two lines *)", "// a note", "# a note"] {
+            let doc = FlowDocument(blocks: [block(.ifThen) {
+                $0.condition = Condition(subject: "1 = 1", test: .code)
+                $0.children = [block(.code) { $0.text = comment }]
+            }])
+            let text = doc.written().text
+            XCTAssertNoThrow(try Flow.check(text), text)
+        }
+    }
+
+    func testANumberThatIsNoFlowStillReads() {
+        let doc = FlowDocument(blocks: [
+            block(.ask) { $0.text = "How many?"; $0.name = "n" },
+            block(.wait) { $0.number = "1.5" },
+            block(.repeatCount) { $0.number = "2.0"; $0.name = "i"; $0.children = [block(.show) { $0.text = "{i}" }] },
+            block(.ifThen) {
+                $0.condition = Condition(subject: "n", test: .greater, value: "2.5", bare: true, asNumber: true)
+                $0.children = [block(.show) { $0.text = "big" }]
+            },
+        ])
+        let text = doc.written().text
+        XCTAssertNoThrow(try Flow.check(text), text)
+        XCTAssertEqual(FlowDocument.read(text).blocks.map(\.type), [.ask, .wait, .repeatCount, .ifThen], text)
+    }
+
+    func testAFirstCommentStaysABlockWithNoSummary() {
+        let text = roundTrip(FlowDocument(summary: "", blocks: [block(.comment) { $0.text = "a note" }, block(.show) { $0.text = "hi" }]))
+        XCTAssertTrue(text.hasPrefix("//\n// a note\n"), text)
+        // A Flow Code block starting with a comment too.
+        let code = FlowDocument(blocks: [block(.code) { $0.text = "// mine\nlet f x = x + 1" }])
+        XCTAssertEqual(FlowDocument.read(code.written().text).summary, "")
+    }
+
+    func testANameDefinedAgainIsWhatItWasMadeLast() {
+        let doc = FlowDocument(blocks: [
+            block(.ask) { $0.text = "Who?"; $0.name = "who" },
+            block(.code) { $0.text = "let who = 5" },
+            block(.ask) { $0.text = "{who}"; $0.name = "again" },
+        ])
+        let text = doc.written().text
+        XCTAssertNoThrow(try Flow.check(text), text)
+    }
+
+    func testCarriageReturnsAreNewLines() {
+        let doc = FlowDocument(summary: "first\rsecond", blocks: [
+            block(.comment) { $0.text = "one\r\ntwo" },
+            block(.show) { $0.text = "a\rb\r\nc" },
+            block(.code) { $0.text = "print 1\rprint 2" },
+        ])
+        let text = doc.written().text
+        XCTAssertNoThrow(try Flow.check(text), text)
+        let back = FlowDocument.read(text)
+        XCTAssertEqual(back.summary, "first second")
+        // The code's two lines are two steps of their own.
+        XCTAssertEqual(back.blocks.map(\.text), ["one\ntwo", "a\nb\nc", "{1}", "{2}"])
+    }
+
+    func testCodeIndentedOnItsOwnStillGoesWhereItsBlockIs() {
+        let doc = FlowDocument(blocks: [
+            block(.show) { $0.text = "a" },
+            block(.code) { $0.text = "  print 1\n  if true then\n      print 2" },
+        ])
+        XCTAssertEqual(said(doc.written().text), ["a", "1", "2"])
+    }
+
+    func testCommentsReadBackAsTheyWere() {
+        roundTrip(FlowDocument(summary: "Notes", blocks: [
+            block(.comment) { $0.text = "smile *)" },
+            block(.comment) { $0.text = "(* not a block comment" },
+            block(.comment) { $0.text = "trailing space " },
+            block(.show) { $0.text = "x" },
+        ]))
+        // A (* … *) comment in the file is still its text.
+        XCTAssertEqual(FlowDocument.read("// s\n(* a note *)\nprint 1\n").blocks.first?.text, "a note")
+    }
+
+    func testAByteOrderMarkIsNotPartOfTheFlow() {
+        let source = "\u{FEFF}// Says hi\nprint \"hi\"\n"
+        let doc = FlowDocument.read(source)
+        XCTAssertEqual(doc.summary, "Says hi")
+        XCTAssertEqual(doc.blocks.map(\.type), [.show])
+    }
 }

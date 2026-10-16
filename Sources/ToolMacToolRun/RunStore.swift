@@ -254,12 +254,15 @@ final class RunStore: ObservableObject {
         lastOutputAt[id] = Date()
         let pending = self.pending
         let flowName = item.id
-        // The scripts set to Ask Before Running ask from inside a flow too.
-        let askFirst = Set(AppModel.shared.settings(.scripts).ask.filter(\.value).map(\.key))
+        // A script asks from inside a flow as its cell does: when it's set to Ask Before Running,
+        // or when it looks like it does something that can't be undone (unless set never to ask).
+        let askSettings = AppModel.shared.settings(.scripts).ask
         let host = LocalFlowHost(library: library, asker: { question in
             PromptCenter.ask(run: id, from: flowName, question)
         }, askBefore: { script in
-            askFirst.contains(script.id) ? "Run \(script.id)? (It's set to ask before it runs.)" : nil
+            guard askSettings[script.id] ?? !script.dangers.isEmpty else { return nil }
+            return script.dangers.isEmpty ? "Run \(script.id)? (It's set to ask before it runs.)"
+                : "Run \(script.id)? It looks like it \(GridActions.list(script.dangers))."
         }) { [weak self] event in
             if pending.event(id, event) {
                 Task { @MainActor in self?.scheduleFlush() }
@@ -341,6 +344,9 @@ final class RunStore: ObservableObject {
     }
 
     func isRunning(_ id: UUID) -> Bool { processes[id] != nil || hosts[id] != nil || waitingToStart.contains(id) }
+
+    /// A flow that was asked to stop (it may still be on its way out).
+    func isStopping(_ id: UUID) -> Bool { hosts[id]?.isCancelled == true }
 
     // MARK: typing into a run
 

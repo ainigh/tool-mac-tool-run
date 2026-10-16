@@ -167,7 +167,8 @@ files |> filter (contains ".swift")
 ### Pipelines: `|>`
 
 `x |> f` means `f x`: the value on the left goes in as the **last** argument of the function on
-the right. That's why the functions take the thing they work on last:
+the right (and it's worked out first, so in `run "a" [] |> pipe "b" [run "c" []]`, `a` runs
+before `c`). That's why the functions take the thing they work on last:
 
 ```
 run "list-files" [folder]
@@ -179,9 +180,11 @@ run "list-files" [folder]
 ```
 
 A line that starts with `|>` (or any operator) carries on the line above, so long pipelines read
-top to bottom.
+top to bottom. (A line starting with a negative number, such as `-2`, is a number, not a minus
+carrying on: write `- 2` to subtract on a line of its own.)
 
-`f >> g` joins two functions into one that does `f`, then `g`:
+`f >> g` joins two functions into one that does `f`, then `g` (`f` and `g` are worked out once,
+when it's made):
 
 ```
 let tidy = trim >> lower
@@ -275,6 +278,9 @@ Both sides of an `if` give back the same type. An `if` with no `else` can only *
 
 `not` is a function: `not (exists "out.txt")`.
 
+A minus sign touching a number, with a space before it, makes it negative, as in F#: `range -3 3`
+and `twice -1` give the functions -3 and -1 to work on. `a - 1` and `a-1` subtract.
+
 From loosest to tightest: `|>`, `>>`, `||`, `&&`, comparisons, `@`, `+ -`, `* / %`, a minus
 sign, calling a function, `.field`.
 
@@ -316,7 +322,7 @@ items, `fold` carries a value through a list, and a `let rec` function can call 
 |---|---|---|
 | `run` | `string -> string list -> string` | runs a script; gives back what it printed (trimmed); **stops the flow if it fails** |
 | `attempt` | `string -> string list -> Run` | runs a script and **keeps going** whatever happens; you get `.out`, `.err`, `.code`, `.ok` |
-| `pipe` | `string -> string list -> string -> string` | runs a script with text as its input (stdin), made for `\|>` |
+| `pipe` | `string -> string list -> string -> string` | runs a script with text as its input (stdin, ending with a line break), made for `\|>` |
 | `attemptPipe` | `string -> string list -> string -> Run` | `pipe` that keeps going when the script fails, like `attempt` |
 | `sh` | `string -> string` | runs one line of shell (bash) |
 | `parallel` | `(unit -> 'a) list -> 'a list` | runs several steps at once, waits for all, keeps their order |
@@ -331,7 +337,9 @@ items, `fold` carries a value through a list, and a `let rec` function can call 
 - **Where it runs.** Scripts run in your scripts folder, with your login shell's PATH (so
   Homebrew's `python3`, `node` and the rest are found).
 - **Failure.** `run` stops the flow when a script's exit code isn't 0, saying which script, on
-  which line, and its last error line. Use `attempt` when failing is an answer, not an accident:
+  which line, and its last error line. Use `attempt` when failing is an answer, not an accident
+  (a script that can't run at all, such as a name worked out while running that isn't in the
+  folder, is a failure too: `.ok` false, `.code` 127, `.err` saying why):
 
 ```
 let r = attempt "ping-server" ["example.com"]
@@ -360,8 +368,9 @@ let size = choose "Which size?" ["small"; "large"]
 if askYesNo $"Upload the {size} one too?" then run "upload" [size] |> print
 ```
 
-A script set to **Ask Before Running** (on its cell's right-click menu) asks from inside a flow
-too.
+A script that asks before it runs from its cell asks from inside a flow too: one set to **Ask
+Before Running** (on its cell's right-click menu), and one that looks like it does something that
+can't be undone (✋ on its cell), unless it's set never to ask.
 
 ### EPA: Cloudflare and the services around it
 
@@ -617,7 +626,7 @@ append    = sum [ "@" append ]
 sum       = product { ("+"|"-") product }
 product   = unary { ("*"|"/"|"%") unary }
 unary     = "-" unary | apply
-apply     = postfix { postfix }          (arguments on the same line or indented under it)
+apply     = postfix { postfix | "-"INT } (arguments on the same line or indented under it)
 postfix   = atom { "." name }
 atom      = INT | STRING | $STRING | "true" | "false" | name
           | "(" ")" | "(" expr ")" | "[" [expr {(";"|","|NEWLINE) expr}] "]"
@@ -627,10 +636,11 @@ atom      = INT | STRING | $STRING | "true" | "false" | name
 ```
 
 A `let rec` without parameters has to be a `fun` (`let rec f = fun x -> …`). A minus sign right
-before a number is part of it (so `-9223372036854775808` can be written). Windows line endings
-are fine. Things can nest (brackets in brackets, blocks in blocks, `1 + 1 + …`) up to 300 levels
-deep; past that, the checker asks you to split it up with `let`s, so the editor and the run never
-run out of room.
+before a number is part of it (so `-9223372036854775808` can be written), and a number with a
+minus touching it and a space before it (`f -1`) is an argument of its own. Windows line endings
+are fine, and so is a byte order mark at the start of the file. Things can nest (brackets in
+brackets, blocks in blocks, `1 + 1 + …`) up to 300 levels deep; past that, the checker asks you
+to split it up with `let`s, so the editor and the run never run out of room.
 
 ---
 

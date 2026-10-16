@@ -94,10 +94,13 @@ final class Updater: ObservableObject {
             }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    // A quiet check that fails leaves no error in the menu, and an update it had
-                    // already found stays offered.
+                    // A quiet check that fails leaves no error of its own in the menu; an update it
+                    // had already found stays offered, and an install that failed stays said.
                     if case .failed = outcome, !userInitiated {
-                        if case .available = before { self.state = before } else { self.state = .idle }
+                        switch before {
+                        case .available, .failed: self.state = before
+                        default: self.state = .idle
+                        }
                     } else {
                         self.state = outcome
                     }
@@ -203,12 +206,14 @@ final class Updater: ObservableObject {
         }
         log("updated to \(commit.short)")
         // Once this copy has quit: open the new one; if it isn't running a few seconds on, the old
-        // one goes back and opens again.
+        // one goes back and opens again. "Running" is a program whose command starts with the new
+        // copy's path, matched as it is (pgrep -f would read "(1)" in a path as a pattern).
         let script = """
         while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
         /usr/bin/open "$2"
         ok=0
-        for _ in 1 2 3 4 5 6; do sleep 1; if /usr/bin/pgrep -f "$2/Contents/MacOS/$5" >/dev/null; then ok=1; else ok=0; fi; done
+        running() { /bin/ps -axo command= | P="$2/Contents/MacOS/$5" /usr/bin/awk 'index($0, ENVIRON["P"]) == 1 { f = 1 } END { exit !f }'; }
+        for _ in 1 2 3 4 5 6; do sleep 1; if running "$@"; then ok=1; else ok=0; fi; done
         if [ "$ok" = 1 ]; then rm -rf "$3"; exit 0; fi
         rm -rf "$4"; mv "$2" "$4" && mv "$3" "$2" && /usr/bin/open "$2"
         """

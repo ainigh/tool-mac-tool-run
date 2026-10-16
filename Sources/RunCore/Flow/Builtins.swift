@@ -10,16 +10,19 @@ public struct Builtin: @unchecked Sendable {
     public let summary: String
     public let example: String
     let arity: Int
+    /// It compares what it's given with = (`unique`), so its 'a can't be a function, as for =.
+    let compares: Bool
     let body: (Interpreter, [Value], Pos) throws -> Value
 
     init(_ name: String, _ signature: String, _ group: String, _ summary: String, _ example: String,
-         arity: Int, _ body: @escaping (Interpreter, [Value], Pos) throws -> Value) {
+         arity: Int, compares: Bool = false, _ body: @escaping (Interpreter, [Value], Pos) throws -> Value) {
         self.name = name
         self.signature = signature
         self.group = group
         self.summary = summary
         self.example = example
         self.arity = arity
+        self.compares = compares
         self.body = body
     }
 }
@@ -54,19 +57,19 @@ extension Builtin {
         Builtin("attempt", "string -> string list -> Run", "Scripts",
                 "Runs a script like `run`, but keeps going when it fails: you get its result, with .out, .err, .code and .ok.",
                 "let r = attempt \"ping.sh\" [\"example.com\"]\nif r.ok then print \"up\" else print $\"down: {r.err}\"", arity: 2) { i, a, pos in
-            .run(try i.script(a[0].string, args: a[1].strings, stdin: nil, pos: pos))
+            .run(try i.attempt(a[0].string, args: a[1].strings, stdin: nil, pos: pos))
         },
         Builtin("pipe", "string -> string list -> string -> string", "Scripts",
                 "Runs a script with text as its input (stdin) and gives back what it printed. Made for |>: text |> pipe \"sort.py\" [].",
                 "run \"list.sh\" [] |> pipe \"count-lines.py\" []", arity: 3) { i, a, pos in
-            let r = try i.script(a[0].string, args: a[1].strings, stdin: a[2].string, pos: pos)
+            let r = try i.script(a[0].string, args: a[1].strings, stdin: Builtin.input(a[2].string), pos: pos)
             try i.requireSuccess(r, name: a[0].string, pos: pos)
             return .str(r.out)
         },
         Builtin("attemptPipe", "string -> string list -> string -> Run", "Scripts",
                 "Runs a script with text as its input, like `pipe`, but keeps going when it fails: you get its result, with .out, .err, .code and .ok.",
                 "let r = report |> attemptPipe \"upload.sh\" []", arity: 3) { i, a, pos in
-            .run(try i.script(a[0].string, args: a[1].strings, stdin: a[2].string, pos: pos))
+            .run(try i.attempt(a[0].string, args: a[1].strings, stdin: Builtin.input(a[2].string), pos: pos))
         },
         Builtin("sh", "string -> string", "Scripts",
                 "Runs one line of shell (bash) and gives back what it printed. For small things that don't need a script of their own.",
@@ -78,16 +81,22 @@ extension Builtin {
         Builtin("parallel", "(unit -> 'a) list -> 'a list", "Scripts",
                 "Runs several steps at the same time and waits for all of them. Each step is a `fun () -> …`. The results come back in the same order.",
                 "parallel [ (fun () -> run \"a.sh\" []); (fun () -> run \"b.sh\" []) ]", arity: 1) { i, a, pos in
+            // A thread of its own for each step, so they all run at once however many there are
+            // (they mostly wait on scripts, not the processor).
             let thunks = a[0].items
-            var results = [Result<Value, Error>?](repeating: nil, count: thunks.count)
-            let lock = NSLock()
-            DispatchQueue.concurrentPerform(iterations: thunks.count) { k in
-                let r = Result { try i.forked().apply(thunks[k], .unit, pos: pos) }
-                lock.lock()
-                results[k] = r
-                lock.unlock()
+            let results = Builtin.Results(count: thunks.count)
+            let group = DispatchGroup()
+            for (k, thunk) in thunks.enumerated() {
+                group.enter()
+                let thread = Thread {
+                    results.set(k, Result { try i.forked().apply(thunk, .unit, pos: pos) })
+                    group.leave()
+                }
+                thread.stackSize = Builtin.parallelStackSize
+                thread.start()
             }
-            return .list(try results.map { try $0!.get() })
+            group.wait()
+            return .list(try results.values())
         },
         Builtin("retry", "int -> (unit -> 'a) -> 'a", "Scripts",
                 "Tries a step up to this many times, waiting a little longer each time, until it doesn't fail.",
@@ -109,6 +118,46 @@ extension Builtin {
         },
     ]
 
+    /// Room for each of `parallel`'s steps to call functions deeply (only what's used is taken).
+    static let parallelStackSize = 64 << 20
+
+    /// What `parallel`'s steps gave, filled in from their threads.
+    final class Results: @unchecked Sendable {
+        private let lock = NSLock()
+        private var results: [Result<Value, Error>?]
+
+        init(count: Int) { results = Array(repeating: nil, count: count) }
+
+        func set(_ k: Int, _ r: Result<Value, Error>) {
+            lock.lock()
+            results[k] = r
+            lock.unlock()
+        }
+
+        /// The values in order; or, when a step failed, its error (a stop first, so a stopped
+        /// flow says it was stopped).
+        func values() throws -> [Value] {
+            lock.lock()
+            defer { lock.unlock() }
+            let errors = results.compactMap { r -> Error? in
+                if case let .failure(e)? = r { return e }
+                return nil
+            }
+            if let stop = errors.first(where: { ($0 as? FlowError)?.stage == .stopped }) { throw stop }
+            if let first = errors.first { throw first }
+            return results.compactMap { r -> Value? in
+                if case let .success(v)? = r { return v }
+                return nil
+            }
+        }
+    }
+
+    /// Text handed to a script as its input ends with a line break, as a script's output does
+    /// (`run` trims it off): a script reading line by line would miss a last line without one.
+    static func input(_ text: String) -> String {
+        text.isEmpty || text.hasSuffix("\n") ? text : text + "\n"
+    }
+
     // MARK: asking
 
     // MARK: EPA (the kit for Cloudflare and the services around it)
@@ -127,7 +176,12 @@ extension Builtin {
         Builtin("attemptEpa", "string list -> Run", "EPA",
                 "Runs `epa` like `epa`, but keeps going when it fails: .ok says whether it worked, .out what it showed, .err EPA's sentence for what failed and its next step.",
                 "let check = attemptEpa [\"doctor\"]\nif not check.ok then notify check.err", arity: 1) { i, a, pos in
-            .run(Interpreter.runValue(try i.epa(a[0].strings, pos: pos)))
+            // Keeps going whatever happens, as `attempt` does: EPA not set up is a failed result too.
+            do {
+                return .run(Interpreter.runValue(try i.epa(a[0].strings, pos: pos)))
+            } catch let e as FlowError where e.stage != .stopped {
+                return .run(RunValue(out: "", err: e.message + (e.fix.map { "\nNext: \($0)" } ?? ""), code: 127))
+            }
         },
     ]
 
@@ -186,7 +240,7 @@ extension Builtin {
         Builtin("split", "string -> string -> string list", "Text", "Splits text wherever the separator (first) appears.", "\"a,b,c\" |> split \",\"", arity: 2) { _, a, _ in
             let sep = a[0].string
             guard !sep.isEmpty else { return .list(a[1].string.map { .str(String($0)) }) }
-            return .list(a[1].string.components(separatedBy: sep).map { .str($0) })
+            return .list(Builtin.split(a[1].string, at: sep).map { .str($0) })
         },
         Builtin("join", "string -> string list -> string", "Text", "Joins a list of text with a separator (first) between them.", "[\"a\"; \"b\"] |> join \", \"", arity: 2) { _, a, _ in
             .str(a[1].strings.joined(separator: a[0].string))
@@ -197,16 +251,16 @@ extension Builtin {
         Builtin("upper", "string -> string", "Text", "IN CAPITALS.", "\"hello\" |> upper", arity: 1) { _, a, _ in .str(a[0].string.uppercased()) },
         Builtin("lower", "string -> string", "Text", "in small letters.", "\"HELLO\" |> lower", arity: 1) { _, a, _ in .str(a[0].string.lowercased()) },
         Builtin("contains", "string -> string -> bool", "Text", "Whether the text (second) has this piece (first) in it.", "files |> filter (contains \".swift\")", arity: 2) { _, a, _ in
-            .bool(a[1].string.contains(a[0].string))
+            .bool(a[0].string.isEmpty || !Builtin.occurrences(of: a[0].string, in: a[1].string, first: true).isEmpty)
         },
         Builtin("startsWith", "string -> string -> bool", "Text", "Whether the text (second) begins with this (first).", "lines |> filter (startsWith \"ERROR\")", arity: 2) { _, a, _ in
-            .bool(a[1].string.hasPrefix(a[0].string))
+            .bool(a[1].string.unicodeScalars.starts(with: a[0].string.unicodeScalars))
         },
         Builtin("endsWith", "string -> string -> bool", "Text", "Whether the text (second) ends with this (first).", "files |> filter (endsWith \".log\")", arity: 2) { _, a, _ in
-            .bool(a[1].string.hasSuffix(a[0].string))
+            .bool(a[1].string.unicodeScalars.reversed().starts(with: a[0].string.unicodeScalars.reversed()))
         },
         Builtin("replace", "string -> string -> string -> string", "Text", "Replaces every `old` (first) with `new` (second) in the text (third).", "name |> replace \" \" \"-\"", arity: 3) { _, a, _ in
-            .str(a[2].string.replacingOccurrences(of: a[0].string, with: a[1].string))
+            .str(Builtin.split(a[2].string, at: a[0].string).joined(separator: a[1].string))
         },
         Builtin("size", "string -> int", "Text", "How many characters the text has.", "if size name > 20 then print \"long name\"", arity: 1) { _, a, _ in .int(a[0].string.count) },
     ]
@@ -243,9 +297,19 @@ extension Builtin {
         Builtin("skip", "int -> 'a list -> 'a list", "Lists", "All but the first n items.", "lines |> skip 1", arity: 2) { _, a, _ in .list(Array(a[1].items.dropFirst(max(0, a[0].int)))) },
         Builtin("sort", "'a list -> 'a list", "Lists", "Numbers smallest first, text alphabetically.", "names |> sort", arity: 1) { _, a, _ in .list(a[0].items.sorted(by: Value.less)) },
         Builtin("reverse", "'a list -> 'a list", "Lists", "The list back to front.", "names |> sort |> reverse", arity: 1) { _, a, _ in .list(a[0].items.reversed()) },
-        Builtin("unique", "'a list -> 'a list", "Lists", "Each item once (the first time it appears).", "words |> unique", arity: 1) { _, a, _ in
+        Builtin("unique", "'a list -> 'a list", "Lists", "Each item once (the first time it appears).", "words |> unique", arity: 1, compares: true) { i, a, pos in
+            // Numbers, text and the like are looked up in a set, so a long list takes no time;
+            // lists and results are compared one by one.
             var kept: [Value] = []
-            for v in a[0].items where !kept.contains(where: { Value.equal($0, v) }) { kept.append(v) }
+            var seen = Set<Value.Key>()
+            for (k, v) in a[0].items.enumerated() {
+                if k % 4096 == 0 { try i.checkStop(pos) }
+                if let key = v.key {
+                    if seen.insert(key).inserted { kept.append(v) }
+                } else if !kept.contains(where: { Value.equal($0, v) }) {
+                    kept.append(v)
+                }
+            }
             return .list(kept)
         },
         Builtin("range", "int -> int -> int list", "Lists", "The whole numbers from the first to the second, both included.", "range 1 5 |> each (fun n -> print n)", arity: 2) { _, a, pos in
@@ -325,6 +389,49 @@ extension Builtin {
     ]
 
     static func expand(_ path: String) -> String { (path as NSString).expandingTildeInPath }
+
+    /// Whether `piece` is in `text` (where `options` say): the same search `replace` and `split`
+    /// do, so they all agree, and the empty text is in every text.
+    // The text searches (contains, startsWith, endsWith, split, replace) go by Unicode scalar,
+    // as grep and the scripts see text: "\n" is found inside a "\r\n" (one Character to Swift,
+    // and to Foundation's search on a Mac), and they agree with each other on every system.
+
+    /// Where `piece` is in `text`, left to right, not overlapping (`first`: stop at the first).
+    static func occurrences(of piece: String, in text: String, first: Bool = false) -> [Range<String.Index>] {
+        let s = text.unicodeScalars, p = Array(piece.unicodeScalars)
+        guard !p.isEmpty else { return [] }
+        var found: [Range<String.Index>] = []
+        var i = s.startIndex
+        while i != s.endIndex {
+            var j = i, k = 0
+            while k < p.count, j != s.endIndex, s[j] == p[k] {
+                s.formIndex(after: &j)
+                k += 1
+            }
+            if k == p.count {
+                found.append(i..<j)
+                if first { break }
+                i = j
+            } else {
+                s.formIndex(after: &i)
+            }
+        }
+        return found
+    }
+
+    /// The pieces of `text` between each `separator` (all of it, when there's none).
+    static func split(_ text: String, at separator: String) -> [String] {
+        guard !separator.isEmpty else { return [text] }
+        let s = text.unicodeScalars
+        var pieces: [String] = []
+        var from = s.startIndex
+        for r in occurrences(of: separator, in: text) {
+            pieces.append(String(String.UnicodeScalarView(s[from..<r.lowerBound])))
+            from = r.upperBound
+        }
+        pieces.append(String(String.UnicodeScalarView(s[from...])))
+        return pieces
+    }
 }
 
 /// Names every flow has that aren't functions.

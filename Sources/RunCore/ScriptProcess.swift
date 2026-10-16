@@ -313,7 +313,7 @@ public final class ScriptProcess: @unchecked Sendable {
         lock.unlock()
         if stopAsked {
             send(SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { self.send(SIGKILL) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { self.send(SIGKILL, evenAfterEnd: true) }
         }
         #if os(Linux)
         // Foundation on Linux only notices the script ended once everything it started has ended
@@ -458,21 +458,23 @@ public final class ScriptProcess: @unchecked Sendable {
         lock.unlock()
         if first {
             send(SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { self.send(SIGKILL) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + killGrace) { self.send(SIGKILL, evenAfterEnd: true) }
         } else {
-            send(SIGKILL)
+            send(SIGKILL, evenAfterEnd: true)
         }
     }
 
-    private func send(_ sig: Int32) {
+    /// `evenAfterEnd`: the run has ended (the script died and its output closed), but something
+    /// it started that ignored SIGTERM can still be in its group: Stop's SIGKILL reaches it too.
+    private func send(_ sig: Int32, evenAfterEnd: Bool = false) {
         lock.lock()
         let pid = self.pid, group = ownGroup, leaderGone = leaderExited, over = ended
         lock.unlock()
-        guard pid > 0, !over else { return }
+        guard pid > 0, !over || evenAfterEnd else { return }
         // The group outlives its leader while anything in it is running; when nothing is, this
         // fails (ESRCH) and there's nothing to do.
         if group { kill(-pid, sig) }
-        if !leaderGone { kill(pid, sig) }
+        if !leaderGone, !over { kill(pid, sig) }
     }
 
     public var wasStopped: Bool {

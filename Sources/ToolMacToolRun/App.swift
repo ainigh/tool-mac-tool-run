@@ -372,12 +372,22 @@ final class AppModel: ObservableObject {
 
     private static let settingsProblem = "Couldn't save the grid's settings"
 
-    /// A script renamed: its place, color and arguments go with it.
+    /// Saves a grid's settings still waiting to be (the app is quitting: the change isn't lost).
+    func saveSettingsNow() {
+        for (kind, task) in saveTasks {
+            task.cancel()
+            try? settings(kind).save(kind)
+        }
+        saveTasks.removeAll()
+    }
+
+    /// A script renamed: its place, color, arguments and Ask Before Running go with it.
     func renamed(_ kind: GridKind, from old: String, to new: String) {
         update(kind) { s in
             s.order = s.order.map { $0 == old ? new : $0 }
             if let t = s.tints.removeValue(forKey: old) { s.tints[new] = t }
             if let a = s.arguments.removeValue(forKey: old) { s.arguments[new] = a }
+            if let a = s.ask.removeValue(forKey: old) { s.ask[new] = a }
         }
     }
 
@@ -447,15 +457,25 @@ final class AppModel: ObservableObject {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
+    private var terminateSignal: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppModel.shared.updater.start()
+        // Asked to quit with SIGTERM (the installer closing it, a logout): quit as the menu's Quit
+        // does, so runs are stopped and saved. Caught by a handler that does nothing, not ignored:
+        // an ignored SIGTERM would be handed on to every script it starts, and Stop couldn't end them.
+        signal(SIGTERM) { _ in }
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        terminateSignal = source
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateCancel }  // already on its way out
         let runs = AppModel.shared.runs
         Windows.saveEditors()
+        AppModel.shared.saveSettingsNow()
         runs.flush()
         guard runs.hasLiveRuns else {
             runs.saveNow()

@@ -96,6 +96,8 @@ if pkill -x "$NAME" 2>/dev/null; then
   echo "   Closed the running copy (it reopens in a moment)."
 fi
 mkdir -p "$APPS"
+# An install stopped dead (the Mac lost power) while the app was parked: that copy is the one to keep.
+if [[ -d "$previous" && ! -d "$APPS/$NAME.app" ]]; then mv "$previous" "$APPS/$NAME.app"; fi
 rm -rf "$previous"
 replaced=0
 old_version=""
@@ -136,7 +138,8 @@ open "$APPS/$NAME.app"
 started=0
 for _ in 1 2 3 4 5 6; do
   sleep 1
-  if pgrep -f "$APPS/$NAME.app/Contents/MacOS/$NAME" >/dev/null; then started=1; else started=0; fi
+  # Its path matched as it is (pgrep -f would read characters such as + or ( in it as a pattern).
+  if ps -axo command= | P="$APPS/$NAME.app/Contents/MacOS/$NAME" awk 'index($0, ENVIRON["P"]) == 1 { f = 1 } END { exit !f }'; then started=1; else started=0; fi
 done
 if [[ "$started" == 1 ]]; then
   parked=0

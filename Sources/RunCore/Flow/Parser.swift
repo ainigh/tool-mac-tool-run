@@ -36,6 +36,11 @@ public final class Expr: @unchecked Sendable {
     /// Where its keywords are, for the block editor: an `if`'s `then` and `else` (or `elif`), a
     /// `fun`'s `->`, a `for`'s `do`.
     var marks: [Pos] = []
+    /// An `.apply` written `x |> f`: x is worked out first, then f (as it reads).
+    var piped = false
+    /// A `.lambda` written `f >> g` (`fun $x -> g (f $x)`): f and g are worked out once, when
+    /// it's made, not again at each call.
+    var composed = false
     /// How many levels deep the tree under it goes (1 for a value on its own). The checker and
     /// the interpreter go one call deeper per level, so the parser keeps it in bounds.
     let depth: Int
@@ -147,6 +152,9 @@ struct Parser {
         guard t.startsLine else { return false }
         let limit = offside.last ?? 0
         switch t.kind {
+        // A line starting -2 is a number, not a minus carrying on the line above: in a list
+        // written one item per line, [1, -2] stays two items.
+        case .symbol("-") where isSignedNumber: return t.pos.col <= limit
         case let .symbol(s) where Self.infix.contains(s): return t.pos.col < limit
         case .keyword("then"), .keyword("elif"), .keyword("else"): return t.pos.col < limit
         default: return t.pos.col <= limit
@@ -154,6 +162,17 @@ struct Parser {
     }
 
     private func isSymbol(_ s: String) -> Bool { peek.kind == .symbol(s) }
+
+    /// The next token is a minus sign that belongs to the number after it: it touches the number
+    /// (-1) but not what's before it. So `f -1` gives f the number -1, while `a - 1` and `a-1`
+    /// subtract (as in F#).
+    private var isSignedNumber: Bool {
+        let t = peek
+        guard t.kind == .symbol("-"), index + 1 < tokens.count else { return false }
+        let n = tokens[index + 1]
+        guard case .int = n.kind, n.pos == t.end else { return false }
+        return t.startsLine || index == 0 || tokens[index - 1].end != t.pos
+    }
     private func isKeyword(_ k: String) -> Bool { peek.kind == .keyword(k) }
 
     private mutating func expect(_ s: String, _ what: String) throws -> Token {
@@ -298,6 +317,7 @@ struct Parser {
             let op = next()
             let f = try compose()
             left = try node(.apply(f, left), op.pos)
+            left.piped = true
         }
         return left
     }
@@ -311,6 +331,7 @@ struct Parser {
             let x = "$x\(fresh)"
             let arg = Expr(.name(x), op.pos)
             left = try node(.lambda([.name(x)], try node(.apply(right, try node(.apply(left, arg), op.pos)), op.pos)), op.pos)
+            left.composed = true
         }
         return left
     }
@@ -344,12 +365,10 @@ struct Parser {
         var minuses: [Pos] = []
         while isSymbol("-") { minuses.append(next().pos) }
         var e: Expr
-        if let last = minuses.last, case let .int(n) = peek.kind {
+        if let last = minuses.last, case .int = peek.kind {
             // A minus sign right before a number is part of it: -3 is a number, and so is
             // -9223372036854775808 (whose digits alone are one too big to be one).
-            let t = next()
-            guard n <= UInt64(Int.max) + 1 else { throw Self.tooBig(n, t.pos) }
-            e = Expr(.int(n == UInt64(Int.max) + 1 ? Int.min : -Int(n)), last)
+            e = try negativeNumber(at: last)
             minuses.removeLast()
             e = try postfixAndArguments(e)
         } else {
@@ -357,6 +376,14 @@ struct Parser {
         }
         for pos in minuses.reversed() { e = try node(.negate(e), pos) }
         return e
+    }
+
+    /// The number after a minus sign (at `pos`), made negative.
+    private mutating func negativeNumber(at pos: Pos) throws -> Expr {
+        let t = next()
+        guard case let .int(n) = t.kind else { throw FlowError(.syntax, t.pos, "I expected a number after the minus sign, found \(Self.describe(t)).") }
+        guard n <= UInt64(Int.max) + 1 else { throw Self.tooBig(n, t.pos) }
+        return Expr(.int(n == UInt64(Int.max) + 1 ? Int.min : -Int(n)), pos)
     }
 
     static func tooBig(_ n: UInt64, _ pos: Pos) -> FlowError {
@@ -368,6 +395,7 @@ struct Parser {
         case .int, .string, .interpolated, .ident: true
         case .keyword("true"), .keyword("false"): true
         case .symbol("("), .symbol("["): true
+        case .symbol("-"): isSignedNumber
         default: false
         }
     }
@@ -381,7 +409,7 @@ struct Parser {
     private mutating func postfixAndArguments(_ e: Expr) throws -> Expr {
         var f = try postfix(e)
         while !atBoundary && startsArgument {
-            let arg = try postfix(try atom())
+            let arg = isSymbol("-") ? try negativeNumber(at: next().pos) : try postfix(try atom())
             f = try node(.apply(f, arg), arg.pos)
         }
         return f

@@ -67,6 +67,18 @@ final class EPATests: XCTestCase {
         XCTAssertEqual(host.shown, "epa v0.23.0\n  → Resend…\nNot JSON: a listing line\n  ↺ Resend — already in place\n")
     }
 
+    func testALineEndingInCRLFDoesntHideTheQuestionAfterIt() throws {
+        // Node prints its warnings with \r\n on some systems; the question after one must be asked.
+        let asked = Box<[FlowQuestion]>([])
+        let session = EPA.Session(ask: { asked.value.append($0); return .yes }, send: { _ in }, show: { _ in })
+        session.feed("(node:1) Warning: x\r")
+        session.feed("\n" + json(["type": "ask", "kind": "consent", "consequence": "Delete it"]) + "\r\n")
+        session.feed("done\r\n")
+        session.finish()
+        XCTAssertEqual(asked.value.count, 1)
+        XCTAssertEqual(session.outcome(code: 0).text, "(node:1) Warning: x\n  ❓ Delete it → Go ahead\ndone")
+    }
+
     func testAFailureStopsTheFlowWithEPAsSentenceAndNextStep() {
         let host = EPAHost()
         host.printed = [json(failed)]
@@ -246,6 +258,9 @@ final class EPATests: XCTestCase {
         try "# a comment\nRESEND_API_KEY=re_x\n\nFRESHDESK_DOMAIN=acme\n".write(to: root.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
         XCTAssertTrue(Doctor.epa(lib, flows: lib.flows(), path: "/nonexistent").last?.title.hasPrefix("EPA keys: 2 in") == true)
         XCTAssertFalse(lib.scripts().map(\.id).contains(".env"))
+        // Saved with Windows line endings: each line still counts.
+        try "A=1\r\nB=2\r\nC=3\r\n".write(to: root.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+        XCTAssertTrue(Doctor.epa(lib, flows: lib.flows(), path: "/nonexistent").last?.title.hasPrefix("EPA keys: 3 in") == true)
         // A folder with nothing of EPA's: nothing said.
         XCTAssertEqual(Doctor.epa(Library(root: root.appendingPathComponent("none")), flows: [], path: "/nonexistent"), [])
     }
@@ -290,6 +305,9 @@ final class EPATests: XCTestCase {
         let lib = Library(root: root)
         try lib.ensure()
         let setup = root.appendingPathComponent(EPA.setupScript)
+        // Each earlier version really is an earlier one (its differences were all found).
+        for old in Examples.earlierEPARecipes[EPA.setupScript] ?? [] { XCTAssertNotEqual(old, Examples.setupEPA) }
+        XCTAssertEqual(Set(Examples.earlierEPARecipes[EPA.setupScript] ?? []).count, 2)
         let earlier = try XCTUnwrap(Examples.earlierEPARecipes[EPA.setupScript]?.first)
         XCTAssertTrue(earlier.contains("into $KIT…"))
         try earlier.write(to: setup, atomically: true, encoding: .utf8)

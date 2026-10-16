@@ -30,7 +30,11 @@ final class Checker {
 
     func check(_ program: Expr) throws -> [FlowBinding] {
         var env: [String: Scheme] = [:]
-        for b in Builtin.all + Builtin.hidden { env[b.name] = scheme(signature: b.signature) }
+        for b in Builtin.all + Builtin.hidden {
+            var s = scheme(signature: b.signature, compares: b.compares)
+            s.builtin = true
+            env[b.name] = s
+        }
         for g in Globals.names { env[g.name] = Scheme(generic: [], type: g.type) }
         _ = try infer(program, env, top: true)
         // A + or < that was never pinned down is on numbers, as in F#.
@@ -45,13 +49,18 @@ final class Checker {
         return .v(TVar(id: nextID, level: level))
     }
 
-    private func scheme(signature: String) -> Scheme {
+    /// A builtin's type, from its signature. `compares`: its generic types are compared with =,
+    /// so they can't be functions.
+    private func scheme(signature: String, compares: Bool) -> Scheme {
         var vars: [String: FType] = [:]
         var ids: [Int] = []
         let t = SignatureReader.read(signature) { name in
             if let v = vars[name] { return v }
             let v = fresh()
-            if case let .v(tv) = v { ids.append(tv.id) }
+            if case let .v(tv) = v {
+                ids.append(tv.id)
+                tv.equatable = compares
+            }
             vars[name] = v
             return v
         }
@@ -239,7 +248,7 @@ final class Checker {
 
     private func inferApply(_ e: Expr, _ env: [String: Scheme]) throws -> FType {
         guard case let .apply(f, a) = e.kind else { return .unit }
-        try checkScriptName(f, a)
+        try checkScriptName(f, a, env)
         let tf = try infer(f, env)
         let ta = try infer(a, env)
         switch tf.resolved {
@@ -271,6 +280,11 @@ final class Checker {
             }
             return r
         case .con:
+            // n -1 gives n the number -1 (as f -1 does), so the minus needs a space to subtract.
+            if case let .int(k) = a.kind, k < 0 {
+                throw FlowError(.type, a.pos, "\(Self.who(f)) is \(Self.article(TypePrinter.show(tf))), not a function, so it can't be given \(k): a minus sign touching a number, after a space, makes it negative.",
+                                fix: "To subtract, put a space after the minus too: - \(String(k).dropFirst()).")
+            }
             // print "a" "b": the head is a function, given more values than it takes.
             if case .apply = f.kind, case let .name(n) = Self.head(f).kind {
                 let takes = Self.argumentCount(f)
@@ -471,9 +485,11 @@ final class Checker {
 
     // MARK: the scripts named in run, attempt, pipe and attemptPipe
 
-    private func checkScriptName(_ f: Expr, _ a: Expr) throws {
+    /// Only while `run` (and the rest) are the builtins: a flow may define its own `run`.
+    private func checkScriptName(_ f: Expr, _ a: Expr, _ env: [String: Scheme]) throws {
+        guard case let .name(fn) = f.kind, env[fn]?.builtin == true else { return }
         try checkEPACommand(f, a)
-        guard let scripts, case let .name(fn) = f.kind, ["run", "attempt", "pipe", "attemptPipe"].contains(fn),
+        guard let scripts, ["run", "attempt", "pipe", "attemptPipe"].contains(fn),
               case let .str(name) = a.kind else { return }
         if ScriptNames.match(name, in: scripts) != nil { return }
         let near = Self.closest(name, among: scripts)

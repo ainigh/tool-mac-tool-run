@@ -163,9 +163,12 @@ public enum EPA {
             lock.lock()
             pending += text
             var lines: [String] = []
-            while let nl = pending.firstIndex(of: "\n") {
-                lines.append(String(pending[..<nl]))
-                pending = String(pending[pending.index(after: nl)...])
+            // By scalar: "\r\n" is one Character, so a search for the Character "\n" misses it.
+            let scalars = pending.unicodeScalars
+            if let lastBreak = scalars.lastIndex(of: "\n") {
+                lines = scalars[...lastBreak].split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+                    .map { String(String.UnicodeScalarView($0)) }
+                pending = String(String.UnicodeScalarView(scalars[scalars.index(after: lastBreak)...]))
             }
             lock.unlock()
             lines.forEach(handle)

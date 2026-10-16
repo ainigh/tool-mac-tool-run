@@ -704,7 +704,9 @@ enum Template {
             switch c {
             case "\\": out += "\\\\"
             case "\"": out += "\\\""
-            case "\n": out += "\\n"
+            // A Windows or old Mac line end (\r\n is one Character) is a new line, as it would
+            // be read from a file: written raw it would be one anyway, and break a // line.
+            case "\n", "\r\n", "\r": out += "\\n"
             case "\t": out += "\\t"
             case "{" where interpolated: out += "{{"
             case "}" where interpolated: out += "}}"
@@ -751,7 +753,10 @@ enum Template {
         let code: String
         if ps.count == 1, case let .hole(h) = ps[0] { code = h } else { code = s }
         if let e = try? parseExpr(code), let shown = ExprPrinter.show(e, level) { return shown }
-        return code
+        // Not Flow (1.5, "two"): written as text read as a number, so the file still reads
+        // (as blocks too) and the run says what's wrong with it.
+        let asNumber = "int \(quote(code))"
+        return level > 9 ? "(\(asNumber))" : asNumber
     }
 
     /// Flow code as it goes in a place needing `level` (in brackets if it must be).
@@ -770,39 +775,84 @@ enum Template {
         return e
     }
 
-    private static func renamed(_ old: String, _ new: String, _ code: String) -> String {
-        // The name as a whole word, not inside text in quotes.
-        var out = ""
-        let chars = Array(code)
+    private static func renamed(_ old: String, _ new: String, _ source: String) -> String {
+        // The name as a whole word, not inside text in quotes, but inside the {holes} of a $"…"
+        // (they're code too).
+        let chars = Array(source)
         var i = 0
         let oldChars = Array(old)
         func isWord(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" || c == "'" }
-        while i < chars.count {
-            if chars[i] == "\"" {
-                out.append(chars[i])
-                i += 1
-                while i < chars.count && chars[i] != "\"" {
-                    if chars[i] == "\\" && i + 1 < chars.count {
+        func at(_ k: Int, _ c: Character) -> Bool { k < chars.count && chars[k] == c }
+
+        /// Code, up to the } that closes the hole it's in (left for the caller), or to the end.
+        func code(inHole: Bool) -> String {
+            var out = ""
+            var depth = 0
+            while i < chars.count {
+                let c = chars[i]
+                if c == "\"" {
+                    out += text(interpolated: i > 0 && chars[i - 1] == "$")
+                    continue
+                }
+                // A \"…\" in a hole is text too: $"{name + \"!\"}".
+                if inHole && c == "\\" && at(i + 1, "\"") {
+                    out += "\\\""
+                    i += 2
+                    while i < chars.count && !(chars[i] == "\\" && at(i + 1, "\"")) {
                         out.append(chars[i])
                         i += 1
                     }
-                    out.append(chars[i])
-                    i += 1
+                    if i < chars.count { out += "\\\""; i += 2 }
+                    continue
                 }
-                if i < chars.count { out.append(chars[i]); i += 1 }
-                continue
+                if inHole && c == "{" { depth += 1 }
+                if inHole && c == "}" {
+                    if depth == 0 { return out }
+                    depth -= 1
+                }
+                if i + oldChars.count <= chars.count, Array(chars[i..<(i + oldChars.count)]) == oldChars,
+                   i == 0 || (!isWord(chars[i - 1]) && chars[i - 1] != "."),
+                   i + oldChars.count == chars.count || !isWord(chars[i + oldChars.count]) {
+                    out += new
+                    i += oldChars.count
+                    continue
+                }
+                out.append(c)
+                i += 1
             }
-            if i + oldChars.count <= chars.count, Array(chars[i..<(i + oldChars.count)]) == oldChars,
-               i == 0 || (!isWord(chars[i - 1]) && chars[i - 1] != "."),
-               i + oldChars.count == chars.count || !isWord(chars[i + oldChars.count]) {
-                out += new
-                i += oldChars.count
-                continue
-            }
-            out.append(chars[i])
-            i += 1
+            return out
         }
-        return out
+
+        /// A text, from its opening quote to its closing one: as it is, but its holes renamed.
+        func text(interpolated: Bool) -> String {
+            var out = "\""
+            i += 1
+            while i < chars.count && chars[i] != "\"" {
+                if chars[i] == "\\" && i + 1 < chars.count {
+                    out.append(chars[i])
+                    out.append(chars[i + 1])
+                    i += 2
+                    continue
+                }
+                if interpolated && chars[i] == "{" {
+                    if at(i + 1, "{") {
+                        out += "{{"
+                        i += 2
+                        continue
+                    }
+                    i += 1
+                    out += "{" + code(inHole: true)
+                    if i < chars.count { out.append(chars[i]); i += 1 }
+                    continue
+                }
+                out.append(chars[i])
+                i += 1
+            }
+            if i < chars.count { out.append(chars[i]); i += 1 }
+            return out
+        }
+
+        return code(inHole: false)
     }
 
     /// A template with a name renamed in its holes.
@@ -967,9 +1017,15 @@ struct BlockWriter {
         ranges = [:]
         let summary = doc.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summary.isEmpty {
-            out.append("// " + summary.replacingOccurrences(of: "\n", with: " "))
+            out.append("// " + Self.lines(summary).joined(separator: " "))
         }
         list(doc.blocks, depth: 0, env: Self.start, useOriginals: true, top: true)
+        // With no summary, a first line that's a comment would be read as one: an empty one
+        // goes first, so the comment stays a block.
+        if summary.isEmpty, let first = out.first, first.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+            out.insert("//", at: 0)
+            ranges = ranges.mapValues { ($0.lowerBound + 1)...($0.upperBound + 1) }
+        }
         var text = out.joined(separator: "\n")
         if !text.isEmpty { text += "\n" }
         return WrittenFlow(text: text, lines: ranges)
@@ -985,7 +1041,9 @@ struct BlockWriter {
             // A blank line where there was one, and around a new If or Repeat at the top (the
             // file's own layout is left as it was).
             let fromFile = b.original != nil && (k == 0 || blocks[k - 1].original != nil)
+            // Two comments one after the other would be read as one: a blank line keeps them two.
             let blank = b.blankBefore || (top && k > 0 && !fromFile && (b.type.isContainer || blocks[k - 1].type.isContainer))
+                || (k > 0 && b.type == .comment && blocks[k - 1].type == .comment)
             if blank && (k > 0 || top) && !(out.last?.isEmpty ?? true) { out.append("") }
             emit(b, depth: depth, env: env, useOriginals: useOriginals)
             if b.type != .comment && !(b.type == .code && Self.isOnlyComments(b.text)) { wroteCode = true }
@@ -1000,7 +1058,7 @@ struct BlockWriter {
         let first = out.count + 1
         if useOriginals, let original = b.original, let canonical = b.canonical,
            Self.fresh(b, env: env).joined(separator: "\n") == canonical {
-            out += original.components(separatedBy: "\n").map { $0.isEmpty ? "" : pad + $0 }
+            out += Self.indented(original.components(separatedBy: "\n"), pad: pad)
             ranges[b.id] = first...max(first, out.count)
             Self.originalRanges(b, start: first, into: &ranges)
             return
@@ -1024,7 +1082,7 @@ struct BlockWriter {
                 list(b.otherwise, depth: depth + 1, env: env, useOriginals: useOriginals, top: false)
             }
         } else {
-            out += Self.step(b, env: env).map { $0.isEmpty ? "" : pad + $0 }
+            out += Self.indented(Self.step(b, env: env), pad: pad)
         }
         if out.count >= first { ranges[b.id] = first...out.count }
     }
@@ -1050,11 +1108,47 @@ struct BlockWriter {
         return w.out
     }
 
+    /// Code with nothing in it but comments (`//`, `#`, `(* … *)`) and blank lines. Code that
+    /// can't even be read counts as code.
     static func isOnlyComments(_ code: String) -> Bool {
-        code.split(separator: "\n").allSatisfy {
-            let t = $0.trimmingCharacters(in: .whitespaces)
-            return t.isEmpty || t.hasPrefix("//") || t.hasPrefix("#")
+        guard let tokens = try? Lexer.tokenize(code) else { return false }
+        return tokens.allSatisfy { $0.kind == .eof }
+    }
+
+    /// Text's lines, whatever ends them (\n, \r\n or \r: the lexer reads each as a new line).
+    static func lines(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+    }
+
+    /// The lines (counted from 0) that carry on a text in quotes begun on a line before: they're
+    /// part of the text, so moving them in or out would change what it says.
+    static func textLines(_ lines: [String]) -> Set<Int> {
+        guard lines.count > 1, let tokens = try? Lexer.tokenize(lines.joined(separator: "\n")) else { return [] }
+        var inside = Set<Int>()
+        for t in tokens where t.end.line > t.pos.line {
+            switch t.kind {
+            case .string, .interpolated: for l in (t.pos.line + 1)...t.end.line { inside.insert(l - 1) }
+            default: break
+            }
         }
+        return inside
+    }
+
+    /// Lines moved in by `pad` (blank ones left empty, and ones inside a text left as they are).
+    static func indented(_ lines: [String], pad: String) -> [String] {
+        guard !pad.isEmpty else { return lines }
+        let inside = textLines(lines)
+        return lines.enumerated().map { k, line in line.isEmpty || inside.contains(k) ? line : pad + line }
+    }
+
+    /// Lines with the indent they all have taken off (not counting blank ones, or ones inside a text).
+    static func dedented(_ lines: [String]) -> [String] {
+        let inside = textLines(lines)
+        func indent(_ l: String) -> Int { l.prefix { $0 == " " || $0 == "\t" }.count }
+        let counted = lines.enumerated().filter { k, l in !inside.contains(k) && !l.trimmingCharacters(in: .whitespaces).isEmpty }
+        let common = counted.map { indent($0.element) }.min() ?? 0
+        guard common > 0 else { return lines }
+        return lines.enumerated().map { k, l in inside.contains(k) ? l : String(l.dropFirst(min(common, indent(l)))) }
     }
 
     /// What a block's output adds to the names after it.
@@ -1091,8 +1185,11 @@ struct BlockWriter {
 
     /// The names known to hold text, for writing a lone {name} as the name.
     static func knownText(_ env: [FlowVariable]) -> (Expr) -> Bool {
-        let text = Set(env.filter { $0.kind == .text }.map(\.name))
-        let results = Set(env.filter { $0.kind == .result }.map(\.name))
+        // A name defined again is what it was made last.
+        var kinds: [String: ValueKind] = [:]
+        for v in env { kinds[v.name] = v.kind }
+        let text = Set(kinds.filter { $0.value == .text }.keys)
+        let results = Set(kinds.filter { $0.value == .result }.keys)
         return { e in
             switch e.kind {
             case .str, .interp: return true
@@ -1119,11 +1216,13 @@ struct BlockWriter {
         }
         switch b.type {
         case .comment:
-            return b.text.components(separatedBy: "\n").map { $0.isEmpty ? "//" : "// " + $0 }
+            return lines(b.text).map { $0.isEmpty ? "//" : "// " + $0 }
         case .code:
-            var lines = b.text.components(separatedBy: "\n")
-            while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-            return lines
+            // Its own indent taken off: it goes where the block is (an indented first line would
+            // carry on the step before it).
+            var code = dedented(lines(b.text))
+            while let last = code.last, last.trimmingCharacters(in: .whitespaces).isEmpty { code.removeLast() }
+            return code
         case .runScript:
             let fn = b.keepGoing ? (b.input.isEmpty ? "attempt" : "attemptPipe") : (b.input.isEmpty ? "run" : "pipe")
             let call = "\(fn) \(Template.quote(b.script)) [\(b.args.map { str($0, 1) }.joined(separator: "; "))]"
@@ -1196,6 +1295,9 @@ struct BlockReader {
     private let lines: [String]
     private let commentLines: Set<Int>
     private var codeLines = Set<Int>()
+    /// Lines that carry on a text in quotes begun on a line before (kept as they are: their
+    /// spaces are the text's).
+    private var textLines = Set<Int>()
     /// Comment lines that went into a block (the rest of a container's mean it's kept as code).
     private var used = Set<Int>()
 
@@ -1204,11 +1306,18 @@ struct BlockReader {
         commentLines = comments
         for t in tokens where t.kind != .eof {
             for l in t.pos.line...max(t.pos.line, t.end.line) { codeLines.insert(l) }
+            switch t.kind {
+            case .string, .interpolated:
+                if t.end.line > t.pos.line { for l in (t.pos.line + 1)...t.end.line { textLines.insert(l) } }
+            default: break
+            }
         }
     }
 
     static func read(_ source: String, check: Bool = true) -> FlowDocument {
-        let text = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var text = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        // A byte-order mark some editors put first isn't part of the flow.
+        if text.unicodeScalars.first == "\u{FEFF}" { text = String(text.unicodeScalars.dropFirst()) }
         var lines = text.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
         // The first line, a comment, is what the flow does (shown on its cell).
@@ -1281,6 +1390,7 @@ struct BlockReader {
         guard from <= to, from >= 1, to <= lines.count else { return "" }
         return (from...to).map { l in
             let line = lines[l - 1]
+            if textLines.contains(l) { return line }
             let pad = min(col - 1, line.prefix { $0 == " " || $0 == "\t" }.count)
             return String(line.dropFirst(pad))
         }.joined(separator: "\n")
@@ -1364,11 +1474,21 @@ struct BlockReader {
         return false
     }
 
+    /// A comment line's text: after its `//` or `#`, or inside its `(*` `*)` (a line with
+    /// neither is inside a `(* … *)` across lines). What's after a `//` is kept as it is.
     static func commentText(_ line: String) -> String {
-        var t = line.trimmingCharacters(in: .whitespaces)
-        if t.hasPrefix("//") { t = String(t.dropFirst(2)) } else if t.hasPrefix("#") { t = String(t.dropFirst(1)) }
-        if t.hasPrefix("(*") { t = String(t.dropFirst(2)) }
-        if t.hasSuffix("*)") { t = String(t.dropLast(2)) }
+        var t = String(line.drop { $0 == " " || $0 == "\t" })
+        if t.hasPrefix("//") {
+            t = String(t.dropFirst(2))
+        } else if t.hasPrefix("#") {
+            t = String(t.dropFirst(1))
+        } else {
+            t = t.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("(*") { t = String(t.dropFirst(2)) }
+            if t.hasSuffix("*)") { t = String(t.dropLast(2)) }
+            t = t.trimmingCharacters(in: .whitespaces)
+            return t
+        }
         if t.hasPrefix(" ") { t = String(t.dropFirst()) }
         return t
     }
