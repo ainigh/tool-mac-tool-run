@@ -332,7 +332,7 @@ struct PanelView: View {
                         .font(.system(size: 11))
                 }
                 ForEach(latest) { run in
-                    RecentRunRow(run: run, waiting: prompts.pending(for: run.id) != nil) { go { Windows.showRuns(run.id) } }
+                    RecentRunRow(run: run, waiting: prompts.pending(for: run.id) != nil) { go { Windows.showResult(run.id) } }
                 }
             }
         }
@@ -518,7 +518,7 @@ private struct RecentRunRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .help("Show what it printed")
+        .help("Show its result: how it went and what it printed")
     }
 }
 
@@ -564,7 +564,8 @@ private struct EPASection: View {
     }
 
     private func run(_ file: String) {
-        if !GridActions(app: app, kind: .scripts).runFile(file) {
+        // Run from here, away from its grid: its result opens where you're looking.
+        if !GridActions(app: app, kind: .scripts).runFile(file, started: { Windows.showResult($0) }) {
             app.problem = "\(file) isn't in your folder any more: EPA → Add the EPA Recipes puts it back."
             app.openGrid(file.hasSuffix(".flow") ? .composer : .scripts)
         }

@@ -71,6 +71,12 @@ final class RunStore: ObservableObject {
         return store.last { $0.file == file && $0.kind == k }
     }
 
+    /// The latest run of a grid's script or flow, whichever cell it was (what its result pane shows).
+    func latestTop(_ kind: GridKind) -> RunRecord? {
+        let k: RunRecord.Kind = kind == .scripts ? .script : .flow
+        return store.last { $0.parent == nil && $0.kind == k }
+    }
+
     func record(_ id: UUID) -> RunRecord? { store.first { $0.id == id } }
 
     func steps(of id: UUID) -> [RunRecord] { store.filter { $0.parent == id } }

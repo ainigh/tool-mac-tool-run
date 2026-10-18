@@ -13,6 +13,8 @@ enum Windows {
     private static var observers: [NSObjectProtocol] = []
     /// The run the Runs window shows.
     static let runsSelection = RunsSelection()
+    /// The run the Result window shows.
+    static let resultSelection = RunsSelection()
 
     private static func makeWindow(title: String, size: NSSize, minSize: NSSize) -> NSWindow {
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -167,6 +169,15 @@ enum Windows {
         if let select { runsSelection.selected = select }
         show("runs", title: "Runs", size: NSSize(width: 1000, height: 640), minSize: NSSize(width: 640, height: 360)) {
             RunsView(runs: AppModel.shared.runs, selection: runsSelection)
+        }
+    }
+
+    /// One run's result in a window of its own: from a notice, the panel, a question's window,
+    /// or a recipe run from the panel (the result is where you're looking, not behind a list).
+    static func showResult(_ id: UUID) {
+        resultSelection.selected = id
+        show("result", title: "Result", size: NSSize(width: 860, height: 620), minSize: NSSize(width: 560, height: 380)) {
+            ResultWindowView(runs: AppModel.shared.runs, selection: resultSelection)
         }
     }
 

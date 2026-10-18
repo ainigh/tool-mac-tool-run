@@ -33,7 +33,7 @@ technical (they write the scripts) and still refuse to remember a flag. Both are
 | Trait | What it means here |
 |---|---|
 | Zero memory of the tool | Nothing needs recalling: the panel, the grids and the guide say it all. |
-| One place of attention | They look at what they clicked. The result shows **there** (the cell), not elsewhere. |
+| One place of attention | They look at what they clicked. The result shows **there** (the cell, and the result pane beside it), not behind a list. |
 | Silence reads as broken | Work with no visible motion looks like a hang, whether or not it is. |
 | A question is a defect | If they have to ask what something does, the screen should already have said. |
 | Same input, same output | Anything that varies run to run breaks trust in everything (cell colors come from the name, not a random pick). |
@@ -86,7 +86,9 @@ Every feature keeps these. If a change breaks one, it isn't done.
   touch hold still: running one cell doesn't move another.
 - **Nothing is silent** — no action finishes without evidence.
 - **Effects stay local** — the result appears where the action was taken: the cell shows its
-  run; the editor shows its output underneath.
+  run and the result pane beside the cells shows its output and how it went, with no window to
+  open; the editor shows its output underneath. A run started away from its grid (a recipe from
+  the panel, a notice) opens its result where you are.
 - **Friction follows stakes** — friction rises with consequence and falls with reversibility and
   frequency. Running a script is frequent and cheap: one click, no confirm. Trashing a script is
   rare: a confirm, and it's still reversible (Put Back). Like actions get like treatment, everywhere.
@@ -135,8 +137,8 @@ the worst faults survive review.
    A refusal is guidance arriving one press too late: show the prerequisite first, or show the
    control disabled with its reason beside it.
 4. **Anticipation** — in the state the person is in, is the next likely want already open and
-   pointed at? (A new script opens straight in the editor with its name ready to type; a running
-   cell's click shows its live output.)
+   pointed at? (A new script opens straight in the editor with its name ready to type; a click on a
+   cell shows its output beside the cells as it runs, and the result when it ends.)
 
 And the checklist (any "no" is a defect with a name, not a matter of taste):
 

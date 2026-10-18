@@ -183,7 +183,7 @@ struct PromptCard: View {
             HStack(spacing: 8) {
                 if more > 0 { Text("\(more) more waiting").font(.caption).foregroundStyle(.secondary) }
                 if showRun {
-                    Button("Show Output") { Windows.showRuns(pending.run) }
+                    Button("Show Output") { Windows.showResult(pending.run) }
                         .buttonStyle(.link)
                 }
                 Spacer()

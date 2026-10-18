@@ -4,7 +4,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// A grid: a cell per script (or per flow), filling the window. A click runs it; the pencil
-/// edits it. Across the top: how many cells, the pages, a new one, the runs.
+/// edits it. Across the top: how many cells, the pages, a new one, the runs. Beside the cells,
+/// the result pane: the run started last (or the cell whose result was clicked), live, so a
+/// result is never more than the click that ran it away.
 struct GridView: View {
     let kind: GridKind
     @ObservedObject var app: AppModel
@@ -12,6 +14,9 @@ struct GridView: View {
     @ObservedObject var prompts = PromptCenter.shared
     @State private var askingArguments: ScriptItem?
     @State private var trashing: ScriptItem?
+    /// The run the pane shows, when it isn't the latest (a cell's result was clicked).
+    @State private var focus: UUID?
+    @AppStorage("showsResultPane") private var showsResult = true
 
     var body: some View {
         Group {
@@ -43,22 +48,44 @@ struct GridView: View {
         let all = settings.arranged(items)
         let pages = settings.pageCount(for: all.count)
         let page = settings.currentPage(for: all.count)
-        return VStack(spacing: 0) {
-            GridHeader(kind: kind, app: app, runs: runs, count: all.count, page: page, pages: pages)
-                .padding(.horizontal, 24)
-                .padding(.top, 34)
-                .padding(.bottom, 16)
-            ZStack {
-                cells(all: all, page: page)
-                if all.isEmpty { EmptyFolderCard(kind: kind, app: app) }
+        let latest = runs.latestTop(kind)
+        return GeometryReader { geo in
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    GridHeader(kind: kind, app: app, runs: runs, count: all.count, page: page, pages: pages, showsResult: $showsResult)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 34)
+                        .padding(.bottom, 16)
+                    ZStack {
+                        cells(all: all, page: page)
+                        if all.isEmpty { EmptyFolderCard(kind: kind, app: app) }
+                    }
+                    .padding(.horizontal, 24)
+                    footer
+                }
+                if showsResult {
+                    ResultPane(kind: kind, run: focus.flatMap { runs.record($0) } ?? latest, runs: runs,
+                               show: { focus = $0 }, close: { withAnimation(.easeOut(duration: 0.2)) { showsResult = false } })
+                        .frame(width: min(620, max(400, geo.size.width * 0.34)))
+                        .padding(.top, 30)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
-            .padding(.horizontal, 24)
-            footer
         }
         // The page showing is kept when it had to be brought back in range (fewer scripts than
         // before), so it doesn't jump to the old page when there are more again.
         .onAppear { keepPage(page, count: all.count) }
         .onChange(of: page) { _, shown in keepPage(shown, count: all.count) }
+        // A new run from this grid (a click, Run Again, another app): the pane follows it.
+        .onChange(of: latest?.id) { _, _ in focus = nil }
+    }
+
+    /// Shows a run in the pane (opening it).
+    private func show(_ id: UUID) {
+        focus = id
+        if !showsResult { withAnimation(.easeOut(duration: 0.2)) { showsResult = true } }
     }
 
     private func keepPage(_ shown: Int, count: Int) {
@@ -95,7 +122,8 @@ struct GridView: View {
             ScriptCell(item: item, kind: kind, tint: settings.tint(for: item.id), arguments: settings.arguments[item.id],
                        run: run, lastLine: run.flatMap { runs.lastLine($0.id) }, count: count, actions: actions,
                        asksFirst: actions.asksFirst(item), waiting: run.map { prompts.pending(for: $0.id) != nil } ?? false,
-                       askArguments: { askingArguments = item }, askTrash: { trashing = item })
+                       shown: showsResult && run?.id == (focus ?? runs.latestTop(kind)?.id),
+                       askArguments: { askingArguments = item }, askTrash: { trashing = item }, show: { show($0) })
         } else if index == all.count {
             NewCell(kind: kind, count: count, actions: actions)
         } else {
@@ -150,6 +178,7 @@ struct GridHeader: View {
     let count: Int
     let page: Int
     let pages: Int
+    @Binding var showsResult: Bool
 
     var body: some View {
         let s = app.settings(kind)
@@ -244,6 +273,11 @@ struct GridHeader: View {
             }
             .buttonStyle(SoftButtonStyle())
             .help(runs.runningCount > 0 ? "Every run, with what it printed (\(runs.runningCount) running now)" : "Every run, with what it printed")
+            Button { withAnimation(.easeOut(duration: 0.2)) { showsResult.toggle() } } label: {
+                Label("Result", systemImage: showsResult ? "sidebar.right" : "sidebar.squares.right")
+            }
+            .buttonStyle(SoftButtonStyle(tint: showsResult ? .accentColor : .primary))
+            .help(showsResult ? "Hide the result pane" : "Show the result pane: the latest run's output and how it went, beside the cells")
             NewButton(kind: kind, actions: GridActions(app: app, kind: kind))
         }
     }
@@ -329,15 +363,15 @@ struct GridActions {
 
     /// Runs it with these arguments (nil: the ones remembered for its cell). One that asks first
     /// (it looks like it can't be undone, or it's set to) says what it'll do and waits for Run.
-    func run(_ item: ScriptItem, arguments line: String? = nil) {
+    /// `started`: told the run's id once it has started (not when Don't Run was chosen).
+    func run(_ item: ScriptItem, arguments line: String? = nil, started: ((UUID) -> Void)? = nil) {
         guard let lib = app.library else { return }
         let argv = ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
         let go: () -> Void = {
-            if kind == .scripts {
-                app.runs.run(script: item, arguments: argv, folder: lib.root)
-            } else {
-                app.runs.run(flow: item, arguments: argv, library: lib)
-            }
+            let id = kind == .scripts
+                ? app.runs.run(script: item, arguments: argv, folder: lib.root)
+                : app.runs.run(flow: item, arguments: argv, library: lib)
+            started?(id)
         }
         if asksFirst(item) { confirm(item, argv: argv, then: go) } else { go() }
     }
@@ -460,14 +494,14 @@ struct GridActions {
 
     /// Runs a script (or a flow) from the folder by its file name. False when it isn't there.
     @discardableResult
-    func runFile(_ file: String) -> Bool {
+    func runFile(_ file: String, started: ((UUID) -> Void)? = nil) -> Bool {
         guard let lib = app.library else { return false }
         if let script = lib.script(named: file) {
-            GridActions(app: app, kind: .scripts).run(script)
+            GridActions(app: app, kind: .scripts).run(script, started: started)
             return true
         }
         if let flow = lib.flows().first(where: { $0.id == file }) {
-            GridActions(app: app, kind: .composer).run(flow)
+            GridActions(app: app, kind: .composer).run(flow, started: started)
             return true
         }
         return false
@@ -535,8 +569,12 @@ struct ScriptCell: View {
     let asksFirst: Bool
     /// Its flow is waiting for an answer.
     let waiting: Bool
+    /// Its latest run is the one the result pane shows.
+    let shown: Bool
     let askArguments: () -> Void
     let askTrash: () -> Void
+    /// Shows one of its runs in the result pane.
+    let show: (UUID) -> Void
     @State private var hover = false
     @State private var dropTarget = false
 
@@ -613,7 +651,7 @@ struct ScriptCell: View {
             Spacer(minLength: 0)
             HStack(alignment: .bottom, spacing: 6) {
                 StatusLine(run: run, lastLine: lastLine, compact: !roomy, waiting: waiting, runs: actions.app.runs) {
-                    if waiting { Windows.showPrompt() } else if let run { Windows.showRuns(run.id) }
+                    if let run { show(run.id) }
                 } stop: {
                     if let run { actions.app.runs.stop(run.id) }
                 }
@@ -648,6 +686,9 @@ struct ScriptCell: View {
                 RunningBorder(shape: shape)
             } else if dropTarget {
                 shape.strokeBorder(Color.accentColor, lineWidth: 3)
+            } else if shown {
+                // Its result is the one beside the cells.
+                shape.strokeBorder((lastFailed ? Theme.color(.failed) : Color.accentColor).opacity(0.75), lineWidth: 2)
             } else if lastFailed {
                 shape.strokeBorder(Theme.color(.failed).opacity(hover ? 0.6 : 0.4), lineWidth: 1.5)
             } else {
@@ -663,8 +704,8 @@ struct ScriptCell: View {
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture { primary() }
-        .help(waiting ? "\(item.id) is waiting for your answer: click to answer"
-              : running ? "\(item.id) is running: click to watch its output"
+        .help(waiting ? "\(item.id) is waiting for your answer: click to answer it beside the cells"
+              : running ? "\(item.id) is running: click to watch its output beside the cells"
               : "Click to run \(item.id)" + (arguments.map { $0.isEmpty ? "" : " \($0)" } ?? "") + (asksFirst ? " (it asks first)" : ""))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -681,12 +722,11 @@ struct ScriptCell: View {
         .contextMenu { menu }
     }
 
-    /// A click: runs it, or, while it's running, shows what it's printing (or the question it's waiting on).
+    /// A click: runs it (its result shows beside the cells as it goes), or, while it's running,
+    /// shows what it's printing (or the question it's waiting on) there.
     private func primary() {
-        if waiting {
-            Windows.showPrompt()
-        } else if running, let run {
-            Windows.showRuns(run.id)
+        if (waiting || running), let run {
+            show(run.id)
         } else {
             actions.run(item)
         }
@@ -695,12 +735,13 @@ struct ScriptCell: View {
     @ViewBuilder
     private var menu: some View {
         if waiting { Button("Answer Its Question…") { Windows.showPrompt() } }
-        Button(running ? "Watch Output" : "Run") { if running, let run { Windows.showRuns(run.id) } else { actions.run(item) } }
+        Button(running ? "Watch Output" : "Run") { if running, let run { show(run.id) } else { actions.run(item) } }
         Button("Run with Arguments…") { askArguments() }
         if running, let run { Button("Stop") { actions.app.runs.stop(run.id) } }
         Button("Edit") { actions.edit(item) }
         Divider()
-        if let run { Button("Show Last Output") { Windows.showRuns(run.id) } }
+        if let run { Button("Show Last Result") { show(run.id) } }
+        if let run { Button("Open in Runs") { Windows.showRuns(run.id) } }
         Button("Copy Command for Terminal") { actions.copyCommand(item) }
         Button("Open in \(GridActions.editorName)") { actions.openInEditor(item) }
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }

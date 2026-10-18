@@ -15,6 +15,12 @@ apps use. The two grids:
   text too: the editor switches between the two, and they're the same file. Mistakes are caught
   before anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
 
+**Results where you're looking.** Beside the cells, the result pane shows the run you just
+started, live: how it went in big letters, everything it printed (errors in red), Stop or Run
+Again, and for a flow each step's own output a click away (a failed step's first). A run that
+ends while you're elsewhere comes as a notice whose **Show Result** opens the same view in a
+window; so do the panel's latest runs.
+
 The same panel has **Runs**: every run of a script or a flow, with how it went and everything it
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
 
@@ -29,7 +35,7 @@ command or the code in full, what it looks like it does) and waits for you to cl
 **Notifications you can't miss.** A run that ends while you're elsewhere, one that's taking long,
 a flow waiting for an answer, an update: each comes as a large notice in the middle of the
 screen (half its width and height), in its state's color, with the one thing to do next (Show
-Run, Answer, Install Update). It never takes the keyboard from what you're typing, goes by itself
+Result, Answer, Install Update). It never takes the keyboard from what you're typing, goes by itself
 (a bar shows how long it has; the pointer on it keeps it), and several at once wait behind each
 other.
 
@@ -115,16 +121,18 @@ install command again still works too.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
    examples" on and you start with five small scripts and four flows that use them; keep "Add the
    EPA recipes" on and EPA's recipes are there too, with EPA set up for you.
-3. Click a cell. It runs; its border moves while it does, and its last line of output shows on
-   it. When it's done, the bottom of the cell says how it went (click there to see everything it
-   printed).
+3. Click a cell. It runs; its border moves while it does, and what it prints shows beside the
+   cells, in the result pane, as it prints it. When it's done, the pane says how it went (and the
+   bottom of the cell too), with **Run Again** a click away. Nothing else to open.
 
 ## The grids
 
 | To | Do |
 |---|---|
 | Run a script | click its cell |
-| Watch a running one | click it again, or its status line |
+| See what it printed, and how it went | it's beside the cells already (the result pane); for an earlier run of another cell, click that cell's status line |
+| Hide or show the result pane | **Result**, at the top of the grid |
+| Watch a running one | the result pane; or click it again |
 | Stop it | **Stop** on the cell (or in Runs, ⌘.) |
 | Edit it | the pencil (top right of the cell) |
 | Run it with arguments | right-click → **Run with Arguments…** (they can be remembered for the cell) |
@@ -136,7 +144,7 @@ install command again still works too.
 | Remove it | right-click → **Move to Trash…** (you can put it back from the Trash) |
 | Be asked before it runs | right-click → **Ask Before Running** (on by itself for a script that looks like it deletes files, uses `sudo`, force-pushes… ✋ on its cell says so) |
 | Answer a flow's question | the window that comes forward, or click the cell that says **Waiting for your answer** |
-| Type into a script that asks (`read -p`, `input()`…) | its output in Runs (or under the editor) has a line to type in |
+| Type into a script that asks (`read -p`, `input()`…) | the result pane (or Runs, or under the editor) has a line to type in |
 
 **Your scripts folder**: scripts go at its top; flows go in its `composer` folder (made for you).
 The grids follow the folder: add, rename or remove a file in the Finder and the grid changes
