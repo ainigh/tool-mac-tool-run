@@ -681,20 +681,7 @@ struct ScriptCell: View {
                                           startPoint: .top, endPoint: .bottom))
             }
         }
-        .overlay {
-            if running {
-                RunningBorder(shape: shape)
-            } else if dropTarget {
-                shape.strokeBorder(Color.accentColor, lineWidth: 3)
-            } else if shown {
-                // Its result is the one beside the cells.
-                shape.strokeBorder((lastFailed ? Theme.color(.failed) : Color.accentColor).opacity(0.75), lineWidth: 2)
-            } else if lastFailed {
-                shape.strokeBorder(Theme.color(.failed).opacity(hover ? 0.6 : 0.4), lineWidth: 1.5)
-            } else {
-                shape.strokeBorder(Color.black.opacity(hover ? 0.18 : 0.07), lineWidth: 1)
-            }
-        }
+        .overlay { border(shape) }
         .scaleEffect(hover && !running ? 1.015 : 1)
         .offset(y: hover && !running ? -1 : 0)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: hover)
@@ -704,9 +691,7 @@ struct ScriptCell: View {
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture { primary() }
-        .help(waiting ? "\(item.id) is waiting for your answer: click to answer it beside the cells"
-              : running ? "\(item.id) is running: click to watch its output beside the cells"
-              : "Click to run \(item.id)" + (arguments.map { $0.isEmpty ? "" : " \($0)" } ?? "") + (asksFirst ? " (it asks first)" : ""))
+        .help(clickHelp)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { primary() }
@@ -720,6 +705,31 @@ struct ScriptCell: View {
             return true
         }
         .contextMenu { menu }
+    }
+
+    /// Its edge: moving while it runs, outlined while its result is the one beside the cells, red
+    /// when its last run failed.
+    @ViewBuilder
+    private func border(_ shape: RoundedRectangle) -> some View {
+        if running {
+            RunningBorder(shape: shape)
+        } else if dropTarget {
+            shape.strokeBorder(Color.accentColor, lineWidth: 3)
+        } else if shown {
+            shape.strokeBorder((lastFailed ? Theme.color(.failed) : Color.accentColor).opacity(0.75), lineWidth: 2)
+        } else if lastFailed {
+            shape.strokeBorder(Theme.color(.failed).opacity(hover ? 0.6 : 0.4), lineWidth: 1.5)
+        } else {
+            shape.strokeBorder(Color.black.opacity(hover ? 0.18 : 0.07), lineWidth: 1)
+        }
+    }
+
+    /// What a click does, in words (under the pointer).
+    private var clickHelp: String {
+        if waiting { return "\(item.id) is waiting for your answer: click to answer it beside the cells" }
+        if running { return "\(item.id) is running: click to watch its output beside the cells" }
+        let args = arguments.map { $0.isEmpty ? "" : " \($0)" } ?? ""
+        return "Click to run \(item.id)" + args + (asksFirst ? " (it asks first)" : "")
     }
 
     /// A click: runs it (its result shows beside the cells as it goes), or, while it's running,
