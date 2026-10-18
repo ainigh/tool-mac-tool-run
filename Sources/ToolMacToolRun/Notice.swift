@@ -5,7 +5,7 @@ import SwiftUI
 /// ready): a large card in the middle of the screen, half its width and height, that can't be
 /// missed. It doesn't take the keyboard from what you're typing, goes by itself after a while (a
 /// bar shows how long is left; not while the pointer is on it), and a click does the obvious
-/// thing: shows the run, answers the question, installs the update. More arriving at once wait
+/// thing: shows the run's result, answers the question, installs the update. More arriving at once wait
 /// behind it, and say how many.
 struct Notice: Identifiable, Equatable {
     enum Tone: Equatable {
@@ -84,7 +84,7 @@ struct Notice: Identifiable, Equatable {
     @MainActor var actionTitle: String? {
         if update { return "Install Update" }
         guard let run else { return nil }
-        return PromptCenter.shared.pending(for: run) != nil ? "Answer" : "Show Run"
+        return PromptCenter.shared.pending(for: run) != nil ? "Answer" : "Show Result"
     }
 }
 
@@ -154,7 +154,7 @@ final class NoticeCenter: ObservableObject {
         if n.update {
             AppModel.shared.installUpdate()
         } else if let run = n.run {
-            if PromptCenter.shared.pending(for: run) != nil { Windows.showPrompt() } else { Windows.showRuns(run) }
+            if PromptCenter.shared.pending(for: run) != nil { Windows.showPrompt() } else { Windows.showResult(run) }
         }
     }
 

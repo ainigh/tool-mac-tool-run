@@ -39,7 +39,10 @@ struct RunsView: View {
             }
         } detail: {
             if let id = selection.selected, let run = runs.record(id) {
-                RunDetail(run: run, runs: runs)
+                // The same result as beside a grid and in the Result window.
+                RunResultView(run: run, runs: runs, showRun: { selection.selected = $0 })
+                    .id(run.id)
+                    .controlSize(.large)
             } else {
                 VStack(spacing: 14) {
                     IconTile(symbol: "list.bullet.rectangle.fill", size: 64)
@@ -117,107 +120,6 @@ struct RunRow: View {
         }
         .padding(.leading, indent ? 12 : 0)
         .padding(.vertical, indent ? 1 : 3)
-    }
-}
-
-struct RunDetail: View {
-    let run: RunRecord
-    @ObservedObject var runs: RunStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 14) {
-                    IconTile(symbol: Theme.symbol(run.state), color: Theme.color(run.state), size: 48)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(run.name).font(.system(size: 22, weight: .bold, design: .rounded)).lineLimit(1)
-                        HStack(spacing: 6) {
-                            Pill(text: run.state.title, color: Theme.color(run.state), filled: true)
-                            if let ending = run.ending, run.state == .failed { Text(ending.summary) }
-                            Text("· started \(run.started.formatted(date: .abbreviated, time: .standard))")
-                            if run.state == .running {
-                                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                    Text("· \(RunRecord.duration(ctx.date.timeIntervalSince(run.started)))").monospacedDigit()
-                                }
-                            } else if let s = run.seconds {
-                                Text("· took \(RunRecord.duration(s))")
-                            }
-                        }
-                        .foregroundStyle(.secondary)
-                        if let by = run.requestedBy {
-                            Label("Asked for over the HTTP API by \(by), and allowed", systemImage: "network")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Button { copy(run.text) } label: { Label("Copy Output", systemImage: "doc.on.doc") }
-                        .buttonStyle(SoftButtonStyle())
-                        .disabled(run.output.isEmpty)
-                    if run.state == .running {
-                        // A step is stopped by stopping its flow.
-                        Button { runs.stop(run.id) } label: { Label(run.kind == .step ? "Stop Flow" : "Stop", systemImage: "stop.fill") }
-                            .buttonStyle(ProminentButtonStyle(color: .red))
-                            .keyboardShortcut(".")
-                            .help(run.kind == .step ? "Stop the flow this step is part of (⌘.)" : "Stop it (⌘.)")
-                    } else if run.kind != .step {
-                        Button { again() } label: { Label("Run Again", systemImage: "arrow.clockwise") }
-                            .buttonStyle(ProminentButtonStyle())
-                            .help("Run it again with the same arguments")
-                    }
-                }
-                HStack(spacing: 8) {
-                    Text("$").foregroundStyle(.tertiary)
-                    Text(run.command)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 4)
-                    Button { copy(run.command) } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(CircleIconButtonStyle(size: 24))
-                        .help("Copy the command, to run it in a terminal")
-                }
-                .font(.callout.monospaced())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
-                if let problem = run.problem {
-                    HStack(alignment: .top, spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(run.state)).frame(width: 4)
-                        Text(problem)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(10)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.color(run.state).opacity(0.1)))
-                }
-            }
-            .padding(20)
-            Divider()
-            RunAttention(run: run, runs: runs)
-            OutputText(run: run, version: runs.version(run.id))
-                .id(run.id)
-            if run.state == .running && runs.acceptsInput(run.id) {
-                Divider()
-                InputBar(run: run.id, runs: runs)
-                    .id(run.id)  // what was typed for one run never goes to another
-            }
-        }
-        .controlSize(.large)
-    }
-
-    private func again() {
-        let app = AppModel.shared
-        let kind: GridKind = run.kind == .flow ? .composer : .scripts
-        guard let item = app.items(kind).first(where: { $0.id == run.file }) else { return }
-        GridActions(app: app, kind: kind).run(item, arguments: run.arguments.map(ShellEnvironment.quote).joined(separator: " "))
-        if let latest = app.runs.latest(file: item.id, kind: kind) { Windows.runsSelection.selected = latest.id }
-    }
-
-    private func copy(_ s: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(s, forType: .string)
     }
 }
 
