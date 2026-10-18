@@ -32,12 +32,12 @@ technical (they write the scripts) and still refuse to remember a flag. Both are
 
 | Trait | What it means here |
 |---|---|
-| Zero memory of the tool | Nothing needs recalling: the menu, the grids and the guide say it all. |
+| Zero memory of the tool | Nothing needs recalling: the panel, the grids and the guide say it all. |
 | One place of attention | They look at what they clicked. The result shows **there** (the cell), not elsewhere. |
 | Silence reads as broken | Work with no visible motion looks like a hang, whether or not it is. |
 | A question is a defect | If they have to ask what something does, the screen should already have said. |
 | Same input, same output | Anything that varies run to run breaks trust in everything (cell colors come from the name, not a random pick). |
-| Believes what they see | A change that can't be seen didn't happen (the version is in the menu). |
+| Believes what they see | A change that can't be seen didn't happen (the version is in the panel). |
 | Wants the one command | Install, update and repair are the same command. |
 | Defaults should be derived | Never ask for what the app can work out (the language of a script, the PATH, a folder to suggest). |
 | The visible order is the instruction order | The first, most prominent control is pressed first, and must work. |
@@ -59,10 +59,10 @@ Every feature keeps these. If a change breaks one, it isn't done.
 
 | Principle | In this app |
 |---|---|
-| **One obvious way in** | One install command. One icon in the menu bar. With no folder chosen, choosing it is the first menu item and the whole of the grid window. |
+| **One obvious way in** | One install command. One icon in the menu bar. With no folder chosen, choosing it is the panel's first tile and the whole of the grid window. |
 | **Say it before doing it** | Help on every control says what a click does. "Add the Examples" says what it adds and that nothing else changes. |
 | **Show the plan / confirm the consequence** | Quitting with runs going names how many will stop. Moving to the Trash says it can be put back. A script that looks like it can't be undone (`rm -rf`, `sudo`, a force-push…) says what it looks like it does and the exact command, and waits for Run. A flow's Ask to Continue stops before the costly step. Never a bare "Proceed?". |
-| **One status vocabulary** | Running 👉, succeeded ✅, failed ❌, stopped ⏹, couldn't start ⚠️ — the same mark, icon and color on cells, in Runs, in the menu, in `flow run`. |
+| **One status vocabulary** | Running 👉, succeeded ✅, failed ❌, stopped ⏹, couldn't start ⚠️ — the same mark, icon and color on cells, in Runs, in the panel, in `flow run`. |
 | **Progress you can follow** | A running cell's border moves, its elapsed time ticks, its last line shows; gone quiet, it says for how long. A flow's steps appear as they start, and in the block editor each step shows how it went. A run that takes long gets a notification; a question waiting comes forward, and its cell says so. |
 | **Safe to repeat** | Running the installer again updates in place and keeps the old app until the new one is seen running. Adding examples twice adds nothing the second time. |
 | **Report what happened** | Every run keeps its exit code, duration, output, and the exact command. |
@@ -70,6 +70,7 @@ Every feature keeps these. If a change breaks one, it isn't done.
 | **Fail loud, fail helpful** | No stack traces. Mistakes in a flow are caught before anything runs, with the line, the reason and the fix. |
 | **Diagnose yourself** | Check Setup looks at the folder, each language's program and each flow, changing nothing, with the fix beside every problem. |
 | **Fix it yourself, with a fallback** | The app finds your login shell's PATH so Homebrew's tools are found; when it can't build, the installer builds from source; when it still can't, it says the one command to run. |
+| **Another app asks; you decide** | A run asked for over the HTTP API shows a large card first: which app, from where, the exact command (or the Flow code in full), and what it looks like it does, in red. Nothing runs until Run is clicked; it never takes the keyboard (Return can't say yes for you); no answer in two minutes is Don't Run, and the app is told which. Flow code with a mistake is turned down before anyone is asked. |
 | **Guard what can't be undone** | Nothing is deleted: removing a script moves it to the Trash, after asking. Editing autosaves, and Revert goes back to how the file was opened. |
 | **Simplest surface first** | Click runs, the pencil edits. Arguments, colors, the Finder and the rest are in the right-click menu. A flow is built from blocks first (nothing to remember); Flow code is the same file, one switch away. |
 | **EPA keeps its promises here too** | EPA's own narration is what a run shows (its plan, each step's status word, the one next step), written once, by EPA (`--ask-json` carries the words). Its go-aheads come to the app's question window with the consequence EPA names; what can't be undone is red and needs a click, never Return or `--yes`; a key it asks for is a hidden field, never kept. Setting it up is one cell (setup-epa), safe to run again, and Check Setup offers to run it. |
@@ -148,7 +149,7 @@ And the checklist (any "no" is a defect with a name, not a matter of taste):
 - [ ] The result appears where the action was taken.
 - [ ] There's visible motion while it works.
 - [ ] The same input gives the same output, by construction.
-- [ ] The person can see from outside that the change shipped (the version is in the menu).
+- [ ] The person can see from outside that the change shipped (the version is in the panel).
 - [ ] Running it twice is safe and keeps what the first run did.
 - [ ] Anything replaced or discarded is named first.
 - [ ] Every ending, including every failure, says what to do next.

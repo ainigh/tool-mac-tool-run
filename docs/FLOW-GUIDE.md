@@ -89,7 +89,7 @@ in the terminal; `flow run --yes file.flow` answers Continue and Yes by itself (
 one at the keyboard).
 
 **When it takes a while.** A run still going after a minute gets a notification (click it to
-watch, or stop, it); the menu's **Notify Me When a Run Takes Over** changes how long, or turns
+watch, or stop, it); the panel's bell (**Notice after…**) changes how long, or turns
 it off. A cell whose run has printed nothing for a while says so, so a quiet run never looks hung.
 
 ---
@@ -408,7 +408,7 @@ if not check.ok then notify "EPA needs something: see the run's output"
   `epa ["help"]` lists every option.
 - **Blocks.** The library's **EPA** section has each command as a step, with example words ready
   to change; **If it fails: Keep going** makes it `attemptEpa`.
-- **Not set up yet?** **Add the EPA Recipes** (on an empty grid, in the menu's EPA submenu, or
+- **Not set up yet?** **Add the EPA Recipes** (on an empty grid, in the panel's EPA section, or
   `flow recipes ~/Scripts`) puts `setup-epa` in your folder and runs it: it installs Node.js if
   needed, fetches EPA into `~/.local/share/epa` and links `epa` into `~/.local/bin`. Running it
   again updates EPA. **Check Setup** says whether EPA is there, which flows use it, and where its

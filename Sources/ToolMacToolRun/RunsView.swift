@@ -90,9 +90,17 @@ struct RunRow: View {
                 .background(Circle().fill(color.opacity(0.14)))
                 .help(waiting ? "Waiting for your answer" : run.state.title)
             VStack(alignment: .leading, spacing: 2) {
-                Text(run.name + (run.arguments.isEmpty ? "" : " " + run.arguments.map(ShellEnvironment.quote).joined(separator: " ")))
-                    .lineLimit(1)
-                    .font(indent ? .callout : .body.weight(.medium))
+                HStack(spacing: 5) {
+                    Text(run.name + (run.arguments.isEmpty ? "" : " " + run.arguments.map(ShellEnvironment.quote).joined(separator: " ")))
+                        .lineLimit(1)
+                        .font(indent ? .callout : .body.weight(.medium))
+                    if let by = run.requestedBy {
+                        Image(systemName: "network")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("Asked for over the HTTP API by \(by)")
+                    }
+                }
                 HStack(spacing: 4) {
                     Text(run.started.formatted(date: .omitted, time: .shortened))
                     if run.state == .running {
@@ -136,6 +144,11 @@ struct RunDetail: View {
                             }
                         }
                         .foregroundStyle(.secondary)
+                        if let by = run.requestedBy {
+                            Label("Asked for over the HTTP API by \(by), and allowed", systemImage: "network")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button { copy(run.text) } label: { Label("Copy Output", systemImage: "doc.on.doc") }

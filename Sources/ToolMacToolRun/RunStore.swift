@@ -146,17 +146,20 @@ final class RunStore: ObservableObject {
     // MARK: running a script
 
     /// Runs a script with its arguments. Returns the run (it shows on the cell at once).
+    /// `stdin`: text handed to it as its input. `requestedBy`: the app that asked for it over the
+    /// API (and was allowed).
     @discardableResult
-    func run(script item: ScriptItem, arguments: [String], folder: URL) -> UUID {
+    func run(script item: ScriptItem, arguments: [String], folder: URL, stdin: String? = nil, requestedBy: String? = nil) -> UUID {
         // The command, for the record (an empty environment: working it out isn't needed for this).
         let command = ScriptProcess(script: item.url, language: item.language, arguments: arguments,
                                     workingDirectory: folder, environment: [:]).commandLine
-        let rec = RunRecord(kind: .script, name: item.id, file: item.id, arguments: arguments, command: command)
+        var rec = RunRecord(kind: .script, name: item.id, file: item.id, arguments: arguments, command: command)
+        rec.requestedBy = requestedBy
         let id = rec.id
         objectWillChange.send()
         store.append(rec)
         if let env = environment {
-            launch(id, item: item, arguments: arguments, folder: folder, environment: env)
+            launch(id, item: item, arguments: arguments, folder: folder, stdin: stdin, environment: env)
         } else {
             // The login shell's PATH is still being read: wait for it off the main thread.
             waitingToStart.insert(id)
@@ -167,17 +170,19 @@ final class RunStore: ObservableObject {
                     self.environment = env
                     // Stopped while it waited: it never starts.
                     guard self.waitingToStart.remove(id) != nil else { return }
-                    self.launch(id, item: item, arguments: arguments, folder: folder, environment: env)
+                    self.launch(id, item: item, arguments: arguments, folder: folder, stdin: stdin, environment: env)
                 }
             }
         }
         return id
     }
 
-    private func launch(_ id: UUID, item: ScriptItem, arguments: [String], folder: URL, environment env: [String: String]) {
-        let p = ScriptProcess(script: item.url, language: item.language, arguments: arguments, workingDirectory: folder, environment: env)
-        // It asks for typed answers: its input stays open for them (Runs and the editor show a place to type).
-        p.keepsInputOpen = item.asksForInput
+    private func launch(_ id: UUID, item: ScriptItem, arguments: [String], folder: URL, stdin: String?, environment env: [String: String]) {
+        let p = ScriptProcess(script: item.url, language: item.language, arguments: arguments, stdin: stdin,
+                              workingDirectory: folder, environment: env)
+        // It asks for typed answers: its input stays open for them (Runs and the editor show a place
+        // to type). Unless it was given its input.
+        p.keepsInputOpen = item.asksForInput && stdin == nil
         lastOutputAt[id] = Date()
         let pending = self.pending
         do {
@@ -215,10 +220,10 @@ final class RunStore: ObservableObject {
 
     /// Checks a flow and runs it on a thread of its own; each script it runs is a step under it.
     @discardableResult
-    func run(flow item: ScriptItem, arguments: [String], library: Library) -> UUID {
+    func run(flow item: ScriptItem, arguments: [String], library: Library, requestedBy: String? = nil) -> UUID {
         var rec = RunRecord(kind: .flow, name: item.id, file: item.id, arguments: arguments,
                             command: "flow run \(ShellEnvironment.quote(item.url.path))" + arguments.map { " " + ShellEnvironment.quote($0) }.joined())
-        let id = rec.id
+        rec.requestedBy = requestedBy
         let source: String
         do {
             source = try String(contentsOf: item.url, encoding: .utf8)
@@ -228,22 +233,40 @@ final class RunStore: ObservableObject {
             objectWillChange.send()
             store.append(rec)
             save()
-            return id
+            return rec.id
         }
+        return start(flow: source, record: rec, arguments: arguments, library: library,
+                     fix: "Open the flow with the pencil to fix it.")
+    }
+
+    /// Runs Flow code that isn't in a file (another app sent it over the API, and it was allowed).
+    /// It's in Runs under `name`; it has no cell.
+    @discardableResult
+    func run(flowSource source: String, name: String, arguments: [String], library: Library, requestedBy: String?) -> UUID {
+        var rec = RunRecord(kind: .flow, name: name, file: nil, arguments: arguments, command: "flow code sent over the API")
+        rec.requestedBy = requestedBy
+        return start(flow: source, record: rec, arguments: arguments, library: library,
+                     fix: "It came from \(requestedBy ?? "another app"): it's for that app to fix.")
+    }
+
+    private func start(flow source: String, record: RunRecord, arguments: [String], library: Library, fix: String) -> UUID {
+        var rec = record
+        let id = rec.id
+        let flowName = rec.name
         let names = LocalFlowHost.names(in: library)
         let checked: Flow.Checked
         do {
             checked = try Flow.check(source, scripts: names)
         } catch let e as FlowError {
             rec.finish(code: nil, state: .couldNotStart)
-            rec.problem = "\(item.id), \(e.description)\n\nNothing was run. Open the flow with the pencil to fix it."
+            rec.problem = "\(flowName), \(e.description)\n\nNothing was run. \(fix)"
             objectWillChange.send()
             store.append(rec)
             save()
             return id
         } catch {
             rec.finish(code: nil, state: .couldNotStart)
-            rec.problem = "\(item.id) couldn't be checked: \(error.localizedDescription)\n\nNothing was run."
+            rec.problem = "\(flowName) couldn't be checked: \(error.localizedDescription)\n\nNothing was run."
             objectWillChange.send()
             store.append(rec)
             save()
@@ -253,7 +276,6 @@ final class RunStore: ObservableObject {
         store.append(rec)
         lastOutputAt[id] = Date()
         let pending = self.pending
-        let flowName = item.id
         // A script asks from inside a flow as its cell does: when it's set to Ask Before Running,
         // or when it looks like it does something that can't be undone (unless set never to ask).
         let askSettings = AppModel.shared.settings(.scripts).ask
@@ -277,7 +299,7 @@ final class RunStore: ObservableObject {
                 try Flow.run(checked, host: host, args: arguments)
                 outcome = (.succeeded, nil)
             } catch let e as FlowError {
-                outcome = e.stage == .stopped ? (.stopped, nil) : (.failed, "\(item.id), \(e.description)")
+                outcome = e.stage == .stopped ? (.stopped, nil) : (.failed, "\(flowName), \(e.description)")
             } catch {
                 outcome = (.failed, error.localizedDescription)
             }
@@ -285,7 +307,7 @@ final class RunStore: ObservableObject {
             Task { @MainActor in self?.flowFinished(id, state: result.0, problem: result.1) }
         }
         thread.stackSize = 256 << 20
-        thread.name = "flow \(item.id)"
+        thread.name = "flow \(flowName)"
         thread.start()
         return id
     }
