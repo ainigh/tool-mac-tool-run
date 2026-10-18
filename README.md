@@ -1,7 +1,8 @@
 # Tool Mac Tool Run
 
-A terminal icon in the macOS menu bar. Click it, and its menu opens one of two grids, each filling
-90% of the screen:
+A terminal icon in the macOS menu bar. Click it, and a panel drops down: what's waiting for you,
+a tile for each grid (each fills 90% of the screen), the latest runs, EPA, and the HTTP API other
+apps use. The two grids:
 
 - **Scripts** — a cell for every script in your scripts folder: bash, zsh, PowerShell, Python, JavaScript,
   TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, or any
@@ -14,8 +15,16 @@ A terminal icon in the macOS menu bar. Click it, and its menu opens one of two g
   text too: the editor switches between the two, and they're the same file. Mistakes are caught
   before anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
 
-The same menu has **Runs**: every run of a script or a flow, with how it went and everything it
+The same panel has **Runs**: every run of a script or a flow, with how it went and everything it
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
+
+**Other apps can run them too, with your OK.** The app serves an HTTP API at
+`http://127.0.0.1:8768` (the way Super Voice serves speech): another app lists your scripts and
+flows, asks to run one (or sends Flow code to run), and gets back how it went and what it printed,
+all at once or as it prints. Each request shows a large card on the Mac (which app, the exact
+command or the code in full, what it looks like it does) and waits for you to click **Run**.
+→ [API.md](API.md)
+
 
 **Notifications you can't miss.** A run that ends while you're elsewhere, one that's taking long,
 a flow waiting for an answer, an update: each comes as a large notice in the middle of the
@@ -42,12 +51,29 @@ SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
 - **It reads like EPA in a terminal**: its plan, each step's status word, the one next step, with
   clickable links. A failure stops the flow with EPA's own sentence and its fix.
 - **An EPA step in the block editor** for every command, and `epa […]` / `attemptEpa […]` in Flow.
-- **Set up in one click**: **Add the EPA Recipes** (first run, an empty grid, or the menu's
-  **EPA** submenu) adds the recipes and runs `setup-epa`, which installs Node.js if needed and
+- **Set up in one click**: **Add the EPA Recipes** (first run, an empty grid, or the panel's
+  **EPA** section) adds the recipes and runs `setup-epa`, which installs Node.js if needed and
   fetches EPA (run it again to update). The installer sets EPA up too. Its keys live in `.env` in
   your scripts folder (**EPA → Keys (.env)…** opens it).
 
 → [EPA in the Flow guide](docs/FLOW-GUIDE.md#epa-cloudflare-and-the-services-around-it)
+
+## For other apps
+
+**[API.md](API.md)** is what client apps need: `http://127.0.0.1:8768`, with `/api/scripts`,
+`/api/flows`, `/api/run`, `/api/compose` (a flow, or Flow code you send), `/api/check` and
+`/api/runs`. Nothing runs until the person at the Mac clicks **Run** on the card that comes up.
+
+```bash
+curl -s localhost:8768/api/scripts
+curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App"}'
+curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
+```
+
+The panel's **HTTP API** section starts and stops it, has a switch for each group of endpoints
+(run scripts, run flows, list them, read runs), **Copy URL**, and **Try it** (the API's own page:
+every endpoint, and a place to run a script or some Flow code). **Allow other devices** listens
+on the network too; callers from elsewhere need the token shown there.
 
 ## Install (and update)
 
@@ -71,21 +97,21 @@ app. If the new app quits as soon as it opens, or anything fails on the way, the
 put back. With no build published yet, it builds the app on your Mac (needs Apple's command line
 tools: `xcode-select --install`). Needs macOS 14 (Sonoma) or newer.
 
-The app adds itself to your login items the first time it runs (**Open at Login** in its menu
+The app adds itself to your login items the first time it runs (**Open at login** in its panel
 turns that off).
 
 **Updates are a click.** The app checks for a new version when it starts and every six hours
-(or **Check for Updates…** in its menu). When there is one, a notification says so and the menu
-bar icon gets a ⬇︎: click the notification, or **Install Update and Restart** in the menu. It
+(or **Check for updates** in its panel). When there is one, a notification says so and the menu
+bar icon gets a ⬇︎: click the notification, or **Install** in the panel. It
 downloads GitHub's build (or builds it on your Mac when GitHub hasn't yet), checks it, swaps it
 in and opens it again; if the new version won't open, the one you had comes back. It reaches
 GitHub through `gh`, signed in as above. What went wrong, if anything, is in
-`~/Library/Logs/ToolMacToolRun/update.log` (**Copy Update Details** in the menu). Running the
+`~/Library/Logs/ToolMacToolRun/update.log` (the copy button beside **Try again** in the panel). Running the
 install command again still works too.
 
 ## First run
 
-1. Click the terminal icon in the menu bar. The first item is **Choose Your Scripts Folder…**.
+1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
    examples" on and you start with five small scripts and four flows that use them; keep "Add the
    EPA recipes" on and EPA's recipes are there too, with EPA set up for you.
@@ -123,7 +149,7 @@ what that line names, flags and all (`#!/bin/sh -e`, a virtual environment's pyt
 runs with its language's program (`python3`, `node`, `bash`…), and a text file with neither runs
 with `/bin/sh`, as a shell would. When the program is missing, the run says which one and the
 command that installs it. **Copy Command for Terminal** gives the same thing to paste:
-`cd` into the scripts folder, then the exact command. **Check Setup…** in the menu looks at everything at once (the folder,
+`cd` into the scripts folder, then the exact command. **Check Setup** in the panel looks at everything at once (the folder,
 each language's program, each flow), changing nothing.
 
 ## Asking first, and long runs
@@ -133,8 +159,8 @@ each language's program, each flow), changing nothing.
   like it does and the exact command. Untick the box to stop it asking; right-click → **Ask
   Before Running** turns asking on (or off) for any cell.
 - A flow can ask too: **Ask to Continue** (`confirm`) stops and waits for Continue or Stop.
-- A run still going after a minute gets a notification (the menu's **Notify Me When a Run Takes
-  Over** sets how long). A run that's printed nothing for a while says so on its cell, and a
+- A run still going after a minute gets a notification (the panel's bell, **Notice after 1 min**,
+  sets how long). A run that's printed nothing for a while says so on its cell, and a
   script that looks like it's waiting for typed input gets a line to type into.
 
 ## The editor
@@ -170,10 +196,12 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/` | the logic, Foundation only: language detection, the runner, the folder, grid settings and layout, runs, Check Setup |
 | `Sources/RunCore/Flow/` | the Flow language: lexer, parser (F#'s indentation rule), type checker (Hindley–Milner), interpreter, builtins, and the blocks the editor shows (`Blocks.swift`) |
 | `Sources/RunCore/Caution.swift` | what a script looks like it does before it runs: things that can't be undone, asking for typed input |
+| `Sources/RunCore/API/` | the HTTP API: requests, access rules, the routes (`RunAPI.swift`), the page at `/` |
 | `Sources/RunCore/EPA.swift`, `EPARecipes.swift` | EPA: its commands, running `epa --ask-json` (its words shown, its questions asked here), the recipes |
 | `scripts/setup-epa.sh` | installs or updates EPA (the installer runs it; the app puts the same file in the folder) |
 | `Sources/flow/` | the `flow` command |
-| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit) |
+| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`) |
+| `API.md` | the HTTP API, for client apps |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
 | `docs/DOCTRINE.md` | how the app should feel and the checks every change walks |
 

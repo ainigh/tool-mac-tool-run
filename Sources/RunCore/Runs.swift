@@ -66,6 +66,8 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     public var problem: String?
     /// Earlier output was dropped to keep it to `maxOutput` bytes.
     public var trimmed: Bool
+    /// Another app asked for it, over the API, and the person allowed it: who ("curl, on this Mac").
+    public var requestedBy: String?
     /// Every byte of output it has printed so far, counting what was dropped: only ever goes up,
     /// so it's a cheap way to notice new output (scroll to the end when it changes).
     public private(set) var receivedBytes: Int
@@ -93,7 +95,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, line, problem, trimmed, receivedBytes
+        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, line, problem, trimmed, receivedBytes, requestedBy
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,6 +116,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         line = try c.decodeIfPresent(Int.self, forKey: .line)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         trimmed = try c.decodeIfPresent(Bool.self, forKey: .trimmed) ?? false
+        requestedBy = try c.decodeIfPresent(String.self, forKey: .requestedBy)
         outputBytes = output.reduce(0) { $0 + $1.text.utf8.count }
         receivedBytes = max(try c.decodeIfPresent(Int.self, forKey: .receivedBytes) ?? 0, outputBytes)
     }
@@ -137,6 +140,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encode(trimmed, forKey: .trimmed)
         try c.encode(receivedBytes, forKey: .receivedBytes)
+        try c.encodeIfPresent(requestedBy, forKey: .requestedBy)
     }
 
     /// Adds printed text (joined to the last piece when it's the same stream). Past `maxOutput`

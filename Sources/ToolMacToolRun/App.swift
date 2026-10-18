@@ -3,184 +3,19 @@ import RunCore
 import ServiceManagement
 import SwiftUI
 
-/// A terminal icon in the menu bar. Its menu opens the two grids (every script; the flows that
-/// compose them), the runs, and the folder they all live in.
+/// A terminal icon in the menu bar. It drops down a panel (`PanelView`) that opens the two grids
+/// (every script; the flows that compose them), the runs, and the folder they all live in, and
+/// switches the HTTP API other apps run your scripts through.
 @main
 struct ToolMacToolRunApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var app = AppModel.shared
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContent(app: app, runs: app.runs)
-        } label: {
-            MenuBarLabel(runs: app.runs)
+        // The icon and its panel are AppKit's (`StatusBarController`): a panel, not a menu. This
+        // scene is never shown; it's here because an app needs one.
+        MenuBarExtra("Tool Mac Tool Run", systemImage: "terminal", isInserted: .constant(false)) {
+            EmptyView()
         }
-        .menuBarExtraStyle(.menu)
-    }
-}
-
-/// The icon, and beside it how many runs are going (when any are). A raised hand when a flow is
-/// waiting for an answer.
-struct MenuBarLabel: View {
-    @ObservedObject var runs: RunStore
-    @ObservedObject var prompts = PromptCenter.shared
-    @ObservedObject var updater = AppModel.shared.updater
-
-    var body: some View {
-        let n = runs.runningCount
-        if !prompts.pending.isEmpty {
-            HStack(spacing: 2) {
-                Image(systemName: "hand.raised.fill")
-                Text("\(prompts.pending.count)")
-            }
-        } else if n > 0 {
-            HStack(spacing: 2) {
-                Image(systemName: "terminal.fill")
-                Text("\(n)")
-            }
-        } else if updater.available != nil {
-            // An update is ready: the menu has it, a click away.
-            HStack(spacing: 1) {
-                Image(systemName: "terminal")
-                Image(systemName: "arrow.down.circle.fill")
-            }
-        } else {
-            Image(systemName: "terminal")
-        }
-    }
-}
-
-/// EPA (Enter-Price Automation) in the menu: its everyday recipes a click away, or the one step
-/// that puts them in the folder.
-struct EPAMenu: View {
-    @ObservedObject var app: AppModel
-    let library: Library
-
-    var body: some View {
-        Menu("EPA") {
-            if library.hasAnyEPARecipe {
-                Button("Check Connections") { run("epa-check-connections.flow") }
-                Button("Connect a Service…") { run("epa-connect-service.flow") }
-                Button("Open the Atlas") { run("epa-atlas.flow") }
-                Divider()
-                Button("Keys (.env)…") { run("epa-keys.sh") }
-                Button("Set Up or Update EPA") { run(EPA.setupScript) }
-                if !library.hasEPARecipes {
-                    Button("Add the Missing EPA Recipes") { GridActions(app: app, kind: .composer).addEPARecipes() }
-                }
-            } else {
-                Button("Add the EPA Recipes") {
-                    GridActions(app: app, kind: .composer).addEPARecipes()
-                    app.openGrid(.composer)
-                }
-            }
-            Divider()
-            Button("EPA in the Flow Guide") { Windows.showGuide() }
-        }
-    }
-
-    private func run(_ file: String) {
-        if !GridActions(app: app, kind: .scripts).runFile(file) {
-            app.problem = "\(file) isn't in your folder any more: EPA → Add the EPA Recipes puts it back."
-            app.openGrid(file.hasSuffix(".flow") ? .composer : .scripts)
-        }
-    }
-}
-
-/// The menu. With no folder chosen yet, choosing one comes first (the grids need it).
-struct MenuContent: View {
-    @ObservedObject var app: AppModel
-    @ObservedObject var runs: RunStore
-    @ObservedObject var prompts = PromptCenter.shared
-    @ObservedObject var updater = AppModel.shared.updater
-
-    var body: some View {
-        if let plan = updater.available {
-            Button("⬇️ \(plan.title)") { app.installUpdate() }
-            Divider()
-        }
-        if !prompts.pending.isEmpty {
-            let n = prompts.pending.count
-            Button("✋ \(n == 1 ? "A flow is" : "\(n) flows are") waiting for your answer…") { Windows.showPrompt() }
-            Divider()
-        }
-        if app.library == nil {
-            Button("Choose Your Scripts Folder…") { app.openGrid(.scripts) }
-            Divider()
-        }
-        Button("Scripts Grid") { app.openGrid(.scripts) }
-            .keyboardShortcut("1")
-        Button("Composer Grid") { app.openGrid(.composer) }
-            .keyboardShortcut("2")
-        Divider()
-        Button(runs.runningCount > 0 ? "Runs — \(runs.runningCount) running" : "Runs") { Windows.showRuns(nil) }
-            .keyboardShortcut("r")
-        let recent = runs.recent(5)
-        if !recent.isEmpty {
-            ForEach(recent) { run in
-                Button(MenuContent.title(run)) { Windows.showRuns(run.id) }
-            }
-        }
-        Divider()
-        if let lib = app.library {
-            Text("Folder: \((lib.root.path as NSString).abbreviatingWithTildeInPath)")
-            Button("Open Folder in Finder") { NSWorkspace.shared.activateFileViewerSelecting([lib.root]) }
-        }
-        Button(app.library == nil ? "Choose Folder…" : "Change Folder…") { app.chooseFolder() }
-        Button("Check Setup…") { Windows.showDoctor() }
-        Button("Flow Guide") { Windows.showGuide() }
-        if let lib = app.library { EPAMenu(app: app, library: lib) }
-        Divider()
-        Picker("Notify Me When a Run Takes Over", selection: Binding(get: { app.slowAfter }, set: { app.slowAfter = $0 })) {
-            Text("30 Seconds").tag(30)
-            Text("1 Minute").tag(60)
-            Text("5 Minutes").tag(300)
-            Text("15 Minutes").tag(900)
-            Divider()
-            Text("Never").tag(0)
-        }
-        Toggle("Open at Login", isOn: Binding(get: { app.openAtLogin }, set: { app.setOpenAtLogin($0) }))
-        Divider()
-        Text(updater.versionLine)
-        updateItems
-        Button("Quit") { app.quit() }
-            .keyboardShortcut("q")
-    }
-
-    /// Updating: a click checks, a click installs (the app restarts on the new version).
-    @ViewBuilder
-    private var updateItems: some View {
-        if Updater.canUpdate {
-            switch updater.state {
-            case .idle, .upToDate:
-                Button(updater.state == .upToDate ? "Up to Date: Check Again" : "Check for Updates…") { updater.check(userInitiated: true) }
-            case .checking:
-                Text("Checking for Updates…")
-            case let .available(plan):
-                Button("Install Update and Restart") { app.installUpdate() }
-                    .help(plan.title)
-            case let .installing(step):
-                Text(step)
-            case let .failed(message):
-                Text(message)
-                Button("Copy Update Details") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(Updater.report(message), forType: .string)
-                }
-                Button("Check for Updates…") { updater.check(userInitiated: true) }
-            }
-        }
-    }
-
-    static func title(_ run: RunRecord) -> String {
-        var s = "\(run.state.mark) \(run.name)"
-        if run.state == .running {
-            s += " · running"
-        } else if let secs = run.seconds {
-            s += " · \(RunRecord.duration(secs))"
-        }
-        return s
     }
 }
 
@@ -459,8 +294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
     private var terminateSignal: DispatchSourceSignal?
 
+    private var statusBar: StatusBarController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        statusBar = StatusBarController()
         AppModel.shared.updater.start()
+        APIService.shared.launch()
         // Asked to quit with SIGTERM (the installer closing it, a logout): quit as the menu's Quit
         // does, so runs are stopped and saved. Caught by a handler that does nothing, not ignored:
         // an ignored SIGTERM would be handed on to every script it starts, and Stop couldn't end them.
@@ -473,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateCancel }  // already on its way out
+        APIService.shared.stopForQuit()
         let runs = AppModel.shared.runs
         Windows.saveEditors()
         AppModel.shared.saveSettingsNow()
