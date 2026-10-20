@@ -48,6 +48,10 @@ final class APIService: ObservableObject {
 
     var baseURL: String { "http://127.0.0.1:\(settings.port)" }
 
+    /// The API in one page, for another app: the same as `GET /api/doc`, with this Mac's address
+    /// and, when sharing on the network is on, the token.
+    var doc: String { APIDoc.text(baseURL: baseURL, token: settings.allowNetwork ? settings.token : nil, version: AppModel.version) }
+
     func startServing() {
         wantsServing = true
         UserDefaults.standard.set(true, forKey: Self.servingKey)

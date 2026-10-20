@@ -356,6 +356,31 @@ final class APITests: XCTestCase {
         XCTAssertEqual(r4.status, 204)
     }
 
+    func testTheDocIsOnePageWithTheCallersAddress() async {
+        let (r, d) = await api.send("GET", "/api/doc")
+        XCTAssertEqual(r.status, 200)
+        XCTAssertEqual(r.header("Content-Type"), "text/markdown; charset=utf-8")
+        let doc = String(decoding: d, as: UTF8.self)
+        XCTAssertTrue(doc.contains("Base URL: http://127.0.0.1:8768"))
+        for route in ["/api/health", "/api/scripts", "/api/flows", "/api/run", "/api/compose", "/api/check", "/api/runs", "/api/runs/{id}/stop", "/api/doc"] {
+            XCTAssertTrue(doc.contains(route), route)
+        }
+        for word in ["endpoint_off", "not_answered", "flow_mistake", "x-ndjson", "\"stream\": true", "v0.1.9"] {
+            XCTAssertTrue(doc.contains(word), word)
+        }
+        XCTAssertFalse(doc.contains("Bearer"), "no token while sharing is off")
+        // From another device, with sharing on: its own address, and the token it must send.
+        settings.allowNetwork = true
+        settings.token = "secret"
+        let (r2, d2) = await api.send("GET", "/api/doc", headers: ["Host": "192.168.1.5:8768", "Authorization": "Bearer secret"], fromLoopback: false)
+        XCTAssertEqual(r2.status, 200)
+        let doc2 = String(decoding: d2, as: UTF8.self)
+        XCTAssertTrue(doc2.contains("Base URL: http://192.168.1.5:8768"))
+        XCTAssertTrue(doc2.contains("Authorization: Bearer secret"))
+        // What the panel copies is the same page, with the Mac's own address.
+        XCTAssertTrue(APIDoc.text(baseURL: "http://127.0.0.1:8768").hasPrefix("# Tool Mac Tool Run API\n\nBase URL: http://127.0.0.1:8768\n"))
+    }
+
     func testTheStatusPagesExampleFlowChecks() throws {
         let page = StatusPage.html
         let start = try XCTUnwrap(page.range(of: "<textarea id=\"code\">")).upperBound

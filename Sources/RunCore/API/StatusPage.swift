@@ -67,7 +67,7 @@ print $"There are {trim files} things in the scripts folder."</textarea>
   <section class="card">
     <h2>Endpoints</h2>
     <table id="routes"></table>
-    <p class="sub" style="margin:12px 0 0">The whole contract: API.md in the repository.</p>
+    <p class="sub" style="margin:12px 0 0">The whole API in one page: <a href="/api/doc">/api/doc</a>. The long form, with examples in several languages: API.md in the repository.</p>
   </section>
 </main>
 <script>
@@ -80,6 +80,7 @@ const routes = [
   ["POST /api/run", "{\"script\", \"args\", \"stdin\", \"client\"}: runs it once it's allowed on the Mac, and answers with how it went and what it printed (\"stream\": true sends it as it goes; \"wait\": false answers at once)"],
   ["POST /api/compose", "{\"flow\"} or {\"source\"}: runs a flow, or Flow code, the same way"],
   ["POST /api/check", "{\"source\"}: checks Flow code (its types, or its mistake); nothing runs"],
+  ["GET /api/doc", "the whole API in one page (text), to paste into another app's code or a chat"],
   ["GET /api/runs", "the latest runs"],
   ["GET /api/runs/{id}", "one run, with its output"],
   ["POST /api/runs/{id}/stop", "stops it"],

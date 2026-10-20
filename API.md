@@ -21,6 +21,11 @@ listed here changes meaning.
 Base URL   http://127.0.0.1:8768
 ```
 
+**The same, in one page:** `GET /api/doc` answers this contract compacted to a page of text (every
+endpoint, field, event and error, with the address you reached it at and, from another device,
+the token to send), as does **Copy API Doc** in the app's panel. Paste it into your app's code, its
+README, or a chat with an assistant writing the client for you.
+
 ## In one minute
 
 ```bash
@@ -56,6 +61,7 @@ curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
 | `POST /api/run` | `run` | runs a script once it's allowed on the Mac |
 | `POST /api/compose` | `compose` | runs a flow, or Flow code you send, once it's allowed |
 | `POST /api/check` | `compose` | checks Flow code: its types, or its mistake (nothing runs, nothing is asked) |
+| `GET  /api/doc` | — | this contract in one page of text (`text/markdown`), with the address and token filled in |
 | `GET  /api/runs` | `runs` | the latest runs (yours and the person's), without their output |
 | `GET  /api/runs/{id}` | `runs` | one run, with its output (and a flow's steps) |
 | `POST /api/runs/{id}/stop` | `runs` | stops it |

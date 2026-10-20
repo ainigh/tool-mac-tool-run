@@ -98,6 +98,16 @@ public enum Access {
         return parts[1].trimmingCharacters(in: .whitespaces)
     }
 
+    /// Where the caller reached the API, for a doc it can paste: its `Host` header
+    /// (`http://192.168.1.5:8768` from another device), else this Mac's loopback address.
+    public static func baseURL(_ req: HTTPRequest, settings: APISettings) -> String {
+        let fallback = "http://127.0.0.1:\(settings.port)"
+        guard let host = req.header("host")?.trimmingCharacters(in: .whitespaces), !host.isEmpty,
+              host.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || ".:[]-_".unicodeScalars.contains($0) })
+        else { return fallback }
+        return "http://\(host)"
+    }
+
     /// localhost, 127.0.0.1, [::1], with or without a port.
     public static func isLoopbackHost(_ host: String) -> Bool {
         var h = host.lowercased().trimmingCharacters(in: .whitespaces)

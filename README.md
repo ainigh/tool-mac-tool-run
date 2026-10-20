@@ -77,7 +77,9 @@ curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
 ```
 
 The panel's **HTTP API** section starts and stops it, has a switch for each group of endpoints
-(run scripts, run flows, list them, read runs), **Copy URL**, and **Try it** (the API's own page:
+(run scripts, run flows, list them, read runs), **Copy API Doc** (the whole API in one page, with
+this Mac's address and, when sharing is on, the token: paste it into another app's code, a README
+or a chat with an assistant; it's also served at `/api/doc`), and **Try it** (the API's own page:
 every endpoint, and a place to run a script or some Flow code). **Allow other devices** listens
 on the network too; callers from elsewhere need the token shown there.
 
