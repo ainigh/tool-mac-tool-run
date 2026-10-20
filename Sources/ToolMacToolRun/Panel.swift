@@ -582,9 +582,9 @@ private struct APISection: View {
                 SectionTitle("HTTP API")
                 Circle().fill(statusColor).frame(width: 6, height: 6)
                 Spacer()
-                Button { api.copy(api.baseURL) } label: { Label("Copy URL", systemImage: "doc.on.doc").font(.system(size: 11)) }
+                Button { api.copy(api.doc) } label: { Label("Copy API Doc", systemImage: "doc.on.doc").font(.system(size: 11)) }
                     .buttonStyle(.borderless)
-                    .help("Copy \(api.baseURL)")
+                    .help("Copy the whole API in one page (every endpoint, field and error, at \(api.baseURL)), to paste into another app's code, a README or a chat")
                 Button { NSWorkspace.shared.open(URL(string: api.baseURL)!) } label: { Label("Try it", systemImage: "safari").font(.system(size: 11)) }
                     .buttonStyle(.borderless)
                     .disabled(!api.isServing)

@@ -125,7 +125,7 @@ public final class RunAPI: @unchecked Sendable {
     }
 
     private static let routes: [String: String] = [
-        "/": "GET", "/index.html": "GET", "/favicon.ico": "GET", "/api/health": "GET",
+        "/": "GET", "/index.html": "GET", "/favicon.ico": "GET", "/api/health": "GET", "/api/doc": "GET",
         "/api/scripts": "GET", "/api/flows": "GET", "/api/runs": "GET",
         "/api/run": "POST", "/api/compose": "POST", "/api/check": "POST",
     ]
@@ -145,6 +145,10 @@ public final class RunAPI: @unchecked Sendable {
             return HTTPResponse(status: 204)
         case "/api/health":
             return JSON.response(await health(s))
+        case "/api/doc":
+            // The API in one page, with this server's own address (and token, for a caller on the network).
+            let doc = APIDoc.text(baseURL: Access.baseURL(req, settings: s), token: s.allowNetwork ? s.token : nil, version: version)
+            return HTTPResponse(contentType: "text/markdown; charset=utf-8", data: Data(doc.utf8))
         case "/api/scripts":
             try need(.catalog, s)
             let c = try await catalog()
