@@ -140,6 +140,8 @@ struct PromptCard: View {
     var compact = false
     @State private var text = ""
     @State private var choice: String?
+    /// The result was just copied: its button says so for a moment.
+    @State private var copied = false
     @FocusState private var focused: Bool
 
     private var q: FlowQuestion { pending.question }
@@ -301,7 +303,12 @@ struct PromptCard: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(q.prompt, forType: .string)
-                } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    copied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                } label: { Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") }
                     .buttonStyle(.borderless)
                     .help("Copy the text")
             }

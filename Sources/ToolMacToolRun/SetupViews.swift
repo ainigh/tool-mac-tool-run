@@ -50,7 +50,7 @@ struct FolderSetupView: View {
                 .card(radius: 14, shadow: false)
                 .padding(.top, 6)
             }
-            Text("You can change the folder any time from the menu bar icon (Change Folder…).")
+            Text("You can change the folder any time from the menu bar icon (Change…, beside the folder).")
                 .foregroundStyle(.secondary)
         }
         .padding(48)
@@ -150,12 +150,7 @@ struct DoctorView: View {
                         Image(systemName: "arrow.right").foregroundStyle(.tertiary)
                         Text(fix).font(.callout.monospaced()).textSelection(.enabled)
                         Spacer(minLength: 4)
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(fix.replacingOccurrences(of: ", then run it again.", with: ""), forType: .string)
-                        } label: { Image(systemName: "doc.on.doc") }
-                            .buttonStyle(CircleIconButtonStyle(size: 24))
-                            .help("Copy")
+                        CopyButton(help: "Copy the fix", size: 24) { fix.replacingOccurrences(of: ", then run it again.", with: "") }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
