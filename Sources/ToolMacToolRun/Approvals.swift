@@ -318,17 +318,14 @@ struct ApprovalCard: View {
                 .environment(\.colorScheme, .dark)
                 if !r.arguments.isEmpty { argumentsLine }
             } else {
-                HStack(alignment: .top, spacing: 8) {
-                    Text("$").foregroundStyle(Theme.terminalText.opacity(0.5))
-                    Text(r.command)
-                        .foregroundStyle(Theme.terminalText)
-                        .textSelection(.enabled)
-                        .lineLimit(4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // All of it, scrolling when it's long: a cut-off command could hide what it does.
+                ViewThatFits(in: .vertical) {
+                    commandText
+                    ScrollView { commandText }
                 }
-                .font(.system(size: 13, design: .monospaced))
-                .padding(12)
+                .frame(maxHeight: 150)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.terminal))
+                .environment(\.colorScheme, .dark)
                 if let stdin = r.stdin {
                     Text("With \(stdin.utf8.count) bytes of input: \(stdin.prefix(80).replacingOccurrences(of: "\n", with: "⏎"))\(stdin.count > 80 ? "…" : "")")
                         .font(.system(size: 12, design: .monospaced))
@@ -337,6 +334,19 @@ struct ApprovalCard: View {
                 }
             }
         }
+    }
+
+    private var commandText: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("$").foregroundStyle(Theme.terminalText.opacity(0.5))
+            Text(r.command)
+                .foregroundStyle(Theme.terminalText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 13, design: .monospaced))
+        .padding(12)
     }
 
     private var argumentsLine: some View {

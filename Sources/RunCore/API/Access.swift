@@ -73,14 +73,22 @@ public struct APISettings: Equatable, Codable, Sendable {
 public enum Access {
     /// Why a request is refused, or nil to let it through.
     public static func refusal(_ req: HTTPRequest, settings: APISettings) -> HTTPError? {
-        if !settings.allowNetwork, let host = req.header("host"), !isLoopbackHost(host) {
-            // A website pointing its own name at 127.0.0.1 (DNS rebinding) says that name here.
+        // A website pointing its own name at 127.0.0.1 (DNS rebinding) says that name here.
+        let otherHost = req.header("host").map { !isLoopbackHost($0) } ?? false
+        if !settings.allowNetwork, otherHost {
             return HTTPError(status: 403, code: "forbidden", message: "requests for another host are refused")
         }
         if let origin = req.header("origin"), !originAllowed(origin, settings: settings) {
             return HTTPError(status: 403, code: "forbidden", message: "cross-site request refused (\(origin) isn't allowed)")
         }
-        if !req.fromLoopback {
+        // A browser's preflight never carries the token; it only gets the CORS headers back.
+        if req.method == "OPTIONS" {
+            return req.fromLoopback || settings.allowNetwork ? nil
+                : HTTPError(status: 403, code: "forbidden", message: "only this Mac may call")
+        }
+        // From another machine, or by a name that isn't this Mac's (so maybe a rebinding website,
+        // even though it comes from this Mac): the token.
+        if !req.fromLoopback || otherHost {
             guard settings.allowNetwork, !settings.token.isEmpty else {
                 return HTTPError(status: 403, code: "forbidden", message: "only this Mac may call")
             }
@@ -161,7 +169,7 @@ public enum Access {
             ("Access-Control-Allow-Origin", origin),
             ("Vary", "Origin"),
             ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
-            ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
+            ("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Client"),
             ("Access-Control-Max-Age", "600"),
         ]
     }

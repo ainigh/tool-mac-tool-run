@@ -164,7 +164,8 @@ public final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Splits a line of arguments as a shell would: spaces separate, quotes keep together
-    /// ("two words" or 'two words'), a backslash keeps the next character.
+    /// ("two words" or 'two words'), a backslash keeps the next character (in double quotes, only
+    /// `$`, a backquote, `"`, `\` and a newline, as in bash: "C:\dir" stays `C:\dir`).
     public static func split(_ line: String) -> [String] {
         var args: [String] = []
         var current = ""
@@ -173,6 +174,7 @@ public final class ShellEnvironment: @unchecked Sendable {
         var escape = false
         for ch in line {
             if escape {
+                if quote == "\"", !"$`\"\\\n".contains(ch) { current.append("\\") }
                 current.append(ch)
                 escape = false
                 has = true
@@ -183,7 +185,7 @@ public final class ShellEnvironment: @unchecked Sendable {
             } else if ch == "\"" || ch == "'" {
                 quote = ch
                 has = true
-            } else if ch == " " || ch == "\t" || ch == "\n" {
+            } else if ch == " " || ch == "\t" || ch == "\n" || ch == "\r\n" || ch == "\r" {  // "\r\n" is one Character
                 if has { args.append(current) }
                 current = ""
                 has = false

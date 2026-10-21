@@ -336,6 +336,33 @@ final class APITests: XCTestCase {
         XCTAssertEqual(host.asked.last?.from, "a web page at http://localhost:3000")
     }
 
+    func testWithSharingOnARebindingWebsiteStillNeedsTheToken() async {
+        settings.allowNetwork = true
+        settings.token = "secret"
+        // From this Mac, but by a website's own name: it may be a page that rebound its name.
+        let (r, _) = await api.send("GET", "/api/runs", headers: ["Host": "evil.example:8768"])
+        XCTAssertEqual(r.status, 401)
+        let (r2, _) = await api.send("GET", "/api/runs", headers: ["Host": "evil.example:8768", "Authorization": "Bearer secret"])
+        XCTAssertEqual(r2.status, 200)
+        let (r3, _) = await api.send("GET", "/api/health", headers: ["Host": "127.0.0.1:8768"])
+        XCTAssertEqual(r3.status, 200)
+    }
+
+    func testAPreflightFromAnotherDeviceGetsTheCORSHeaders() async {
+        settings.allowNetwork = true
+        settings.token = "secret"
+        settings.origins = ["https://app.example.com"]
+        let (r, _) = await api.send("OPTIONS", "/api/run", headers: ["Origin": "https://app.example.com", "Host": "192.168.1.5:8768"],
+                                    fromLoopback: false)
+        XCTAssertEqual(r.status, 204)
+        XCTAssertEqual(r.header("Access-Control-Allow-Origin"), "https://app.example.com")
+        XCTAssertTrue(r.header("Access-Control-Allow-Headers")?.contains("X-Client") ?? false)
+        // Sharing off: another device gets nothing, preflight or not.
+        settings.allowNetwork = false
+        let (r2, _) = await api.send("OPTIONS", "/api/run", headers: ["Origin": "https://app.example.com"], fromLoopback: false)
+        XCTAssertEqual(r2.status, 403)
+    }
+
     func testTheClientIsNamedFromItsUserAgentAndCleaned() {
         let req = HTTPRequest(method: "POST", target: "/api/run", headers: ["User-Agent": "curl/8.4.0"])
         XCTAssertEqual(RunAPI.client(req, [:]), "curl")
@@ -390,6 +417,14 @@ final class APITests: XCTestCase {
 }
 
 final class HTTPTests: XCTestCase {
+    func testAHugeChunkSizeIsTooLargeNotACrash() {
+        var p = HTTPParser()
+        let raw = "POST /api/run HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n7fffffffffffffff\r\n"
+        XCTAssertThrowsError(try p.feed(Data(raw.utf8))) { e in
+            XCTAssertEqual((e as? HTTPError)?.status, 413)
+        }
+    }
+
     func testParsesARequestInPieces() throws {
         var p = HTTPParser()
         let raw = "POST /api/run?x=1 HTTP/1.1\r\nHost: 127.0.0.1:8768\r\nContent-Type: application/json\r\nContent-Length: 16\r\n\r\n{\"script\": \"a\"} "
@@ -425,6 +460,15 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(new.map(\.stream), [.out, .err])
         XCTAssertTrue(r.newOutput(since: r.receivedBytes).isEmpty)
         XCTAssertEqual(r.newOutput(since: 0).map(\.text).joined(), "one\ntwo\nbad\n")
+    }
+
+    func testNewOutputJoiningTheLastCharacterIsKept() {
+        // "\r" then "\n" make one character in Swift; the "\n" is still new output.
+        var r = RunRecord(kind: .script, name: "a", file: "a", command: "a")
+        r.append(.out, "line\r")
+        let mark = r.receivedBytes
+        r.append(.out, "\nnext")
+        XCTAssertEqual(r.newOutput(since: mark).map(\.text).joined(), "\nnext")
     }
 
     func testRequestedByIsKept() throws {

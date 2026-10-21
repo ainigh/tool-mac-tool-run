@@ -304,10 +304,11 @@ Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
   scripts, apps, servers) are answered, and every run they ask for waits for Run on the Mac.
 - **Browsers.** Pages from this machine (`http://localhost:*`, `http://127.0.0.1:*`) may call it
   (CORS). Other origins are refused, so a website you visit can't even ask. Requests whose `Host`
-  names another machine are refused, so a website can't reach it by pointing its own domain at
-  127.0.0.1.
+  names another machine are refused (with sharing on, they need the token), so a website can't
+  reach it by pointing its own domain at 127.0.0.1.
 - **Sharing on the network** (off by default): the panel's *Allow other devices* switch makes it
-  listen on all interfaces and requires a token from everyone but this Mac:
-  `Authorization: Bearer <token>`. The token is shown in the panel, with a copy button. Runs asked
+  listen on all interfaces and requires a token from everyone but this Mac (calling it as
+  `localhost` or `127.0.0.1`): `Authorization: Bearer <token>`. A browser's preflight (`OPTIONS`)
+  needs no token; an origin listed as allowed gets its CORS headers. The token is shown in the panel, with a copy button. Runs asked
   for from another device still wait for Run on the Mac, and the card says which device asked.
 - The port is 8768 (Super Voice is 8767), so both can run side by side.

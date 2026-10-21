@@ -556,9 +556,10 @@ extension RunRecord {
             } else {
                 let s = c.text
                 var cut = s.utf8.index(s.utf8.endIndex, offsetBy: -need)
-                // Forward to where a character starts.
-                while cut < s.utf8.endIndex, cut.samePosition(in: s) == nil { cut = s.utf8.index(after: cut) }
-                picked.append(Chunk(stream: c.stream, text: String(s[cut...])))
+                // Forward to where a Unicode scalar starts (not a character: new output can join the
+                // last character, "\r" then "\n", and cutting there would drop the "\n").
+                while cut < s.utf8.endIndex, cut.samePosition(in: s.unicodeScalars) == nil { cut = s.utf8.index(after: cut) }
+                picked.append(Chunk(stream: c.stream, text: String(s.unicodeScalars[cut...])))
                 need = 0
             }
             if need == 0 { break }

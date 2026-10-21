@@ -43,6 +43,9 @@ final class ShellTests: XCTestCase {
     func testSplit() {
         XCTAssertEqual(ShellEnvironment.split(#"a "b c" 'd e' f\ g"#), ["a", "b c", "d e", "f g"])
         XCTAssertEqual(ShellEnvironment.split("  "), [])
+        // In double quotes a backslash only escapes $ ` " \ and a newline, as in bash.
+        XCTAssertEqual(ShellEnvironment.split(#""C:\dir" "say \"hi\"" a\ b"#), [#"C:\dir"#, #"say "hi""#, "a b"])
+        XCTAssertEqual(ShellEnvironment.split("a\r\nb"), ["a", "b"])
         XCTAssertEqual(ShellEnvironment.split(#"--name="two words" """#), ["--name=two words", ""])
     }
 

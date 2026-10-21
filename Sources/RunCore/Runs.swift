@@ -172,10 +172,11 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
             } else {
                 let s = output[0].text
                 var cut = s.utf8.index(s.utf8.startIndex, offsetBy: over)
-                // Forward to where a character starts.
-                while cut < s.utf8.endIndex, cut.samePosition(in: s) == nil { cut = s.utf8.index(after: cut) }
+                // Forward to where a Unicode scalar starts (String's own subscript would round a cut
+                // inside a character back to its start, keeping more than counted).
+                while cut < s.utf8.endIndex, cut.samePosition(in: s.unicodeScalars) == nil { cut = s.utf8.index(after: cut) }
                 outputBytes -= s.utf8.distance(from: s.utf8.startIndex, to: cut)
-                output[0].text = String(s[cut...])
+                output[0].text = String(s.unicodeScalars[cut...])
                 if output[0].text.isEmpty { output.removeFirst() }
             }
             trimmed = true
