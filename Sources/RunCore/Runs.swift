@@ -237,11 +237,24 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
 
     /// "0.4 s", "12 s", "3 min 05 s", "1 h 02 min".
     public static func duration(_ seconds: Double) -> String {
-        if seconds < 10 { return String(format: "%.1f s", seconds) }
+        let seconds = max(0, seconds)  // a clock set back never shows "-0.3 s"
+        // Below 9.95 s, not 10: "%.1f" would round 9.97 up to "10.0 s", a second before "10 s".
+        if seconds < 9.95 { return String(format: "%.1f s", seconds) }
         let s = Int(seconds.rounded())
         if s < 60 { return "\(s) s" }
         if s < 3600 { return String(format: "%d min %02d s", s / 60, s % 60) }
         return String(format: "%d h %02d min", s / 3600, (s % 3600) / 60)
+    }
+
+    /// "just now", "2 min ago", "3 h ago", "yesterday", or the date. Whole minutes and hours,
+    /// counted down (59 min 40 s is "59 min ago", never "60 min ago"), never "0 min".
+    public static func ago(_ date: Date, now: Date = Date()) -> String {
+        let s = now.timeIntervalSince(date)
+        if s < 45 { return "just now" }
+        if s < 3600 { return "\(max(1, Int(s / 60))) min ago" }
+        if s < 86_400 { return "\(Int(s / 3600)) h ago" }
+        if s < 172_800 { return "yesterday" }
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
 }
 

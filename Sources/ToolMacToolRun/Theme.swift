@@ -1,3 +1,4 @@
+import AppKit
 import RunCore
 import SwiftUI
 
@@ -254,12 +255,34 @@ struct CircleIconButtonStyle: ButtonStyle {
     }
 }
 
-/// "just now", "2 min ago", "3 h ago", "yesterday", or the date.
+/// A round button that copies, and says it did: its symbol turns to a green check for a moment.
+struct CopyButton: View {
+    let help: String
+    var size: CGFloat = 26
+    let text: () -> String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text(), forType: .string)
+            copied = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .foregroundStyle(copied ? Color.green : Color.primary)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(CircleIconButtonStyle(size: size))
+        .help(copied ? "Copied" : help)
+        .accessibilityLabel(copied ? "Copied" : help)
+    }
+}
+
+/// "just now", "2 min ago", "3 h ago", "yesterday", or the date (`RunRecord.ago`).
 func ago(_ date: Date, now: Date = Date()) -> String {
-    let s = now.timeIntervalSince(date)
-    if s < 45 { return "just now" }
-    if s < 3600 { return "\(Int((s / 60).rounded())) min ago" }
-    if s < 86_400 { return "\(Int((s / 3600).rounded())) h ago" }
-    if s < 172_800 { return "yesterday" }
-    return date.formatted(date: .abbreviated, time: .omitted)
+    RunRecord.ago(date, now: now)
 }

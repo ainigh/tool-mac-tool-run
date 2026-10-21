@@ -77,8 +77,8 @@ struct RunResultView: View {
                             Text(RunRecord.duration(ctx.date.timeIntervalSince(run.started))).monospacedDigit()
                         }
                     } else {
-                        if let s = run.seconds { Text("in \(RunRecord.duration(s))") }
-                        Text("· \(ago(run.ended ?? run.started))")
+                        if let s = run.seconds { Text("in \(RunRecord.duration(s)) ·") }
+                        Text(ago(run.ended ?? run.started))
                     }
                 }
                 .font(.callout)
@@ -97,10 +97,8 @@ struct RunResultView: View {
                     .buttonStyle(ProminentButtonStyle())
                     .help("Run it again with the same arguments")
             }
-            Button { copy(run.kind == .flow ? flowText : run.text) } label: { Image(systemName: "doc.on.doc") }
-                .buttonStyle(CircleIconButtonStyle(size: 30))
-                .disabled(run.output.isEmpty && runs.steps(of: run.id).isEmpty)
-                .help("Copy everything it printed")
+            CopyButton(help: "Copy everything it printed", size: 30) { run.kind == .flow ? flowText : run.text }
+                .disabled(run.output.isEmpty && !runs.steps(of: run.id).contains { !$0.output.isEmpty })
             Menu {
                 if let item = item {
                     Button("Edit \(item.id)") { Windows.showEditor(item, kind: kind) }
@@ -163,9 +161,7 @@ struct RunResultView: View {
                 .truncationMode(.middle)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 4)
-            Button { copy(shown.command) } label: { Image(systemName: "doc.on.doc") }
-                .buttonStyle(CircleIconButtonStyle(size: 22))
-                .help("Copy the command, to run it in a terminal")
+            CopyButton(help: "Copy the command, to run it in a terminal", size: 22) { shown.command }
         }
         .font(.caption.monospaced())
         .padding(.horizontal, 14)

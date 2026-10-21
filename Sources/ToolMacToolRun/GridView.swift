@@ -220,7 +220,7 @@ struct GridHeader: View {
                     .help("Fewer cells")
                 Menu {
                     ForEach([4, 6, 9, 12, 16, 20, 24, 30, 36, 48, 64], id: \.self) { n in
-                        Button("\(n) cells") { app.update(kind) { $0.cells = n } }
+                        Toggle("\(n) cells", isOn: Binding(get: { s.cells == n }, set: { _ in app.update(kind) { $0.cells = n } }))
                     }
                 } label: {
                     Text("\(s.cells) cells").monospacedDigit()
@@ -757,11 +757,13 @@ struct ScriptCell: View {
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
         Toggle("Ask Before Running", isOn: Binding(get: { asksFirst }, set: { actions.setAsksFirst(item, $0) }))
         Menu("Color") {
+            // The one it wears is ticked: "Automatic" when none was picked (it comes from the name).
+            let picked = actions.app.settings(kind).tints[item.id]
             ForEach(GridSettings.tints.indices, id: \.self) { k in
-                Button(GridSettings.tints[k].name.capitalized) { actions.setTint(item, k) }
+                Toggle(GridSettings.tints[k].name.capitalized, isOn: Binding(get: { picked == k }, set: { _ in actions.setTint(item, k) }))
             }
             Divider()
-            Button("Automatic") { actions.setTint(item, nil) }
+            Toggle("Automatic", isOn: Binding(get: { picked == nil }, set: { _ in actions.setTint(item, nil) }))
         }
         Divider()
         Button("Move to Trash…") { askTrash() }

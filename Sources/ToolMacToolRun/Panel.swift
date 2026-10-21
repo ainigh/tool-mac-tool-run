@@ -575,6 +575,8 @@ private struct EPASection: View {
 /// The HTTP API: whether it's serving, where, each endpoint's switch, and sharing on the network.
 private struct APISection: View {
     @ObservedObject var api: APIService
+    /// The doc was just copied: the button says so for a moment.
+    @State private var copiedDoc = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -582,7 +584,16 @@ private struct APISection: View {
                 SectionTitle("HTTP API")
                 Circle().fill(statusColor).frame(width: 6, height: 6)
                 Spacer()
-                Button { api.copy(api.doc) } label: { Label("Copy API Doc", systemImage: "doc.on.doc").font(.system(size: 11)) }
+                Button {
+                    api.copy(api.doc)
+                    copiedDoc = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copiedDoc = false
+                    }
+                } label: {
+                    Label(copiedDoc ? "Copied" : "Copy API Doc", systemImage: copiedDoc ? "checkmark" : "doc.on.doc").font(.system(size: 11))
+                }
                     .buttonStyle(.borderless)
                     .help("Copy the whole API in one page (every endpoint, field and error, at \(api.baseURL)), to paste into another app's code, a README or a chat")
                 Button { NSWorkspace.shared.open(URL(string: api.baseURL)!) } label: { Label("Try it", systemImage: "safari").font(.system(size: 11)) }
@@ -629,8 +640,7 @@ private struct APISection: View {
                     Text("Token").font(.system(size: 11)).foregroundStyle(.secondary)
                     Text(api.settings.token).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    Button { api.copy(api.settings.token) } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(.borderless).help("Copy the token")
+                    CopyButton(help: "Copy the token", size: 20) { api.settings.token }
                     Button { api.change { $0.token = APISettings.newToken() } } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless).help("Make a new token (the old one stops working)")
                 }
