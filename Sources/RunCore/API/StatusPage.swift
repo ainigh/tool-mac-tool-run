@@ -99,7 +99,13 @@ async function status() {
     const r = await fetch("/api/scripts");
     const j = await r.json();
     if (!r.ok) { $("runnote").textContent = j.error; $("run").disabled = true; return; }
-    $("script").innerHTML = j.scripts.map(s => `<option value="${s.name}">${s.name}${s.summary ? " — " + s.summary.replace(/</g, "&lt;") : ""}</option>`).join("");
+    // Built as elements, never as markup: a file's name is anyone's text.
+    $("script").replaceChildren(...j.scripts.map(s => {
+      const o = document.createElement("option");
+      o.value = s.name;
+      o.textContent = s.name + (s.summary ? " — " + s.summary : "");
+      return o;
+    }));
     if (!j.scripts.length) { $("runnote").textContent = "The folder has no scripts yet."; $("run").disabled = true; }
   } catch (e) {}
 }

@@ -172,7 +172,7 @@ public struct HTTPParser {
                 guard let size = Int(hex, radix: 16), size >= 0 else {
                     throw HTTPError(status: 400, code: "bad_request", message: "bad chunk")
                 }
-                guard body.count + size <= maxBody else { throw tooLarge }
+                guard size <= maxBody - body.count else { throw tooLarge }  // never body.count + size: a huge size overflows
                 stage = size == 0 ? .trailers : .chunkData(remaining: size)
             case .chunkData(let remaining):
                 let take = min(remaining, buffer.count)

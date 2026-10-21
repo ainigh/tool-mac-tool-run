@@ -276,10 +276,11 @@ final class AppModel: ObservableObject {
         if n > 0 {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
-            alert.messageText = "Stop \(n) running \(n == 1 ? "script" : "scripts") and quit?"
+            // A run is a script or a flow: "runs", so a flow going isn't called a script.
+            alert.messageText = "Stop \(n) \(n == 1 ? "run" : "runs") and quit?"
             alert.informativeText = "Quitting stops what's running now. Its output so far is kept in Runs."
             alert.addButton(withTitle: "Keep Running")
-            alert.addButton(withTitle: "Stop and Quit")
+            alert.addButton(withTitle: "Stop and Quit").hasDestructiveAction = true
             if alert.runModal() == .alertFirstButtonReturn { return }
         }
         NSApp.terminate(nil)

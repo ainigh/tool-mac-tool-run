@@ -43,6 +43,9 @@ final class ShellTests: XCTestCase {
     func testSplit() {
         XCTAssertEqual(ShellEnvironment.split(#"a "b c" 'd e' f\ g"#), ["a", "b c", "d e", "f g"])
         XCTAssertEqual(ShellEnvironment.split("  "), [])
+        // In double quotes a backslash only escapes $ ` " \ and a newline, as in bash.
+        XCTAssertEqual(ShellEnvironment.split(#""C:\dir" "say \"hi\"" a\ b"#), [#"C:\dir"#, #"say "hi""#, "a b"])
+        XCTAssertEqual(ShellEnvironment.split("a\r\nb"), ["a", "b"])
         XCTAssertEqual(ShellEnvironment.split(#"--name="two words" """#), ["--name=two words", ""])
     }
 
@@ -306,6 +309,21 @@ final class GridTests: XCTestCase {
         XCTAssertEqual(RunRecord.duration(0.42), "0.4 s")
         XCTAssertEqual(RunRecord.duration(42), "42 s")
         XCTAssertEqual(RunRecord.duration(185), "3 min 05 s")
+        XCTAssertEqual(RunRecord.duration(9.97), "10 s")
+        XCTAssertEqual(RunRecord.duration(9.94), "9.9 s")
+        XCTAssertEqual(RunRecord.duration(-0.3), "0.0 s")
+    }
+
+    func testAgo() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        func ago(_ s: Double) -> String { RunRecord.ago(now.addingTimeInterval(-s), now: now) }
+        XCTAssertEqual(ago(10), "just now")
+        XCTAssertEqual(ago(50), "1 min ago")
+        XCTAssertEqual(ago(150), "2 min ago")
+        XCTAssertEqual(ago(3590), "59 min ago")  // not "60 min ago"
+        XCTAssertEqual(ago(3600), "1 h ago")
+        XCTAssertEqual(ago(86_000), "23 h ago")  // not "24 h ago"
+        XCTAssertEqual(ago(100_000), "yesterday")
     }
 }
 

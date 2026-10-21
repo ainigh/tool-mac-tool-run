@@ -189,13 +189,9 @@ struct CodeBlock: View {
         HStack(alignment: .top) {
             Text(text)
                 .font(.system(size: 12.5, design: .monospaced))
+                .textSelection(.enabled)  // a line of it can be picked, not only all of it
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            } label: { Image(systemName: "doc.on.doc") }
-                .buttonStyle(.borderless)
-                .help("Copy")
+            CopyButton(help: "Copy the code", size: 22) { text }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.1)))
