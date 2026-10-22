@@ -161,7 +161,7 @@ struct GridView: View {
                 case .utilities:
                     Pill(text: "Flows run them by name: run \"speak\" [\"Done\"]", symbol: "point.3.connected.trianglepath.dotted")
                 case .browser:
-                    Pill(text: "browser.sh drives your default browser", symbol: "globe")
+                    Pill(text: "browser.sh drives Chrome", symbol: "globe")
                 case .scripts:
                     EmptyView()
                 }
@@ -183,7 +183,7 @@ struct GridView: View {
         case .utilities:
             return basics + " Utilities are scripts kept in the utilities folder: small reusable helpers. A flow runs one by its name (run \"speak\" [\"Done\"]), or by utilities/ and its name when a script elsewhere has the same name."
         case .browser:
-            return basics + " Browser scripts are scripts kept in the browser folder. browser.sh drives your default browser (open a page, read its title, address and text, run JavaScript in it); the others are made of it, and a flow runs any of them by name."
+            return basics + " Browser scripts are scripts kept in the browser folder. browser.sh drives Google Chrome (open a page, read one in a tab of its own, run JavaScript in it); google, youtube and youtube-music are made of it, and a flow runs any of them by name."
         }
     }
 }
@@ -989,7 +989,7 @@ struct EmptyFolderCard: View {
     }
 
     private var examplesHelp: String {
-        let flows = kind == .utilities || kind == .browser ? ", and the example flows that use them once both are there" : ""
+        let flows = kind == .utilities || kind == .browser ? ", and the example flows that use them (each once every script it runs is there)" : ""
         return "Adds \(Library.examplesSummary(for: kind)) to the folder (nothing there is changed)" + flows
     }
 
@@ -1001,9 +1001,9 @@ struct EmptyFolderCard: View {
         case .composer:
             "A flow composes your scripts: it runs them by name, passes what one prints to the next, and decides what to do with the results. Start with the examples (they use the example scripts), or write one."
         case .utilities:
-            "Utilities are small scripts to reuse: play a sound or a song, say something out loud, use the clipboard, pick values out of JSON or CSV. They live in the utilities folder; flows run them by name. Start with the examples, or write one."
+            "Utilities are small scripts to reuse: the weather, the news (and what's urgent in it), whether cloud services are up, a sound or a song, something said out loud, the clipboard, values picked out of JSON or CSV. They live in the utilities folder; flows run them by name. Start with the examples, or write one."
         case .browser:
-            "Browser scripts drive your default browser: open a page, read its title, address and text, run JavaScript in it and print what comes back. They live in the browser folder; browser.sh does the driving. Start with the examples, or write one."
+            "Browser scripts drive Google Chrome: ask Google and get just the answer, search YouTube, play music on YouTube Music, read any page and print what's on it. They live in the browser folder; browser.sh does the driving. Start with the examples, or write one."
         }
     }
 }

@@ -358,20 +358,41 @@ if r.ok then print "up" else notify $"Server down: {r.err}"
 
 Two more grids hold scripts too, each in a folder of its own inside your scripts folder:
 
-- **Utilities** (`utilities/`): small reusable helpers. The examples play a sound
+- **Utilities** (`utilities/`): small reusable helpers. The examples tell you what's going on:
+  `weather` (where you are, or a place you name), `news` (the top stories, a topic, or with
+  `--critical` only what looks urgent, each line starting with 🚨), `cloud-status` (whether AWS,
+  Google Cloud, Azure, GitHub, Cloudflare, OpenAI, Claude, Slack and more are up: ✅ ⚠️ 🔴 ❓ at
+  the start of each line; `--problems` for only the ones that aren't). Others play a sound
   (`play-sound`) or a song from Music (`play-song`), say text out loud (`speak`), use the
   clipboard (`clipboard`), and parse data: `json-get` picks values out of JSON, `csv-to-json`
   turns CSV into JSON, `extract-urls` lists every web address in some text.
-- **Browser** (`browser/`): scripts that drive your default browser. `browser.sh` does the
-  driving; the other examples (`open-page`, `page-info`, `page-text`, `page-links`) are a line
-  or two of it.
+- **Browser** (`browser/`): scripts that drive Google Chrome. `browser.sh` does the driving;
+  `google` asks Google and gives back just the answer (Google's own, then the top results),
+  `youtube` gives the top videos (or plays the first with `--play`), `youtube-music` plays a song
+  and takes `pause`, `play`, `next`, `previous` and `now`; `open-page`, `page-info`, `page-text`
+  and `page-links` work on any page.
+
+The Composer examples do the heavy lifting with them: `ask-google`, `weather-now`,
+`news-briefing`, `urgent-news`, `cloud-check`, `youtube-search`, `play-music` and
+`morning-briefing`, which fetches the weather, the news and the cloud services at the same time
+and keeps going when one can't be reached:
+
+```
+let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+let found =
+    parallel [
+        (fun () -> attempt "weather" [])
+        (fun () -> attempt "news" ["--critical"; "--count"; "5"])
+        (fun () -> attempt "cloud-status" ["--problems"]) ]
+    |> map get
+```
 
 They're scripts like any other: a click runs one, the pencil edits it, and a flow runs it by
 name. What they print is what a flow gets back, so the browser hands data straight to the next
 step:
 
 ```
-// Lists every address the page in front of your browser links to, then plays a sound
+// Lists every address the page in front in Chrome links to, then plays a sound
 let addresses = run "page-links" [] |> pipe "extract-urls" [] |> lines
 print $"{length addresses} addresses on the page:"
 addresses |> each print
@@ -383,23 +404,27 @@ run "play-sound" ["Glass"] |> ignore
 "name,email\nAda,ada@example.com" |> pipe "csv-to-json" [] |> pipe "json-get" ["*.email"] |> print
 ```
 
-`browser.sh` works with Safari, Chrome, Edge, Brave, Arc, Vivaldi and Chromium (any other
-browser can only open pages); `TMR_BROWSER=Safari` picks one that isn't the default:
+`browser.sh` drives Google Chrome. What a flow can ask of it:
 
 | `run "browser.sh" […]` | gives back |
 |---|---|
-| `[]` | which browser is the default, and what it can do from here |
-| `["open"; url]` | opens the page in a new tab, waits for it to load, gives its title |
+| `[]` | whether Chrome is ready, and what to switch on if not |
+| `["open"; url]` | opens the page in a new tab, in front, waits for it to load, gives its title |
+| `["read"; url; code]` | opens the page in a tab of its own **behind** the one you're on, waits until the JavaScript gives something back (the page's text without one), gives that, closes the tab |
 | `["url"]`, `["title"]`, `["text"]` | the address, title or text of the page in front |
 | `["tabs"]` | each tab of the front window: its title, a tab, its address |
-| `["js"; code]` | runs JavaScript in the page in front: an expression (`document.title`), or statements with a `return`; what isn't text comes back as JSON |
+| `["js"; code]` | runs JavaScript in the page in front |
+| `["js-in"; part; code]` | runs it in the first tab whose address has `part` in it (`"music.youtube.com"`) |
+| `["focus"; part]`, `["go"; part; url]` | brings that tab to the front; sends it to an address (a new tab if there's none) |
 | `["wait"]` | waits (up to 30 seconds) for the page in front to finish loading |
+| `["encode"; text]` | the text made safe to put in an address (`?q=…`) |
 
-Two things are asked once, the first time: macOS asks whether the app may control the browser
-(click **Allow**), and running JavaScript needs the browser's own switch: in Safari, **Settings ›
-Advanced › Show features for web developers**, then **Develop › Allow JavaScript from Apple
-Events**; in Chrome and the others, **View › Developer › Allow JavaScript from Apple Events**. Until
-then, `browser.sh` says which one is missing, and where it is.
+JavaScript is an expression (`document.title`), or statements whose answer is given back by a
+`return` at the start of a line; what isn't text comes back as JSON.
+
+Two things are asked once, the first time: macOS asks whether the app may control Chrome (click
+**Allow**), and Chrome needs **View › Developer › Allow JavaScript from Apple Events** ticked.
+Until then, the browser scripts say which one is missing, and where it is.
 
 ### Asking the person running it
 

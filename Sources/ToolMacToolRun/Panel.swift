@@ -322,8 +322,8 @@ struct PanelView: View {
         switch kind {
         case .scripts: return "\(n) to click and run"
         case .composer: return "\(kind.count(n)) composing them"
-        case .utilities: return n == 0 ? "Sounds, the clipboard, parsing data" : "\(kind.count(n)) to reuse"
-        case .browser: return n == 0 ? "Drive your default browser" : "\(kind.count(n)) for your browser"
+        case .utilities: return n == 0 ? "Weather, news, cloud status, more" : "\(kind.count(n)) to reuse"
+        case .browser: return n == 0 ? "Google, YouTube, any page in Chrome" : "\(kind.count(n)) for Chrome"
         }
     }
 
