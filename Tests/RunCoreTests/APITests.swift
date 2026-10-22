@@ -130,7 +130,7 @@ final class APITests: XCTestCase {
 
     func testUtilitiesAndBrowserScriptsAreScriptsWithTheirGroup() async throws {
         let lib = Library(root: folder)
-        try "#!/bin/bash\n# Says it\nsay \"$@\"\n".write(to: lib.folder(.utilities).appendingPathComponent("speak.sh"), atomically: true, encoding: .utf8)
+        try "#!/bin/bash\n# Says it\n# Input: What to say\n# Input text (optional): More\nsay \"$@\"\n".write(to: lib.folder(.utilities).appendingPathComponent("speak.sh"), atomically: true, encoding: .utf8)
         try "#!/bin/bash\n# The page\necho page\n".write(to: lib.folder(.browser).appendingPathComponent("page-info.sh"), atomically: true, encoding: .utf8)
         host.catalogValue = Catalog(folder: folder, scripts: lib.scripts(), flows: lib.flows())
 
@@ -138,6 +138,11 @@ final class APITests: XCTestCase {
         let all = json(d)["scripts"] as? [[String: Any]] ?? []
         XCTAssertEqual(all.map { $0["name"] as? String }, ["hello.sh", "wipe.sh", "utilities/speak.sh", "browser/page-info.sh"])
         XCTAssertEqual(all.map { $0["group"] as? String }, ["scripts", "scripts", "utilities", "browser"])
+        let inputs = all[2]["inputs"] as? [[String: Any]]
+        XCTAssertEqual(inputs?.map { $0["prompt"] as? String }, ["What to say", "More"])
+        XCTAssertEqual(inputs?.map { $0["kind"] as? String }, ["argument", "stdin"])
+        XCTAssertEqual(inputs?.map { $0["optional"] as? Bool }, [false, true])
+        XCTAssertEqual((all[0]["inputs"] as? [Any])?.count, 0)
         let (_, u) = await api.send("GET", "/api/scripts?group=utilities")
         XCTAssertEqual((json(u)["scripts"] as? [[String: Any]])?.map { $0["name"] as? String }, ["utilities/speak.sh"])
         let (bad, b) = await api.send("GET", "/api/scripts?group=composer")

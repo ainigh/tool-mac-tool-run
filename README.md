@@ -23,10 +23,28 @@ apps use. The four grids:
   get just the answer (`google`), search YouTube or play a video (`youtube`), play music on
   YouTube Music (`youtube-music`), read any page. `browser.sh` does the driving.
 
+The utilities also look things up (`wikipedia`, `define`, `currency`, `world-clock`,
+`public-ip`), check things (`site-check`, `battery`, `system-info`) and help (`password`,
+`timer`, which plays a sound and speaks through the other utilities). The browser scripts build on
+each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
+`close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
+
 The **Composer** examples put them together: `ask-google`, `weather-now`, `news-briefing`,
 `urgent-news`, `cloud-check`, `youtube-search` (pick a video from the top results),
-`play-music`, and `morning-briefing` (the weather, urgent news, the top stories and any cloud
-service that's down, fetched at once, in one result).
+`play-music`, `morning-briefing` (the weather, urgent news, the top stories and any cloud
+service that's down, fetched at once, in one result), `research` (Wikipedia, Google and the
+news about a topic), `travel-check` (the weather, the time and the money where you're going),
+`focus-session` (music, a timer, then a break), `site-watch`, `mac-health`, `translate`,
+`tidy-chrome`, `inbox-check` and `new-password`.
+
+**The API board** (⌘5) is everything the HTTP API can run, a tile each, filling the window: every
+script, utility, browser script and flow, EPA's commands and Flow's own functions, with a search
+and a chip for each section. A click runs one: when its header says it takes something
+(`# Input: What should Google be asked?`), it asks first, with your last answers already in. Its
+result shows beside the tiles, live, and stays when it's done, printed something or not. A tile
+drags into a flow's block editor, as the editor's library does; right-click copies the `curl`
+command (or the request) another app would send for the same run. It's the way to try anything
+the API offers by hand.
 
 Utilities and browser scripts are scripts, exactly: a click runs one, the pencil edits it, a flow
 runs it by name (`run "speak" ["Done"]`), and other apps run them over the API. Only their

@@ -372,10 +372,17 @@ Two more grids hold scripts too, each in a folder of its own inside your scripts
   and takes `pause`, `play`, `next`, `previous` and `now`; `open-page`, `page-info`, `page-text`
   and `page-links` work on any page.
 
+More utilities look things up (`wikipedia`, `define`, `currency`, `world-clock`, `public-ip`),
+check things (`site-check`, `battery`, `system-info`) and help (`password`, `timer`). They build on
+each other: `timer` plays its sound and says its words through `play-sound` and `speak`;
+`translate` is `google --answer` (Google's own answer alone); `save-tabs`, `close-duplicate-tabs`,
+`maps` and `gmail` (your unread mail) drive Chrome through `browser.sh`.
+
 The Composer examples do the heavy lifting with them: `ask-google`, `weather-now`,
-`news-briefing`, `urgent-news`, `cloud-check`, `youtube-search`, `play-music` and
-`morning-briefing`, which fetches the weather, the news and the cloud services at the same time
-and keeps going when one can't be reached:
+`news-briefing`, `urgent-news`, `cloud-check`, `youtube-search`, `play-music`, `research`,
+`travel-check`, `focus-session`, `site-watch`, `mac-health`, `translate`, `tidy-chrome`,
+`inbox-check`, `new-password` and `morning-briefing`, which fetches the weather, the news and the
+cloud services at the same time and keeps going when one can't be reached:
 
 ```
 let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
@@ -425,6 +432,25 @@ JavaScript is an expression (`document.title`), or statements whose answer is gi
 Two things are asked once, the first time: macOS asks whether the app may control Chrome (click
 **Allow**), and Chrome needs **View › Developer › Allow JavaScript from Apple Events** ticked.
 Until then, the browser scripts say which one is missing, and where it is.
+
+### What a script or a flow takes: `Input:` lines
+
+A comment line near the top says what a script (or a flow) takes before it runs:
+
+```
+#!/bin/bash
+# Asks Google and gives back just the answer
+#
+# Input: What should Google be asked?
+# Input (optional): A language (English unless set)
+# Input text: The page to read
+```
+
+`Input:` is one argument (the whole answer, spaces and all); `(optional)` may be left empty
+(then it's left out); `Input text:` is text handed to it as its input (stdin). In a flow, the
+answers are its `args`. The API board asks for each before a click runs it (with the last
+answers already in), and `GET /api/scripts` and `/api/flows` list them for other apps. The
+summary on a cell is the first comment line that isn't an `Input:` line.
 
 ### Asking the person running it
 

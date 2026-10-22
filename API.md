@@ -98,13 +98,16 @@ is stopped).
   "folder": "/Users/sam/Scripts",
   "scripts": [
     {"name": "hello.sh", "title": "hello", "group": "scripts", "language": "bash", "language_name": "Bash",
-     "summary": "Says hello to whoever's named", "asks_for_input": false, "dangers": [], "uses_epa": false},
+     "summary": "Says hello to whoever's named", "asks_for_input": false, "dangers": [], "uses_epa": false,
+     "inputs": [{"prompt": "Who to greet (the world unless set)", "kind": "argument", "optional": true}]},
     {"name": "tidy.py", "title": "tidy", "group": "scripts", "language": "python", "language_name": "Python",
      "summary": "Moves old downloads to the Trash", "asks_for_input": false,
      "dangers": ["deletes files"], "uses_epa": false},
     {"name": "utilities/json-get.py", "title": "json-get", "group": "utilities", "language": "python",
      "language_name": "Python", "summary": "Picks a value out of JSON (its input, or a file)…",
-     "asks_for_input": false, "dangers": [], "uses_epa": false},
+     "asks_for_input": false, "dangers": [], "uses_epa": false,
+     "inputs": [{"prompt": "Where the value is: a.b.0.c, with * for every item", "kind": "argument", "optional": false},
+                {"prompt": "The JSON", "kind": "stdin", "optional": false}]},
     {"name": "browser/page-info.sh", "title": "page-info", "group": "browser", "language": "bash",
      "language_name": "Bash", "summary": "The page in front of your browser: its title, then its address",
      "asks_for_input": false, "dangers": [], "uses_epa": false}
@@ -124,6 +127,10 @@ is stopped).
   for good (rm -r / rm -f)", "runs commands as the administrator (sudo)"…). The card on the Mac
   shows it in red.
 - `asks_for_input`: it looks like it reads typed answers (`read -p`, `input()`): send them as `stdin`.
+- `inputs`: what its header says it takes, in order (`# Input: …` lines): each `argument` goes in
+  `args` (one argument each, spaces and all; an `optional` one can be left out), a `stdin` one
+  goes in `stdin`. The app's API board asks for exactly these before it runs one. A flow lists
+  its own in `/api/flows` the same way.
 
 What's *in* a script is never sent.
 
@@ -131,7 +138,7 @@ What's *in* a script is never sent.
 
 ```json
 {"folder": "/Users/sam/Scripts/composer",
- "flows": [{"name": "morning.flow", "title": "morning", "summary": "The day's first checks", "uses_epa": false}]}
+ "flows": [{"name": "morning.flow", "title": "morning", "summary": "The day's first checks", "uses_epa": false, "inputs": []}]}
 ```
 
 ### `POST /api/run`

@@ -36,9 +36,10 @@ public enum APIDoc {
         ## Endpoints
 
         GET  /api/health              is it up, which groups are on, the folder, how many scripts and flows
-        GET  /api/scripts             the scripts: name, title, group, language, language_name, summary, asks_for_input, dangers, uses_epa
+        GET  /api/scripts             the scripts: name, title, group, language, language_name, summary, asks_for_input, dangers, uses_epa, inputs
                                       (?group=utilities or ?group=browser: only that grid's)
-        GET  /api/flows               the flows: name, title, summary, uses_epa
+        GET  /api/flows               the flows: name, title, summary, uses_epa, inputs
+                                      (inputs: what each takes, in order: {"prompt", "kind": "argument"|"stdin", "optional"})
         POST /api/run                 run a script  {"script", "args"?, "stdin"?, "client"?, "wait"?, "stream"?}
         POST /api/compose             run a flow    {"flow", "args"?, "client"?, "wait"?, "stream"?}
                                       or Flow code  {"source", "name"?, …} (a text/plain body is the source)

@@ -55,6 +55,8 @@ struct RunsView: View {
                             Button { AppModel.shared.openGrid(kind) } label: { Label(kind.title, systemImage: kind.symbol) }
                                 .help("Open the \(kind.title) grid")
                         }
+                        Button { Windows.showAPIBoard() } label: { Label("API", systemImage: APIBoardView.symbol) }
+                            .help("Open the API board: everything other apps can run, each a click away")
                     }
                     .buttonStyle(SoftButtonStyle(large: true))
                     .padding(.top, 4)

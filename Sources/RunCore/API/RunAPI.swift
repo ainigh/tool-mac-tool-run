@@ -500,13 +500,19 @@ public final class RunAPI: @unchecked Sendable {
     static func scriptJSON(_ s: ScriptItem) -> [String: Any] {
         var out: [String: Any] = ["name": s.id, "title": s.title, "group": s.grid.rawValue, "language": s.language.rawValue,
                                   "language_name": s.language.title, "asks_for_input": s.asksForInput,
-                                  "dangers": s.dangers, "uses_epa": s.usesEPA]
+                                  "dangers": s.dangers, "uses_epa": s.usesEPA, "inputs": inputsJSON(s.inputs)]
         if let summary = s.summary { out["summary"] = summary }
         return out
     }
 
+    /// What it asks for before it runs (its header's `Input:` lines): each an argument, or text
+    /// for its stdin, in order.
+    static func inputsJSON(_ inputs: [ScriptInput]) -> [[String: Any]] {
+        inputs.map { ["prompt": $0.prompt, "kind": $0.kind == .text ? "stdin" : "argument", "optional": $0.optional] }
+    }
+
     static func flowJSON(_ f: ScriptItem) -> [String: Any] {
-        var out: [String: Any] = ["name": f.id, "title": f.title, "uses_epa": f.usesEPA]
+        var out: [String: Any] = ["name": f.id, "title": f.title, "uses_epa": f.usesEPA, "inputs": inputsJSON(f.inputs)]
         if let summary = f.summary { out["summary"] = summary }
         return out
     }

@@ -10,6 +10,8 @@ extension Examples {
         #!/bin/bash
         # Plays a sound: one of the Mac's own (Glass unless another is named), or a sound file
         #
+        # Input (optional): A Mac sound or a sound file (Glass unless set)
+        #
         #   play-sound.sh                 the Glass sound
         #   play-sound.sh Ping            another of the Mac's sounds (play-sound.sh list names them all)
         #   play-sound.sh ~/Music/a.mp3   a sound file (mp3, m4a, wav, aiff…)
@@ -44,6 +46,8 @@ extension Examples {
         ("utilities/play-song.sh", #"""
         #!/bin/bash
         # Plays a song in the Music app: the first whose name or artist matches, or carries on where it was
+        #
+        # Input (optional): A song or artist in your Music library (or pause, next, previous, now)
         #
         #   play-song.sh "Clair de Lune"   plays the first song in your library with that in its name (or artist)
         #   play-song.sh                   carries on playing (or starts)
@@ -97,6 +101,8 @@ extension Examples {
         #!/bin/bash
         # Says text out loud in the Mac's voice: its arguments, or its input
         #
+        # Input: What to say
+        #
         #   speak.sh "The backup is done"
         #   echo "Hello" | speak.sh
         #   SPEAK_VOICE=Samantha speak.sh "Hi"    another voice (say -v '?' lists them)
@@ -131,6 +137,8 @@ extension Examples {
         #!/bin/bash
         # The clipboard: prints what's on it, or puts its arguments (or its input) on it
         #
+        # Input (optional): Text to put on the clipboard (what's on it is shown unless set)
+        #
         #   clipboard.sh                 prints what's on the clipboard
         #   clipboard.sh some words      puts "some words" on it
         #   echo hi | clipboard.sh       puts its input on it
@@ -161,6 +169,9 @@ extension Examples {
         ("utilities/json-get.py", #"""
         #!/usr/bin/env python3
         # Picks a value out of JSON (its input, or a file): json-get.py 'items.0.name', with * for every item
+        #
+        # Input: Where the value is: a.b.0.c, with * for every item
+        # Input text: The JSON
         #
         #   echo '{"a": {"b": [1, 2]}}' | json-get.py a.b.1     -> 2
         #   json-get.py 'people.*.name' people.json              -> each name, one per line
@@ -211,6 +222,8 @@ extension Examples {
         #!/usr/bin/env python3
         # Turns CSV (its input, or a file) into JSON: a list with an object for each row, named by the header
         #
+        # Input text: The CSV (or tab-separated text)
+        #
         #   csv-to-json.py people.csv
         #   cat people.csv | csv-to-json.py | json-get.py '*.email'
         # Tab-separated text works too (it's told from the first line).
@@ -231,6 +244,8 @@ extension Examples {
         #!/usr/bin/env python3
         # Every web address in its input (or the files named), each once, in the order they come
         #
+        # Input text: Text with web addresses in it
+        #
         #   browser/page-links.sh | extract-urls.py
         #   extract-urls.py notes.txt mail.eml
         import re
@@ -247,6 +262,8 @@ extension Examples {
         ("utilities/weather.py", #"""
         #!/usr/bin/env python3
         # The weather now and for the next days: where this Mac is, or a place you name
+        #
+        # Input (optional): A place (where you are unless set)
         #
         #   weather.py                 where you are (told from your internet address)
         #   weather.py Paris           a place by name ("Paris, Texas" picks among the Parises)
@@ -271,32 +288,32 @@ extension Examples {
                96: "thunderstorms with hail", 99: "thunderstorms with heavy hail"}
 
 
-        def fetch(url):
+        def fetch(url, tries=3, timeout=15):
             request = urllib.request.Request(url, headers={"User-Agent": "ToolMacToolRun weather"})
-            for attempt in range(3):
+            for attempt in range(tries):
                 try:
-                    with urllib.request.urlopen(request, timeout=15) as response:
+                    with urllib.request.urlopen(request, timeout=timeout) as response:
                         return json.load(response)
                 except (urllib.error.URLError, TimeoutError):
-                    # A slow or dropped connection: once more, after a moment.
-                    if attempt == 2:
+                    # A slow or dropped connection: again, after a moment.
+                    if attempt == tries - 1:
                         raise
                     time.sleep(1 + attempt)
 
 
         def here():
-            """Where this Mac is, from its internet address: (name, latitude, longitude, country code)."""
+            """Where this Mac is, from its internet address: (name, latitude, longitude, country code).
+            Two services, each asked once and quickly: the second if the first doesn't answer."""
             try:
-                d = fetch("https://ipapi.co/json/")
-                if "latitude" in d:
-                    name = ", ".join(p for p in [d.get("city"), d.get("region"), d.get("country_name")] if p)
-                    return name, d["latitude"], d["longitude"], d.get("country_code", "")
-            except Exception:
+                d = fetch("https://ipinfo.io/json", tries=1, timeout=8)
+                lat, lon = d["loc"].split(",")
+                name = ", ".join(p for p in [d.get("city"), d.get("region"), d.get("country")] if p)
+                return name, float(lat), float(lon), d.get("country", "")
+            except (urllib.error.URLError, TimeoutError, KeyError, ValueError):
                 pass
-            d = fetch("https://ipinfo.io/json")
-            lat, lon = d["loc"].split(",")
-            name = ", ".join(p for p in [d.get("city"), d.get("region"), d.get("country")] if p)
-            return name, float(lat), float(lon), d.get("country", "")
+            d = fetch("https://ipapi.co/json/", tries=1, timeout=8)
+            name = ", ".join(p for p in [d.get("city"), d.get("region"), d.get("country_name")] if p)
+            return name, d["latitude"], d["longitude"], d.get("country_code", "")
 
 
         def find(place):
@@ -355,6 +372,8 @@ extension Examples {
         ("utilities/news.py", #"""
         #!/usr/bin/env python3
         # The latest headlines from Google News: the top stories, or about a topic you name
+        #
+        # Input (optional): A topic (the top stories unless set)
         #
         #   news.py                    the top stories
         #   news.py "electric cars"    about a topic
@@ -489,6 +508,8 @@ extension Examples {
         #!/usr/bin/env python3
         # Whether the cloud services you rely on are up: AWS, Google Cloud, Azure, GitHub, Cloudflare, OpenAI, Claude, Slack…
         #
+        # Input (optional): Which services, with spaces between them (all of them unless set)
+        #
         #   cloud-status.py              every service below, from its own status page
         #   cloud-status.py github aws   just these
         #   cloud-status.py --problems   only the ones with a problem (or one line saying all are up)
@@ -613,7 +634,7 @@ extension Examples {
             print("\n".join(name for name, _ in SERVICES))
             sys.exit(0)
         problems_only = "--problems" in args
-        wanted = [a.lower() for a in args if not a.startswith("--")]
+        wanted = [w.lower() for a in args if not a.startswith("--") for w in a.split()]
         chosen = [s for s in SERVICES if not wanted or any(w in s[0].lower().replace(" ", "") for w in wanted)]
         if not chosen:
             sys.exit(f"I don't know {' '.join(wanted)}. The services: {', '.join(n for n, _ in SERVICES)}")
@@ -630,6 +651,347 @@ extension Examples {
             print(f"{MARK[level]} {name}: {words}" + (f" — {incidents[0]}" if incidents else "")
                   + (f" (and {len(incidents) - 1} more)" if len(incidents) > 1 else ""))
         """# + "\n"),
+        ("utilities/wikipedia.py", #"""
+        #!/usr/bin/env python3
+        # What Wikipedia says about a topic, in a paragraph, with its address
+        #
+        # Input: A topic (Eiffel Tower, photosynthesis, Ada Lovelace…)
+        #
+        #   wikipedia.py Eiffel Tower
+        #   WIKIPEDIA_LANGUAGE=fr wikipedia.py Tour Eiffel
+        import json
+        import os
+        import sys
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        language = os.environ.get("WIKIPEDIA_LANGUAGE", "en")
+        topic = " ".join(sys.argv[1:]).strip()
+        if not topic:
+            sys.exit("What should Wikipedia be asked about? (wikipedia.py Eiffel Tower)")
+
+
+        def fetch(url):
+            request = urllib.request.Request(url, headers={"User-Agent": "ToolMacToolRun/1 (wikipedia example)"})
+            for attempt in range(2):
+                try:
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        return json.load(response)
+                except urllib.error.HTTPError as e:
+                    # Asked too often: wait as long as it says (a few seconds at most), then once more.
+                    if e.code != 429 or attempt == 1:
+                        raise
+                    time.sleep(min(5, int(e.headers.get("Retry-After") or 2)))
+
+
+        base = f"https://{language}.wikipedia.org"
+        try:
+            # The page whose title is closest to the topic, then its summary.
+            found = fetch(f"{base}/w/api.php?" + urllib.parse.urlencode(
+                {"action": "opensearch", "search": topic, "limit": 1, "namespace": 0, "format": "json"}))
+            if not found[1]:
+                sys.exit(f"Wikipedia has no page about {topic}.")
+            page = fetch(f"{base}/api/rest_v1/page/summary/" + urllib.parse.quote(found[1][0].replace(" ", "_")))
+        except urllib.error.HTTPError as e:
+            sys.exit(f"Wikipedia turned the question away ({e.code} {e.reason}). Try again in a minute.")
+        except urllib.error.URLError as e:
+            sys.exit(f"Couldn't reach Wikipedia ({e.reason}). Is this Mac online?")
+
+        print(page.get("title", topic) + (f" — {page['description']}" if page.get("description") else ""))
+        print()
+        print(page.get("extract", "").strip())
+        print()
+        print(page.get("content_urls", {}).get("desktop", {}).get("page", ""))
+        """# + "\n"),
+        ("utilities/define.py", #"""
+        #!/usr/bin/env python3
+        # What a word means: its definitions, how it's said, and an example of it in use
+        #
+        # Input: A word (in English)
+        #
+        #   define.py serendipity
+        import json
+        import sys
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        word = " ".join(sys.argv[1:]).strip()
+        if not word:
+            sys.exit("Which word? (define.py serendipity)")
+        url = "https://api.dictionaryapi.dev/api/v2/entries/en/" + urllib.parse.quote(word)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "ToolMacToolRun"}), timeout=15) as r:
+                entries = json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                sys.exit(f"No definition found for \"{word}\". Check its spelling, or try google.sh define {word}.")
+            raise
+        except urllib.error.URLError as e:
+            sys.exit(f"Couldn't reach the dictionary ({e.reason}). Is this Mac online?")
+
+        entry = entries[0]
+        said = entry.get("phonetic") or next((p.get("text") for p in entry.get("phonetics", []) if p.get("text")), "")
+        print(entry["word"] + (f"  {said}" if said else ""))
+        shown = 0
+        for meaning in entry.get("meanings", []):
+            for d in meaning.get("definitions", [])[:2]:
+                shown += 1
+                print(f"{shown}. ({meaning.get('partOfSpeech', '')}) {d['definition']}")
+                if d.get("example"):
+                    print(f"   “{d['example']}”")
+            if shown >= 5:
+                break
+        """# + "\n"),
+        ("utilities/currency.py", #"""
+        #!/usr/bin/env python3
+        # Converts money between currencies at today's rate: 100 USD to EUR
+        #
+        # Input: An amount and two currencies (100 USD to EUR)
+        #
+        #   currency.py 100 USD EUR
+        #   currency.py "250 gbp to jpy"
+        # Rates from open.er-api.com (updated daily, no account needed).
+        import json
+        import re
+        import sys
+        import urllib.error
+        import urllib.request
+
+        words = re.findall(r"[A-Za-z]{3}|[\d.,]+", " ".join(sys.argv[1:]).replace(" to ", " ").replace(" in ", " "))
+        amounts = [w for w in words if re.fullmatch(r"[\d.,]+", w)]
+        codes = [w.upper() for w in words if re.fullmatch(r"[A-Za-z]{3}", w)]
+        if len(codes) < 2:
+            sys.exit("Give an amount and two currencies: currency.py 100 USD EUR")
+        amount = float(amounts[0].replace(",", "")) if amounts else 1.0
+        source, target = codes[0], codes[1]
+        try:
+            with urllib.request.urlopen(f"https://open.er-api.com/v6/latest/{source}", timeout=15) as r:
+                data = json.load(r)
+        except urllib.error.URLError as e:
+            sys.exit(f"Couldn't reach the exchange rates ({e.reason}). Is this Mac online?")
+        if data.get("result") != "success":
+            sys.exit(f"{source} isn't a currency I know (three letters, such as USD, EUR, GBP, JPY).")
+        rate = data["rates"].get(target)
+        if rate is None:
+            sys.exit(f"{target} isn't a currency I know (three letters, such as USD, EUR, GBP, JPY).")
+        print(f"{amount:,.2f} {source} = {amount * rate:,.2f} {target}")
+        print(f"1 {source} = {rate:.4f} {target} (rates of {data.get('time_last_update_utc', 'today')[:16]})")
+        """# + "\n"),
+        ("utilities/world-clock.py", #"""
+        #!/usr/bin/env python3
+        # The time now in other places: the cities you name, or a few around the world
+        #
+        # Input (optional): Places (London, Tokyo, New York…), with commas between them
+        #
+        #   world-clock.py
+        #   world-clock.py "Lagos, Sydney, Los Angeles"
+        # A place is found among the world's time zones, else by name (Open-Meteo's place search).
+        import datetime
+        import json
+        import sys
+        import urllib.parse
+        import urllib.request
+        import zoneinfo
+
+        DEFAULT = ["Los Angeles", "New York", "London", "Paris", "Lagos", "Dubai", "India", "Tokyo", "Sydney"]
+        ALIASES = {"india": "Asia/Kolkata", "uk": "Europe/London", "china": "Asia/Shanghai", "japan": "Asia/Tokyo",
+                   "utc": "UTC", "gmt": "UTC", "san francisco": "America/Los_Angeles", "washington": "America/New_York"}
+
+        given = ",".join(sys.argv[1:])
+        places = [p.strip() for p in given.split(",") if p.strip()] or DEFAULT
+        zones = {z.split("/")[-1].replace("_", " ").lower(): z for z in zoneinfo.available_timezones() if "/" in z}
+
+
+        def find(place):
+            key = place.lower()
+            if key in ALIASES:
+                return ALIASES[key]
+            if key in zones:
+                return zones[key]
+            query = urllib.parse.urlencode({"name": place.split(",")[0], "count": 1, "language": "en"})
+            try:
+                with urllib.request.urlopen("https://geocoding-api.open-meteo.com/v1/search?" + query, timeout=10) as r:
+                    found = json.load(r).get("results") or []
+            except OSError:
+                return None
+            return found[0].get("timezone") if found else None
+
+
+        here = datetime.datetime.now().astimezone()
+        width = max(len(p) for p in places)
+        for place in places:
+            zone = find(place)
+            if not zone:
+                print(f"{place.ljust(width)}  (no place called that)")
+                continue
+            there = datetime.datetime.now(zoneinfo.ZoneInfo(zone))
+            hours = (there.utcoffset() - here.utcoffset()).total_seconds() / 3600
+            diff = "same time as here" if hours == 0 else f"{'+' if hours > 0 else ''}{hours:g} h"
+            day = "" if there.date() == here.date() else (" tomorrow" if there.date() > here.date() else " yesterday")
+            print(f"{place.ljust(width)}  {there.strftime('%H:%M')}{day}  {there.strftime('%a %d %b')}  ({diff})")
+        """# + "\n"),
+        ("utilities/site-check.py", #"""
+        #!/usr/bin/env python3
+        # Whether websites are up: each one's answer, how fast it came, and how long its certificate lasts
+        #
+        # Input: Websites, with spaces between them (example.com github.com)
+        #
+        #   site-check.py example.com https://github.com
+        # A line each, starting with ✅ up, ⚠️ up but slow (over 2 s), answering with an error (4xx) or its
+        # certificate ending within 14 days, or 🔴 down (no answer, or a server error, 5xx).
+        import concurrent.futures
+        import datetime
+        import socket
+        import ssl
+        import sys
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        sites = [w for a in sys.argv[1:] for w in a.replace(",", " ").split()]
+        if not sites:
+            sys.exit("Which websites? (site-check.py example.com github.com)")
+
+
+        def certificate_days(host):
+            try:
+                with socket.create_connection((host, 443), timeout=10) as sock:
+                    with ssl.create_default_context().wrap_socket(sock, server_hostname=host) as tls:
+                        ends = datetime.datetime.strptime(tls.getpeercert()["notAfter"], "%b %d %H:%M:%S %Y %Z")
+                return (ends.replace(tzinfo=datetime.timezone.utc) - datetime.datetime.now(datetime.timezone.utc)).days
+            except (OSError, ssl.SSLError, KeyError, ValueError):
+                return None
+
+
+        def check(site):
+            url = site if "://" in site else "https://" + site
+            host = urllib.parse.urlparse(url).hostname or site
+            started = time.time()
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 ToolMacToolRun site-check"})
+                with urllib.request.urlopen(request, timeout=15) as r:
+                    code = r.status
+            except urllib.error.HTTPError as e:
+                code = e.code
+            except (urllib.error.URLError, OSError) as e:
+                return f"🔴 {host}: down ({getattr(e, 'reason', e)})"
+            seconds = time.time() - started
+            days = certificate_days(host) if url.startswith("https") else None
+            worry = code >= 400 or seconds > 2 or (days is not None and days < 14)
+            mark = "🔴" if code >= 500 else "⚠️" if worry else "✅"
+            cert = f", certificate {days} days left" if days is not None else ""
+            return f"{mark} {host}: {code} in {seconds:.1f} s{cert}"
+
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            for line in pool.map(check, sites):
+                print(line)
+        """# + "\n"),
+        ("utilities/public-ip.py", #"""
+        #!/usr/bin/env python3
+        # This Mac's address on the internet, and where and who that looks like (city, country, provider)
+        import json
+        import sys
+        import urllib.error
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(urllib.request.Request("https://ipinfo.io/json", headers={"User-Agent": "ToolMacToolRun"}), timeout=15) as r:
+                d = json.load(r)
+        except urllib.error.URLError as e:
+            sys.exit(f"Couldn't reach ipinfo.io ({e.reason}). Is this Mac online?")
+        where = ", ".join(p for p in [d.get("city"), d.get("region"), d.get("country")] if p)
+        print(d.get("ip", "?"))
+        print(f"{where} · {d.get('org', 'unknown provider')}")
+        """# + "\n"),
+        ("utilities/password.py", #"""
+        #!/usr/bin/env python3
+        # A strong new password: letters, digits and symbols, 20 long unless another length is given
+        #
+        # Input (optional): How long (20 unless set)
+        import secrets
+        import string
+        import sys
+
+        length = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 20
+        length = max(8, min(128, length))
+        pool = string.ascii_letters + string.digits + "!#$%&*+-=?@^_"
+        while True:
+            word = "".join(secrets.choice(pool) for _ in range(length))
+            if any(c.isdigit() for c in word) and any(c.isupper() for c in word) and any(not c.isalnum() for c in word):
+                break
+        print(word)
+        """# + "\n"),
+        ("utilities/battery.sh", #"""
+        #!/bin/bash
+        # The battery: how full it is, whether it's charging, and how long it has left
+        set -euo pipefail
+
+        if ! command -v pmset >/dev/null 2>&1; then
+          echo "The battery needs pmset, which comes with macOS." >&2
+          exit 1
+        fi
+        line=$(pmset -g batt | grep -E '[0-9]+%' || true)
+        if [ -z "$line" ]; then
+          echo "This Mac has no battery (it runs on power)."
+          exit 0
+        fi
+        percent=$(printf '%s' "$line" | grep -oE '[0-9]+%' | head -n 1)
+        state=$(printf '%s' "$line" | awk -F'; ' '{print $2}')
+        left=$(printf '%s' "$line" | grep -oE '[0-9]+:[0-9]+ remaining' || true)
+        source=$(pmset -g batt | head -n 1 | grep -q "AC Power" && echo "on power" || echo "on battery")
+        echo "${percent} · ${state} · ${source}${left:+ · ${left}}"
+        """# + "\n"),
+        ("utilities/system-info.sh", #"""
+        #!/bin/bash
+        # This Mac at a glance: macOS, how long it's been on, how busy it is, memory, disk, and its network
+        set -uo pipefail
+
+        if [ "$(uname)" != "Darwin" ]; then
+          echo "This tells about a Mac; this computer is $(uname)." >&2
+          exit 1
+        fi
+        echo "macOS $(sw_vers -productVersion) on $(sysctl -n hw.model), $(sysctl -n hw.ncpu) cores"
+        echo "On for $(uptime | sed -E 's/.*up ([^,]*(, [0-9]+:[0-9]+)?).*/\1/')"
+        echo "Busy: $(sysctl -n vm.loadavg | awk '{print $2", "$3", "$4}') (load over 1, 5 and 15 minutes)"
+        pages_free=$(vm_stat | awk '/Pages free/ {gsub(/\./, "", $3); print $3}')
+        page_size=$(sysctl -n hw.pagesize)
+        total=$(sysctl -n hw.memsize)
+        echo "Memory: $((total / 1073741824)) GB, $((pages_free * page_size / 1048576)) MB free right now"
+        echo "Disk: $(df -h / | awk 'NR==2 {print $4 " free of " $2 " (" $5 " used)"}')"
+        wifi=$(networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi|AirPort/ {getline; print $2; exit}')
+        network=""
+        [ -n "$wifi" ] && network=$(networksetup -getairportnetwork "$wifi" 2>/dev/null | sed -n 's/^Current Wi-Fi Network: //p')
+        address=$(ipconfig getifaddr "${wifi:-en0}" 2>/dev/null || true)
+        echo "Network: ${network:-not on Wi-Fi}${address:+ · ${address} on this network}"
+        """# + "\n"),
+        ("utilities/timer.sh", #"""
+        #!/bin/bash
+        # Waits, then plays a sound and says so out loud: a timer (5 minutes unless another time is given)
+        #
+        # Input (optional): How many minutes (5 unless set)
+        # Input (optional): What to say when it's up (Time's up)
+        set -euo pipefail
+
+        minutes="${1:-5}"
+        said="Time's up"
+        message="${2:-$said}"
+        case "$minutes" in
+          ''|*[!0-9.]*) echo "How many minutes? A number, such as 25 (timer.sh 25 \"Time for a break\")." >&2; exit 1 ;;
+        esac
+        here="$(dirname "$0")"
+        seconds=$(awk -v m="$minutes" 'BEGIN { printf "%d", m * 60 }')
+        echo "Timer: ${minutes} min, until $(date -v+"${seconds}"S '+%H:%M' 2>/dev/null || date -d "+${seconds} seconds" '+%H:%M')."
+        sleep "$seconds"
+        # The other utilities do the telling: a sound, then the words.
+        bash "$here/play-sound.sh" Glass >/dev/null 2>&1 || true
+        bash "$here/speak.sh" "$message" >/dev/null 2>&1 || true
+        echo "$message"
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -644,6 +1006,8 @@ extension Examples {
         #   browser.sh read URL ['JS']   opens URL in a background tab, waits until the JavaScript gives something
         #                                back (the page's text if none is given), prints it, closes the tab
         #   browser.sh url | title | text | tabs     the page in front: its address, title or text; every tab
+        #                                (of the front window; tabs --all: of every window)
+        #   browser.sh close-duplicates  closes every tab showing the same address as one before it
         #   browser.sh js 'JS'           runs JavaScript in the page in front and prints what it gives back
         #   browser.sh js-in PART 'JS'   the same, in the first tab whose address has PART in it (music.youtube.com)
         #   browser.sh focus PART        brings that tab to the front
@@ -917,17 +1281,58 @@ extension Examples {
         }
 
         list_tabs() {
-          run_script <<'APPLESCRIPT'
+          run_script "${1:-}" <<'APPLESCRIPT'
         on run argv
           tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
             set rows to {}
-            repeat with t in tabs of front window
-              set end of rows to (title of t) & (character id 9) & (URL of t)
+            if item 2 of argv is "--all" then
+              set shown to windows
+            else
+              set shown to {front window}
+            end if
+            repeat with w in shown
+              repeat with t in tabs of w
+                set end of rows to (title of t) & (character id 9) & (URL of t)
+              end repeat
             end repeat
           end tell
           set AppleScript's text item delimiters to linefeed
           return rows as text
+        end run
+        APPLESCRIPT
+        }
+
+        # Closes each tab whose address an earlier tab (in any window) already shows. Prints how many.
+        close_duplicates() {
+          run_script <<'APPLESCRIPT'
+        on run argv
+          set seen to {}
+          set doomed to {}
+          tell application id "com.google.Chrome"
+            repeat with w in windows
+              repeat with t in tabs of w
+                set pageURL to URL of t
+                if seen contains {pageURL} then
+                  set end of doomed to id of t
+                else
+                  set end of seen to pageURL
+                end if
+              end repeat
+            end repeat
+            repeat with tid in doomed
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if id of t is (contents of tid) then
+                    close t
+                    -- The tabs after it have moved up: this window's list is read again for the next one.
+                    exit repeat
+                  end if
+                end repeat
+              end repeat
+            end repeat
+          end tell
+          return (count of doomed) as text
         end run
         APPLESCRIPT
         }
@@ -1009,7 +1414,8 @@ extension Examples {
             read_page "$1" "${2:-document.body ? document.body.innerText : ''}" ;;
           url|title) tab_property "$command" ;;
           text) id=$(tab_id) || exit 1; js_in_tab "$id" 'document.body ? document.body.innerText : ""' ;;
-          tabs) list_tabs ;;
+          tabs) list_tabs "${1:-}" ;;
+          close-duplicates) closed=$(close_duplicates) || exit 1; echo "Closed ${closed} duplicate tab(s)." ;;
           js) need "Which JavaScript? browser.sh js 'document.title'" "$*"; id=$(tab_id) || exit 1; js_in_tab "$id" "$*" ;;
           js-in) need "Which tab, and what JavaScript? browser.sh js-in music.youtube.com 'document.title'" "${2:-}"
             id=$(tab_id "$1") || exit 1
@@ -1021,7 +1427,7 @@ extension Examples {
           encode) need "What text? browser.sh encode 'two words'" "$*"; encode "$*" ;;
           *)
             echo "browser.sh doesn't know \"$command\"." >&2
-            echo "It knows: open, read, url, title, text, tabs, js, js-in, focus, go, wait and encode (the top of browser.sh says how each goes)." >&2
+            echo "It knows: open, read, url, title, text, tabs, close-duplicates, js, js-in, focus, go, wait and encode (the top of browser.sh says how each goes)." >&2
             exit 1 ;;
         esac
         """# + "\n"),
@@ -1029,8 +1435,11 @@ extension Examples {
         #!/bin/bash
         # Asks Google and gives back just the answer: Google's own (AI Overview, a quick answer, the info box), then the top results
         #
+        # Input: What should Google be asked?
+        #
         #   google.sh how tall is the eiffel tower
         #   google.sh "weather in Lagos"
+        #   google.sh --answer 100 usd in eur   Google's own answer alone (the top result's words if it has none)
         # Google is asked in Chrome, in a tab of its own behind the one you're on, closed after.
         # GOOGLE_LANGUAGE=fr asks in another language (English unless set).
         set -euo pipefail
@@ -1040,6 +1449,11 @@ extension Examples {
           echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
           exit 1
         fi
+        only_answer=false
+        if [ "${1:-}" = "--answer" ]; then
+          only_answer=true
+          shift
+        fi
         if [ $# -eq 0 ]; then
           echo "What should Google be asked? (google.sh how tall is the eiffel tower)" >&2
           exit 1
@@ -1047,7 +1461,7 @@ extension Examples {
 
         query=$(bash "$browser" encode "$*")
         address="https://www.google.com/search?hl=${GOOGLE_LANGUAGE:-en}&q=${query}"
-        answer=$(bash "$browser" read "$address" '
+        answer=$(bash "$browser" read "$address" "const onlyAnswer = $only_answer;"'
         const clean = s => (s || "").replace(/ /g, " ").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
         if (location.pathname.startsWith("/sorry") || /unusual traffic from your computer/i.test(document.body.innerText.slice(0, 3000))) return "TMR_ROBOT_CHECK";
         const answers = [];
@@ -1060,7 +1474,7 @@ extension Examples {
             .filter(l => !/^(Show (more|all)|AI responses may include mistakes|Learn more|Dive deeper|Listen|Thank you|Feedback|Generative AI is experimental)/i.test(l));
           add(said.join("\n").slice(0, 1500));
         }
-        for (const sel of [".Z0LcW", "[data-tts=answers]", ".hgKElc", ".IZ6rdc", "[data-attrid=\"wa:/description\"]", ".kno-rdesc span", "#wob_wc", ".vk_bk.dDoNo"]) {
+        for (const sel of ["#tw-target-text", ".dDoNo", "#cwos", ".Z0LcW", "[data-tts=answers]", ".hgKElc", ".IZ6rdc", "[data-attrid=\"wa:/description\"]", ".kno-rdesc span", "#wob_wc"]) {
           const found = document.querySelector(sel);
           if (found) add(found.innerText.slice(0, 800));
         }
@@ -1078,6 +1492,7 @@ extension Examples {
           results.push(`${results.length + 1}. ${name}` + (about ? `\n   ${about}` : "") + `\n   ${link.href}`);
           if (results.length === 5) break;
         }
+        if (onlyAnswer) return answers[0] || (results[0] || "").split("\n").slice(1, 2).join("").trim() || "Google gave no answer of its own.";
         const text = [answers.join("\n\n"), results.join("\n")].filter(Boolean).join("\n\n");
         return text || clean((document.querySelector("#search") || document.body).innerText).slice(0, 1500);
         ')
@@ -1092,6 +1507,8 @@ extension Examples {
         ("browser/youtube.sh", #"""
         #!/bin/bash
         # Searches YouTube: the top videos (a line each, its address last), or plays the first, or shows the results in Chrome
+        #
+        # Input: What to search YouTube for
         #
         #   youtube.sh lofi hip hop          the top 10 videos: title — channel · length · views · age — address
         #   youtube.sh --play lofi hip hop   plays the first one, in Chrome, in front
@@ -1146,6 +1563,8 @@ extension Examples {
         ("browser/youtube-music.sh", #"""
         #!/bin/bash
         # Plays music on YouTube Music in Chrome: a song, artist or album you name, or pause, play, next, previous, now
+        #
+        # Input (optional): A song, artist or album (or pause, play, next, previous, now)
         #
         #   youtube-music.sh                     opens YouTube Music
         #   youtube-music.sh bohemian rhapsody   plays the best match (a song first, else the top result)
@@ -1215,9 +1634,122 @@ extension Examples {
         sleep 3
         bash "$browser" js-in "$site" "$now_playing"
         """# + "\n"),
+        ("browser/translate.sh", #"""
+        #!/bin/bash
+        # Translates text with Google (in Chrome): "good morning" to French, or to English from anything
+        #
+        # Input: What to translate
+        # Input (optional): Into which language (English unless set)
+        set -euo pipefail
+
+        here="$(dirname "$0")"
+        if [ $# -eq 0 ] || [ -z "$1" ]; then
+          echo "What should be translated? (translate.sh \"good morning\" French)" >&2
+          exit 1
+        fi
+        language="${2:-English}"
+        # Google does the translating; google.sh gives back its answer alone.
+        bash "$here/google.sh" --answer "translate \"$1\" to $language"
+        """# + "\n"),
+        ("browser/gmail.sh", #"""
+        #!/bin/bash
+        # Your unread email in Gmail (in Chrome, where you're signed in): how many, then who from and what about
+        #
+        # Gmail is read in a tab of its own behind the one you're on, closed after. GMAIL_ACCOUNT=1 reads
+        # the second account you're signed in to (0, the first, unless set).
+        set -euo pipefail
+
+        browser="$(dirname "$0")/browser.sh"
+        if [ ! -f "$browser" ]; then
+          echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
+          exit 1
+        fi
+        inbox=$(bash "$browser" read "https://mail.google.com/mail/u/${GMAIL_ACCOUNT:-0}/#inbox" '
+        if (/accounts\.google\.com/.test(location.host)) return "TMR_SIGN_IN";
+        const main = document.querySelector("div[role=main]");
+        if (!main || !/Inbox/i.test(document.title)) return "";
+        const count = (document.title.match(/\((\d[\d,]*)\)/) || [])[1] || "0";
+        const rows = [...main.querySelectorAll("tr.zA.zE")].slice(0, 15).map(r => {
+          const from = r.querySelector(".yX [email], .yX .yP, .yX .zF");
+          const who = from ? (from.getAttribute("name") || from.textContent).trim() : "";
+          const about = ((r.querySelector(".bog") || {}).textContent || "").trim();
+          return "• " + who + " — " + about;
+        });
+        return count + " unread" + (rows.length ? "\n" + rows.join("\n") : "");
+        ')
+        if [ "$inbox" = "TMR_SIGN_IN" ]; then
+          echo "Chrome isn't signed in to Gmail." >&2
+          echo "Fix: open mail.google.com in Chrome and sign in once, then run this again." >&2
+          exit 1
+        fi
+        printf '%s\n' "$inbox"
+        """# + "\n"),
+        ("browser/maps.sh", #"""
+        #!/bin/bash
+        # Google Maps in Chrome: a place, or the way from one place to another ("home to the airport")
+        #
+        # Input: A place, or "from to somewhere"
+        set -euo pipefail
+
+        browser="$(dirname "$0")/browser.sh"
+        if [ ! -f "$browser" ]; then
+          echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
+          exit 1
+        fi
+        if [ $# -eq 0 ]; then
+          echo "Which place? (maps.sh Eiffel Tower, or maps.sh Paris to Lyon)" >&2
+          exit 1
+        fi
+        asked="$*"
+        case "$asked" in
+          *" to "*)
+            from="${asked%% to *}"
+            to="${asked#* to }"
+            address="https://www.google.com/maps/dir/$(bash "$browser" encode "$from")/$(bash "$browser" encode "$to")" ;;
+          *)
+            address="https://www.google.com/maps/search/$(bash "$browser" encode "$asked")" ;;
+        esac
+        bash "$browser" open "$address"
+        """# + "\n"),
+        ("browser/save-tabs.sh", #"""
+        #!/bin/bash
+        # Saves every tab open in Chrome (every window) to a Markdown file, a link each, to open again later
+        #
+        # Input (optional): Where to save them (~/Documents/Chrome Tabs/<date>.md unless set)
+        set -euo pipefail
+
+        browser="$(dirname "$0")/browser.sh"
+        if [ ! -f "$browser" ]; then
+          echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
+          exit 1
+        fi
+        file="${1:-$HOME/Documents/Chrome Tabs/$(date '+%Y-%m-%d %H.%M').md}"
+        mkdir -p "$(dirname "$file")"
+        tabs=$(bash "$browser" tabs --all)
+        {
+          echo "# Chrome tabs, $(date '+%A %d %B %Y, %H:%M')"
+          echo
+          printf '%s\n' "$tabs" | awk -F '\t' 'NF { printf "- [%s](%s)\n", ($1 == "" ? $2 : $1), $2 }'
+        } > "$file"
+        echo "Saved $(printf '%s\n' "$tabs" | grep -c .) tabs to $file"
+        """# + "\n"),
+        ("browser/close-duplicate-tabs.sh", #"""
+        #!/bin/bash
+        # Closes the tabs in Chrome that show a page another tab already shows (the first of each stays)
+        set -euo pipefail
+
+        browser="$(dirname "$0")/browser.sh"
+        if [ ! -f "$browser" ]; then
+          echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
+          exit 1
+        fi
+        bash "$browser" close-duplicates
+        """# + "\n"),
         ("browser/open-page.sh", #"""
         #!/bin/bash
         # Opens a page in Chrome (the address given, or example.com), waits for it to load, and prints its title
+        #
+        # Input (optional): An address (example.com unless set)
         set -euo pipefail
 
         browser="$(dirname "$0")/browser.sh"
@@ -1277,12 +1809,16 @@ extension Examples {
     public static let toolFlows: [(String, String)] = [
         ("ask-google.flow", #"""
         // Asks Google a question (the cell's arguments, or typed when it runs) and shows just the answer
+        //
+        // Input: What do you want to know?
         let question = if isEmpty args then ask "What do you want to know?" else join " " args
         let answer = run "google" [question]
         showResult answer
         """# + "\n"),
         ("weather-now.flow", #"""
         // The weather where you are, or in the place in the cell's arguments: a notice now, the next days shown
+        //
+        // Input (optional): A place (where you are unless set)
         let report = run "weather" args
         notify (report |> lines |> first)
         showResult report
@@ -1302,6 +1838,8 @@ extension Examples {
         """# + "\n"),
         ("urgent-news.flow", #"""
         // Checks the news for anything urgent (a topic in the cell's arguments narrows it): a sound and a notice if so
+        //
+        // Input (optional): A topic (the top stories unless set)
         let urgent = run "news" (["--critical"] @ args) |> lines |> filter (startsWith "🚨")
 
         if isEmpty urgent then
@@ -1313,6 +1851,8 @@ extension Examples {
         """# + "\n"),
         ("cloud-check.flow", #"""
         // Checks whether the cloud services you rely on are up (or the ones in the cell's arguments) and tells you about any that aren't
+        //
+        // Input (optional): Which services (all of them unless set)
         let problems = run "cloud-status" (["--problems"] @ args) |> lines |> filter (fun line -> not (startsWith "✅" line))
 
         if isEmpty problems then
@@ -1323,6 +1863,8 @@ extension Examples {
         """# + "\n"),
         ("youtube-search.flow", #"""
         // Searches YouTube (the cell's arguments, or typed when it runs), lets you pick one of the top videos, and plays it in Chrome
+        //
+        // Input: What to search YouTube for
         let search = if isEmpty args then ask "Search YouTube for…" else join " " args
         let videos = run "youtube" [search] |> lines
         let picked = choose "Play which one?" videos
@@ -1333,6 +1875,8 @@ extension Examples {
         """# + "\n"),
         ("play-music.flow", #"""
         // Plays a song, artist or album on YouTube Music in Chrome (the cell's arguments, or typed when it runs)
+        //
+        // Input: A song, artist or album
         let wanted = if isEmpty args then ask "Play what on YouTube Music?" else join " " args
         let playing = run "youtube-music" [wanted]
         notify playing
@@ -1352,6 +1896,125 @@ extension Examples {
 
         attempt "speak" [$"Good morning. {part 0 |> lines |> first}"] |> ignore
         showResult $"Weather\n{part 0}\n\nUrgent\n{part 1}\n\nTop stories\n{part 2}\n\nCloud services\n{part 3}"
+        """# + "\n"),
+        ("research.flow", #"""
+        // Researches a topic in one go: what Wikipedia says, Google's own answer, and the latest news about it
+        //
+        // Input: A topic
+        let topic = if isEmpty args then ask "Research what?" else join " " args
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "wikipedia" [topic])
+                (fun () -> attempt "google" ["--answer"; topic])
+                (fun () -> attempt "news" ["--count"; "5"; topic]) ]
+            |> map get
+        let part n = found |> skip n |> first
+
+        showResult $"{topic}\n\nWikipedia\n{part 0}\n\nGoogle\n{part 1}\n\nIn the news\n{part 2}"
+        """# + "\n"),
+        ("travel-check.flow", #"""
+        // Before a trip: the weather there, the time there, and what your money is worth there
+        //
+        // Input: Where you're going (a city)
+        // Input (optional): Your money and theirs (USD JPY)
+        let place = if isEmpty args then ask "Where are you going?" else first args
+        let money = args |> skip 1 |> join " "
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> get (attempt "weather" [place]))
+                (fun () -> get (attempt "world-clock" [place]))
+                (fun () -> if money = "" then "(give your money and theirs, such as USD JPY, to see it)" else get (attempt "currency" [$"100 {money}"])) ]
+        let part n = found |> skip n |> first
+
+        showResult $"{place}\n\nWeather\n{part 0}\n\nTime\n{part 1}\n\nMoney\n{part 2}"
+        """# + "\n"),
+        ("focus-session.flow", #"""
+        // A focus session: calm music on YouTube Music, then after the time's up the music stops and it says it's break time
+        //
+        // Input (optional): How many minutes (25 unless set)
+        let minutes = if isEmpty args then "25" else first args
+
+        attempt "youtube-music" ["lofi beats to study to"] |> ignore
+        notify $"Focus for {minutes} minutes: the music is on"
+        sleep (int minutes * 60)
+
+        attempt "youtube-music" ["pause"] |> ignore
+        run "play-sound" ["Glass"] |> ignore
+        attempt "speak" ["Time for a break"] |> ignore
+        notify "Break time: the music is paused"
+        """# + "\n"),
+        ("site-watch.flow", #"""
+        // Checks your websites (the ones given, or listed in sites.txt in your scripts folder) and tells you about any that are down or slow
+        //
+        // Input (optional): Websites, with spaces between them (the ones in sites.txt unless set)
+        let listed = sh "cat sites.txt 2>/dev/null || true" |> lines
+        let sites = if not (isEmpty args) then args else (if isEmpty listed then ["example.com"; "github.com"] else listed)
+        let report = run "site-check" sites |> lines
+        let trouble = report |> filter (fun line -> not (startsWith "✅" line))
+
+        if isEmpty trouble then
+            print $"✅ All {length report} sites are up."
+        else
+            notify $"{length trouble} of {length report} sites need a look: {first trouble}"
+            showResult (join "\n" report)
+        """# + "\n"),
+        ("mac-health.flow", #"""
+        // This Mac's health in one go: battery, disk, memory, network, its address on the internet, and the cloud services it relies on
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "battery" [])
+                (fun () -> attempt "disk-space" [])
+                (fun () -> attempt "system-info" [])
+                (fun () -> attempt "public-ip" [])
+                (fun () -> attempt "cloud-status" ["--problems"]) ]
+            |> map get
+        let part n = found |> skip n |> first
+        let battery = part 0
+        let level = if contains "%" battery then battery |> split "%" |> first |> trim |> int else 100
+
+        if level < 20 then
+            notify $"Battery low: {battery}"
+        showResult $"Battery\n{battery}\n\nDisk used\n{part 1}\n\nThis Mac\n{part 2}\n\nOn the internet\n{part 3}\n\nCloud services\n{part 4}"
+        """# + "\n"),
+        ("translate.flow", #"""
+        // Translates text with Google, shows it, and puts the translation on the clipboard
+        //
+        // Input: What to translate
+        // Input (optional): Into which language (English unless set)
+        let text = if isEmpty args then ask "What should be translated?" else first args
+        let language = if length args > 1 then args |> skip 1 |> first else "English"
+        let said = run "translate" [text; language]
+
+        said |> pipe "clipboard" [] |> ignore
+        showResult $"{said}\n\n(on the clipboard)"
+        """# + "\n"),
+        ("tidy-chrome.flow", #"""
+        // Tidies Chrome: saves every open tab to a file first (so nothing is lost), then closes the duplicates
+        let saved = run "save-tabs" []
+        let closed = run "close-duplicate-tabs" []
+
+        notify closed
+        print saved
+        print closed
+        """# + "\n"),
+        ("inbox-check.flow", #"""
+        // Checks Gmail for unread email: a notice with how many, and who they're from
+        let inbox = run "gmail" []
+
+        notify $"Gmail: {inbox |> lines |> first}"
+        showResult inbox
+        """# + "\n"),
+        ("new-password.flow", #"""
+        // Makes a strong password and puts it on the clipboard, ready to paste
+        //
+        // Input (optional): How long (20 unless set)
+        let word = run "password" args
+
+        word |> pipe "clipboard" [] |> ignore
+        notify "A new password is on the clipboard"
         """# + "\n"),
         ("page-aloud.flow", #"""
         // Says the title of the page in front in Chrome out loud, and copies its address

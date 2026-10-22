@@ -245,14 +245,16 @@ final class RunStore: ObservableObject {
                      fix: "Open the flow with the pencil to fix it.")
     }
 
-    /// Runs Flow code that isn't in a file (another app sent it over the API, and it was allowed).
-    /// It's in Runs under `name`; it has no cell.
+    /// Runs Flow code that isn't in a file (another app sent it over the API, and it was allowed;
+    /// or a tile of the API board made it). It's in Runs under `name`; it has no cell. `command`:
+    /// what Runs shows was run; `fix`: what to do when the code has a mistake.
     @discardableResult
-    func run(flowSource source: String, name: String, arguments: [String], library: Library, requestedBy: String?) -> UUID {
-        var rec = RunRecord(kind: .flow, name: name, file: nil, arguments: arguments, command: "flow code sent over the API")
+    func run(flowSource source: String, name: String, arguments: [String], library: Library, requestedBy: String?,
+             command: String = "flow code sent over the API", fix: String? = nil) -> UUID {
+        var rec = RunRecord(kind: .flow, name: name, file: nil, arguments: arguments, command: command)
         rec.requestedBy = requestedBy
         return start(flow: source, record: rec, arguments: arguments, library: library,
-                     fix: "It came from \(requestedBy ?? "another app"): it's for that app to fix.")
+                     fix: fix ?? "It came from \(requestedBy ?? "another app"): it's for that app to fix.")
     }
 
     private func start(flow source: String, record: RunRecord, arguments: [String], library: Library, fix: String) -> UUID {
