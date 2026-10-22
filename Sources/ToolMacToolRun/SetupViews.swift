@@ -42,7 +42,7 @@ struct FolderSetupView: View {
                 }
                 .buttonStyle(SoftButtonStyle(large: true))
                 VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Add the examples if the folder has no scripts (5 small scripts and 4 flows that use them)", isOn: $examples)
+                    Toggle("Add the examples if the folder has no scripts (\(Library.examplesSummary(for: .scripts)) that use them, \(Library.examplesSummary(for: .utilities)) and \(Library.examplesSummary(for: .browser)))", isOn: $examples)
                     Toggle("Add the EPA recipes (connect services, secure a site, onboard and offboard people…), and set EPA up if it isn't yet", isOn: $epa)
                 }
                 .padding(16)
@@ -67,7 +67,7 @@ struct FolderSetupView: View {
     /// The examples (into a folder with no scripts) and the EPA recipes, as ticked.
     private func addStarters() {
         guard let lib = app.library else { return }
-        if examples, lib.scripts().isEmpty { GridActions(app: app, kind: kind).addExamples() }
+        if examples, lib.scripts().isEmpty { GridActions(app: app, kind: kind).addExamples(all: true) }
         if epa, !lib.hasEPARecipes { GridActions(app: app, kind: kind).addEPARecipes() }
     }
 }

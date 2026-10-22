@@ -51,8 +51,10 @@ struct RunsView: View {
                     Text("Every run of a script or a flow is kept here, live while it runs.")
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
-                        Button { AppModel.shared.openGrid(.scripts) } label: { Label("Scripts Grid", systemImage: "terminal") }
-                        Button { AppModel.shared.openGrid(.composer) } label: { Label("Composer Grid", systemImage: "point.3.connected.trianglepath.dotted") }
+                        ForEach(GridKind.allCases, id: \.self) { kind in
+                            Button { AppModel.shared.openGrid(kind) } label: { Label(kind.title, systemImage: kind.symbol) }
+                                .help("Open the \(kind.title) grid")
+                        }
                     }
                     .buttonStyle(SoftButtonStyle(large: true))
                     .padding(.top, 4)

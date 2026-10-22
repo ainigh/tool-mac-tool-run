@@ -2,9 +2,12 @@ import Foundation
 
 /// A script or a flow in the folder: its file, what it's written in, and the line describing it.
 public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
-    /// Its file name (what the grid remembers it by).
-    public var id: String { url.lastPathComponent }
+    /// Its file name, after its grid's folder for a utility or a browser script
+    /// (`utilities/play-sound.sh`): what the grid remembers it by, and what `run` names it by.
+    public var id: String { grid.idPrefix + url.lastPathComponent }
     public var url: URL
+    /// The grid it's a cell of.
+    public var grid: GridKind
     public var language: ScriptLanguage
     /// Its name without the extension, as shown on its cell.
     public var title: String { (url.lastPathComponent as NSString).deletingPathExtension }
@@ -18,8 +21,9 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     /// It runs EPA (a flow with an `epa` step, or one of EPA's own scripts): its cell says so.
     public var usesEPA = false
 
-    public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil) {
+    public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil, grid: GridKind = .scripts) {
         self.url = url
+        self.grid = grid
         self.language = language
         self.summary = summary
         self.modified = modified
@@ -31,20 +35,84 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
         let text = Caution.text(of: url)
         item.dangers = Caution.dangers(in: text)
         item.asksForInput = Caution.asksForInput(text)
-        item.usesEPA = Examples.epaScripts.contains { $0.0 == url.lastPathComponent }
+        item.usesEPA = Examples.epaScripts.contains { $0.0 == id }
         return item
     }
 }
 
-/// Which grid: every script, or the flows that compose them.
+/// Which grid: the scripts at the top of the folder, the flows that compose them, the small
+/// reusable utilities, and the scripts that drive the browser. Utilities and browser scripts are
+/// scripts like any other (they run, and flows run them, the same way): only their folder differs.
 public enum GridKind: String, Codable, CaseIterable, Sendable {
-    case scripts, composer
+    case scripts, composer, utilities, browser
 
-    public var title: String { self == .scripts ? "Scripts" : "Composer" }
+    public var title: String {
+        switch self {
+        case .scripts: "Scripts"
+        case .composer: "Composer"
+        case .utilities: "Utilities"
+        case .browser: "Browser"
+        }
+    }
+
+    /// Its cells are flows (`.flow` files); every other grid's are scripts.
+    public var isFlow: Bool { self == .composer }
+
+    /// The grids whose cells are scripts, in the order `run` looks for a name.
+    public static let scriptGrids: [GridKind] = [.scripts, .utilities, .browser]
+
+    /// The folder its files are in, inside the scripts folder (nil: the scripts folder's top).
+    public var subfolder: String? {
+        switch self {
+        case .scripts: nil
+        case .composer: "composer"
+        case .utilities: "utilities"
+        case .browser: "browser"
+        }
+    }
+
+    /// What goes before a file's name in its id: its folder, for a utility or a browser script
+    /// (a flow is named by its file alone, as it always was).
+    public var idPrefix: String {
+        switch self {
+        case .utilities, .browser: subfolder.map { $0 + "/" } ?? ""
+        case .scripts, .composer: ""
+        }
+    }
+
+    /// What one of its cells is, and more than one.
+    public var noun: String {
+        switch self {
+        case .scripts: "script"
+        case .composer: "flow"
+        case .utilities: "utility"
+        case .browser: "browser script"
+        }
+    }
+
+    public var nouns: String { self == .utilities ? "utilities" : noun + "s" }
+
+    /// "1 flow", "3 utilities".
+    public func count(_ n: Int) -> String { "\(n) \(n == 1 ? noun : nouns)" }
+
+    /// What it's for, in a line.
+    public var purpose: String {
+        switch self {
+        case .scripts: "Every script, a click to run"
+        case .composer: "Flows that compose your scripts"
+        case .utilities: "Small reusable helpers: sounds, the clipboard, parsing data"
+        case .browser: "Scripts that drive your default browser and read pages"
+        }
+    }
+
+    /// The grid a script's id puts it in.
+    public static func of(scriptID id: String) -> GridKind {
+        scriptGrids.first { !$0.idPrefix.isEmpty && id.hasPrefix($0.idPrefix) } ?? .scripts
+    }
 }
 
 /// The folder the scripts live in: the scripts at its top, the flows (`.flow`) in its `composer`
-/// folder.
+/// folder, the utilities in `utilities` and the browser scripts in `browser`.
 public struct Library: Sendable {
     public let root: URL
     public static let flowExtension = "flow"
@@ -53,16 +121,26 @@ public struct Library: Sendable {
         self.root = root
     }
 
-    public var composerFolder: URL { root.appendingPathComponent("composer", isDirectory: true) }
+    /// The folder a grid's files are in.
+    public func folder(_ kind: GridKind) -> URL {
+        kind.subfolder.map { root.appendingPathComponent($0, isDirectory: true) } ?? root
+    }
+
+    public var composerFolder: URL { folder(.composer) }
 
     /// Files at the top of the folder that aren't scripts.
     static let notScripts: Set<String> = ["md", "txt", "json", "yaml", "yml", "toml", "csv", "tsv", "log", "plist", "xml", "html", "css",
                                           "png", "jpg", "jpeg", "gif", "svg", "pdf", "zip", "gz", "tar", "dmg", "pkg", "env", "ini", "cfg",
                                           "conf", "lock", "flow", "mov", "mp4", "mp3", "wav", "doc", "docx", "xls", "xlsx", "key", "pem"]
 
-    /// The scripts, by name.
-    public func scripts() -> [ScriptItem] {
-        files(in: root).compactMap { url in
+    /// Every script: the ones at the top of the folder, then the utilities, then the browser
+    /// scripts, each by name.
+    public func scripts() -> [ScriptItem] { GridKind.scriptGrids.flatMap(scripts(in:)) }
+
+    /// The scripts of one grid, by name.
+    public func scripts(in kind: GridKind) -> [ScriptItem] {
+        guard !kind.isFlow else { return [] }
+        return files(in: folder(kind)).compactMap { url in
             let ext = url.pathExtension.lowercased()
             if Self.notScripts.contains(ext) { return nil }
             let contents = Self.head(of: url)
@@ -70,14 +148,14 @@ public struct Library: Sendable {
             let lang = ScriptLanguage.detect(fileName: url.lastPathComponent, contents: contents, executableBit: executable)
             // A file we can't run and that isn't marked executable isn't a script (a note, a picture).
             if lang == .unknown { return nil }
-            return ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url)).cautioned()
+            return ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url), grid: kind).cautioned()
         }
     }
 
     /// The flows, by name.
     public func flows() -> [ScriptItem] {
         files(in: composerFolder).filter { $0.pathExtension.lowercased() == Self.flowExtension }.map { url in
-            var item = ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url))
+            var item = ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url), grid: .composer)
             let text = Caution.text(of: url)
             item.dangers = Caution.dangers(in: text)
             item.usesEPA = EPA.isUsed(in: text)
@@ -85,12 +163,13 @@ public struct Library: Sendable {
         }
     }
 
-    public func items(_ kind: GridKind) -> [ScriptItem] { kind == .scripts ? scripts() : flows() }
+    public func items(_ kind: GridKind) -> [ScriptItem] { kind.isFlow ? flows() : scripts(in: kind) }
 
-    /// The scripts' file names, as `run "…"` in a flow names them.
+    /// The scripts' names, as `run "…"` in a flow names them.
     public func scriptNames() -> [String] { scripts().map(\.id) }
 
-    /// The script `run "name"` means: by file name, or by the name without its extension.
+    /// The script `run "name"` means: by its id, or that without the extension; else a utility or
+    /// a browser script by its file name alone (the first, in `scriptGrids`' order).
     public func script(named name: String) -> ScriptItem? {
         let all = scripts()
         guard let match = ScriptNames.match(name, in: all.map(\.id)) else { return nil }
@@ -157,12 +236,14 @@ public struct Library: Sendable {
         return String(clean.drop { $0 == "." }).trimmingCharacters(in: .whitespaces)
     }
 
-    /// Makes the folder and its `composer` folder when they aren't there. Returns what it made.
+    /// Makes the folder and its grids' folders (`composer`, `utilities`, `browser`) when they
+    /// aren't there. Returns what it made.
     @discardableResult
     public func ensure() throws -> [String] {
         var made: [String] = []
         let fm = FileManager.default
-        for folder in [root, composerFolder] where !fm.fileExists(atPath: folder.path) {
+        let folders = [root] + GridKind.allCases.filter { $0.subfolder != nil }.map(folder)
+        for folder in folders where !fm.fileExists(atPath: folder.path) {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
             made.append(folder.path)
         }
@@ -183,10 +264,11 @@ public struct Library: Sendable {
         return candidate
     }
 
-    /// A new script, from its language's template, marked executable.
-    public func newScript(name: String, language: ScriptLanguage, contents: String? = nil) throws -> URL {
+    /// A new script on a grid (the Scripts grid unless another is named), from its language's
+    /// template, marked executable.
+    public func newScript(name: String, language: ScriptLanguage, contents: String? = nil, in kind: GridKind = .scripts) throws -> URL {
         try ensure()
-        let url = Self.freeName(name, ext: language.fileExtension, in: root)
+        let url = Self.freeName(name, ext: language.fileExtension, in: folder(kind.isFlow ? .scripts : kind))
         try (contents ?? language.template).write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
@@ -200,14 +282,36 @@ public struct Library: Sendable {
         return url
     }
 
-    /// Puts the examples in the folder, leaving any already there as they are. Returns the ones added.
+    /// Puts examples in the folder, leaving any already there as they are: a grid's own (the
+    /// Scripts and Composer grids share theirs), or, for no grid, every one. Then the flows that
+    /// use the utilities and browser scripts, once every script they run is there. Returns the
+    /// ones added.
     @discardableResult
-    public func addExamples() throws -> [URL] {
-        try add(scripts: Examples.scripts, flows: Examples.flows)
+    public func addExamples(for kind: GridKind? = nil) throws -> [URL] {
+        var added: [URL]
+        switch kind {
+        case nil: added = try add(scripts: Examples.allScripts, flows: Examples.flows)
+        case .scripts?, .composer?: added = try add(scripts: Examples.scripts, flows: Examples.flows)
+        case .utilities?: added = try add(scripts: Examples.utilities, flows: [])
+        case .browser?: added = try add(scripts: Examples.browser, flows: [])
+        }
+        let names = LocalFlowHost.names(in: self)
+        added += try add(scripts: [], flows: Examples.toolFlows.filter { (try? Flow.check($0.1, scripts: names)) != nil })
+        return added
+    }
+
+    /// What `addExamples(for:)` puts in a grid, in words ("7 utilities", "5 scripts and 4 flows").
+    public static func examplesSummary(for kind: GridKind) -> String {
+        switch kind {
+        case .scripts, .composer: "\(GridKind.scripts.count(Examples.scripts.count)) and \(GridKind.composer.count(Examples.flows.count))"
+        case .utilities: GridKind.utilities.count(Examples.utilities.count)
+        case .browser: GridKind.browser.count(Examples.browser.count)
+        }
     }
 
     /// Puts these scripts (marked executable) and flows in the folder, leaving any already there
-    /// as they are. Returns the ones added.
+    /// as they are. A script's name is its id (`utilities/speak.sh` goes in `utilities`).
+    /// Returns the ones added.
     func add(scripts: [(String, String)], flows: [(String, String)]) throws -> [URL] {
         try ensure()
         var added: [URL] = []

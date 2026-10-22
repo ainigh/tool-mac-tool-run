@@ -152,7 +152,13 @@ public final class RunAPI: @unchecked Sendable {
         case "/api/scripts":
             try need(.catalog, s)
             let c = try await catalog()
-            return JSON.response(["folder": c.folder.path, "scripts": c.scripts.map(Self.scriptJSON)])
+            // ?group=utilities (or scripts, browser): one grid's scripts only.
+            let group = req.query["group"].flatMap { GridKind(rawValue: $0) }
+            if let wanted = req.query["group"], group == nil || group?.isFlow == true {
+                throw HTTPError(status: 400, code: "unknown_group", message: "there's no group of scripts called \(wanted); the groups: \(GridKind.scriptGrids.map(\.rawValue).joined(separator: ", "))")
+            }
+            let scripts = c.scripts.filter { group == nil || $0.grid == group }
+            return JSON.response(["folder": c.folder.path, "scripts": scripts.map(Self.scriptJSON)])
         case "/api/flows":
             try need(.catalog, s)
             let c = try await catalog()
@@ -492,7 +498,7 @@ public final class RunAPI: @unchecked Sendable {
     // MARK: Writing responses
 
     static func scriptJSON(_ s: ScriptItem) -> [String: Any] {
-        var out: [String: Any] = ["name": s.id, "title": s.title, "language": s.language.rawValue,
+        var out: [String: Any] = ["name": s.id, "title": s.title, "group": s.grid.rawValue, "language": s.language.rawValue,
                                   "language_name": s.language.title, "asks_for_input": s.asksForInput,
                                   "dangers": s.dangers, "uses_epa": s.usesEPA]
         if let summary = s.summary { out["summary"] = summary }

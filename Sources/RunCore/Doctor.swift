@@ -39,7 +39,13 @@ public enum Doctor {
         }
         let scripts = library.scripts()
         let flows = library.flows()
-        lines.append(Line(status: .ok, title: "\(scripts.count) script\(scripts.count == 1 ? "" : "s"), \(flows.count) flow\(flows.count == 1 ? "" : "s")",
+        // The utilities and browser scripts are scripts too: said among them.
+        let grouped = [GridKind.utilities, .browser].compactMap { kind -> String? in
+            let n = scripts.filter { $0.grid == kind }.count
+            return n == 0 ? nil : kind.count(n)
+        }
+        lines.append(Line(status: .ok, title: GridKind.scripts.count(scripts.count) + (grouped.isEmpty ? "" : " (\(grouped.joined(separator: ", ")) among them)")
+                          + ", " + GridKind.composer.count(flows.count),
                           detail: nil, fix: nil))
         // Each language, and each program its scripts are run by: the one their #! line names, or
         // the language's own.

@@ -7,14 +7,15 @@ import RunCore
 //   flow check composer/morning.flow         check it, and show the type of everything it defines
 //   flow functions                           every builtin function, with its type
 //
-// The scripts it runs are the ones in the folder above `composer/` (or --folder <path>).
+// The scripts it runs are the ones in the folder above `composer/` (or --folder <path>), and its
+// `utilities/` and `browser/` folders.
 
 let usage = """
 Usage:
   flow run <file.flow> [args…]     check a flow, then run it (its questions are asked here)
   flow check <file.flow>           check a flow and show the type of each name it defines
   flow functions                   list the builtin functions and their types
-  flow examples <folder>           put the example scripts and flows in a folder (keeps what's there)
+  flow examples <folder>           put the example scripts, utilities, browser scripts and flows in a folder (keeps what's there)
   flow recipes <folder>            put the EPA recipes in a folder: setup-epa, epa-keys and the epa-… flows
 Options:
   --folder <path>                  the scripts folder (default: the folder above composer/)

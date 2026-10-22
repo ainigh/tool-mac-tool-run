@@ -56,7 +56,7 @@ curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
 | route | switch | does |
 |---|---|---|
 | `GET  /api/health` | — | whether it's up, which endpoints are on, the folder |
-| `GET  /api/scripts` | `catalog` | the scripts in the folder: name, language, description, what they look like they do |
+| `GET  /api/scripts` | `catalog` | the scripts in the folder (and its utilities and browser scripts): name, group, language, description, what they look like they do |
 | `GET  /api/flows` | `catalog` | the flows in the folder's `composer` folder |
 | `POST /api/run` | `run` | runs a script once it's allowed on the Mac |
 | `POST /api/compose` | `compose` | runs a flow, or Flow code you send, once it's allowed |
@@ -97,19 +97,28 @@ is stopped).
 {
   "folder": "/Users/sam/Scripts",
   "scripts": [
-    {"name": "hello.sh", "title": "hello", "language": "bash", "language_name": "Bash",
+    {"name": "hello.sh", "title": "hello", "group": "scripts", "language": "bash", "language_name": "Bash",
      "summary": "Says hello to whoever's named", "asks_for_input": false, "dangers": [], "uses_epa": false},
-    {"name": "tidy.py", "title": "tidy", "language": "python", "language_name": "Python",
+    {"name": "tidy.py", "title": "tidy", "group": "scripts", "language": "python", "language_name": "Python",
      "summary": "Moves old downloads to the Trash", "asks_for_input": false,
      "dangers": ["deletes files"], "uses_epa": false},
-    {"name": "clean-builds.sh", "title": "clean-builds", "language": "bash", "language_name": "Bash",
-     "summary": "Empties every build folder", "asks_for_input": false,
-     "dangers": ["deletes files for good (rm -r / rm -f)"], "uses_epa": false}
+    {"name": "utilities/json-get.py", "title": "json-get", "group": "utilities", "language": "python",
+     "language_name": "Python", "summary": "Picks a value out of JSON (its input, or a file)…",
+     "asks_for_input": false, "dangers": [], "uses_epa": false},
+    {"name": "browser/page-info.sh", "title": "page-info", "group": "browser", "language": "bash",
+     "language_name": "Bash", "summary": "The page in front of your browser: its title, then its address",
+     "asks_for_input": false, "dangers": [], "uses_epa": false}
   ]
 }
 ```
 
 - `name` is what you send to run it (the file name; the name without its extension works too).
+  A utility's or browser script's name starts with its folder (`utilities/json-get.py`); its file
+  name alone works too (`json-get`) when no script at the top of the folder has it.
+- `group` is the grid it's on: `scripts` (the top of the folder), `utilities` (small reusable
+  helpers, in its `utilities` folder) or `browser` (scripts that drive the default browser, in
+  its `browser` folder). They're all scripts, and run the same way. `?group=utilities` (or
+  `browser`, `scripts`) lists one group only.
 - `summary` is the script's first comment line, when it has one.
 - `dangers`: what the script looks like it does that can't be undone, in words ("deletes files
   for good (rm -r / rm -f)", "runs commands as the administrator (sudo)"…). The card on the Mac
@@ -133,7 +142,7 @@ What's *in* a script is never sent.
 
 | field | | |
 |---|---|---|
-| `script` | required | its `name` from `/api/scripts` (with or without the extension) |
+| `script` | required | its `name` from `/api/scripts` (with or without the extension; a utility or browser script by its file name alone, too) |
 | `args` | optional | a list of strings (numbers are taken as written), or one line split as a shell would: `"--all '/tmp/my files'"` |
 | `stdin` | optional | text handed to the script as its input |
 | `client` | optional | your app's name, shown on the Mac ("My App wants to run a script"). Without it, your `X-Client` header, else your User-Agent's first word (`curl`) |

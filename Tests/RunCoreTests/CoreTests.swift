@@ -133,13 +133,13 @@ final class RunnerTests: XCTestCase {
     func testLibraryAndExamplesEndToEnd() throws {
         let lib = Library(root: folder)
         let added = try lib.addExamples()
-        XCTAssertEqual(added.count, Examples.scripts.count + Examples.flows.count)
+        XCTAssertEqual(added.count, Examples.allScripts.count + Examples.flows.count + Examples.toolFlows.count)
         // Again: nothing new, nothing lost.
         XCTAssertTrue(try lib.addExamples().isEmpty)
         let scripts = lib.scripts()
-        XCTAssertEqual(Set(scripts.map(\.id)), Set(Examples.scripts.map(\.0)))
+        XCTAssertEqual(Set(scripts.map(\.id)), Set(Examples.allScripts.map(\.0)))
         XCTAssertEqual(scripts.first { $0.id == "hello.sh" }?.summary, "Says hello, with the date, to whoever is named (or the world)")
-        XCTAssertEqual(lib.flows().count, Examples.flows.count)
+        XCTAssertEqual(lib.flows().count, Examples.flows.count + Examples.toolFlows.count)
         XCTAssertEqual(lib.script(named: "hello")?.id, "hello.sh")
 
         let lines = Locked<[String]>([])
@@ -341,7 +341,7 @@ final class CautionTests: XCTestCase {
         // Comments, and things that only look alike, don't count.
         XCTAssertEqual(Caution.dangers(in: "# rm -rf / would be bad\necho firmware\nls -rf\nterraform plan"), [])
         XCTAssertEqual(Caution.dangers(in: "git push origin main\nrm file.txt"), [])
-        for (_, source) in Examples.scripts + Examples.flows { XCTAssertEqual(Caution.dangers(in: source), [], source) }
+        for (_, source) in Examples.allScripts + Examples.flows + Examples.toolFlows { XCTAssertEqual(Caution.dangers(in: source), [], source) }
     }
 
     func testScriptsThatAskForTypedInput() {
@@ -352,7 +352,7 @@ final class CautionTests: XCTestCase {
         XCTAssertTrue(Caution.asksForInput("answer = gets.chomp"))
         XCTAssertFalse(Caution.asksForInput("text = sys.stdin.read()\nprint(open(p).read())"))
         XCTAssertFalse(Caution.asksForInput("# read -p in a comment\necho hi"))
-        for (_, source) in Examples.scripts { XCTAssertFalse(Caution.asksForInput(source), source) }
+        for (_, source) in Examples.allScripts { XCTAssertFalse(Caution.asksForInput(source), source) }
     }
 
     func testAskSettingIsKeptAndOptional() throws {
