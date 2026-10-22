@@ -220,11 +220,40 @@ struct ApprovalCard: View {
     private var color: Color { risky ? .red : .orange }
 
     private var what: String {
-        switch r.what {
+        if let a = r.automation {
+            return a.isEmpty ? "wants to stop this running by itself" : "wants this to run by itself, \(a.summary)"
+        }
+        return switch r.what {
         case .script: "wants to run a script"
         case .flow: "wants to run a flow"
         case .source: "wants to run Flow code it sent"
         }
+    }
+
+    /// Why the asker wants it, in its words, or that it didn't say (so the person knows that too).
+    private var why: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: r.why == nil ? "questionmark.bubble" : "text.quote")
+                .foregroundStyle(r.why == nil ? Color.orange : .secondary)
+            Text(r.why.map { "Why, in \(r.client)'s words: \($0)" } ?? "\(r.client) gave no reason for this. Run it only if you expected it.")
+                .font(.system(size: 13.5, weight: r.why == nil ? .semibold : .regular))
+                .foregroundStyle(r.why == nil ? Color.orange : .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
+
+    /// What allowing an automation does, exactly.
+    private var automationLine: String? {
+        guard let a = r.automation else { return nil }
+        if a.isEmpty { return "Allow takes its automation tags off: it stops running by itself. Nothing runs now." }
+        var s = "Allow tags \(r.name) to run by itself: " + a.tags.map { $0.title.lowercased() + " (" + $0.about + ")" }.joined(separator: "; ")
+        if !a.after.isEmpty { s += " After: " + a.after.joined(separator: ", ") + "." }
+        if a.once { s += " One time only." }
+        return s + " Nothing runs now; the Automation board shows it, and right-click → Automation changes it."
     }
 
     var body: some View {
@@ -260,6 +289,16 @@ struct ApprovalCard: View {
                 Spacer(minLength: 0)
             }
             details
+            Group {
+                why
+                if let automationLine {
+                    Label(automationLine, systemImage: "clock.badge.checkmark")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             if risky {
                 Label("It looks like it \(GridActions.list(r.dangers)).", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 14, weight: .semibold))
@@ -267,18 +306,24 @@ struct ApprovalCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 0)
-            Text("Nothing has run yet. Run lets it run this once, as if you'd clicked its cell; Don't Run tells \(r.client) no.")
+            Text(r.automation == nil
+                 ? "Nothing has run yet. Run lets it run this once, as if you'd clicked its cell; Don't Run tells \(r.client) no."
+                 : "Nothing runs now. Allow tags it as asked; Don't Allow tells \(r.client) no and changes nothing.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
-                Button("Don't Run") { center.answer(pending.id, .denied) }
+                Button(r.automation == nil ? "Don't Run" : "Don't Allow") { center.answer(pending.id, .denied) }
                     .buttonStyle(SoftButtonStyle(large: true))
                     .help("Nothing runs; \(r.client) hears that you said no")
-                Button { center.answer(pending.id, .allowed) } label: { Label("Run", systemImage: "play.fill") }
+                Button { center.answer(pending.id, .allowed) } label: {
+                    Label(r.automation == nil ? "Run" : "Allow", systemImage: r.automation == nil ? "play.fill" : "clock.badge.checkmark")
+                }
                     .buttonStyle(ProminentButtonStyle(color: risky ? .red : .accentColor, large: true))
-                    .help("Run it now, this once (it shows on its cell and in Runs, and \(r.client) gets what it prints)")
+                    .help(r.automation == nil
+                          ? "Run it now, this once (it shows on its cell and in Runs, and \(r.client) gets what it prints)"
+                          : "Tag it as asked (the Automation board shows it; nothing runs now)")
             }
             countdown
         }

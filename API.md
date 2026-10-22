@@ -8,11 +8,14 @@ the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serve
 - **Run** a script, a flow, or Flow code your app sends, and get back how it went and everything
   it printed (all at once, or streamed as it prints).
 - **Read** the runs, and stop one.
+- **Automate**: tag a script or a flow to run by itself, on a schedule or when something happens.
 
 **Nothing runs without the person's say-so.** Every run request shows a large card on the Mac
-naming your app, what would run (the exact command, or your Flow code in full) and anything it
-looks like it does that can't be undone, with **Run** and **Don't Run**. Your request waits for
-the click. No click in two minutes is Don't Run.
+naming your app, why it wants the run (your `why`, in your words; the card says when you gave
+none), what would run (the exact command, or your Flow code in full) and anything it looks like
+it does that can't be undone, with **Run** and **Don't Run**. Your request waits for the click.
+No click in two minutes is Don't Run. **Send `why` with every run**: it's what the person reads
+before deciding.
 
 This document is the contract for client apps. New fields may be added to responses, but nothing
 listed here changes meaning.
@@ -36,7 +39,7 @@ curl -s localhost:8768/api/health
 curl -s localhost:8768/api/scripts
 
 # run one (waits for Run on the Mac, then for the script to end)
-curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App"}'
+curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App", "why": "You pressed Greet in My App"}'
 # {"id":"…","name":"hello.sh","state":"succeeded","ok":true,"code":0,"seconds":0.04,
 #  "output":"Hello, world!\n","stdout":"Hello, world!\n","stderr":"", …}
 
@@ -49,6 +52,9 @@ curl -s localhost:8768/api/compose -H 'Content-Type: text/plain' --data-binary @
 
 # check Flow code without running anything (nothing is asked on the Mac)
 curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
+
+# tag a script to run by itself every evening (waits for Allow on the Mac; nothing runs now)
+curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
 ```
 
 ## Endpoints
@@ -61,6 +67,8 @@ curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
 | `POST /api/run` | `run` | runs a script once it's allowed on the Mac |
 | `POST /api/compose` | `compose` | runs a flow, or Flow code you send, once it's allowed |
 | `POST /api/check` | `compose` | checks Flow code: its types, or its mistake (nothing runs, nothing is asked) |
+| `GET  /api/automation` | `catalog` | the automation tags there are, and the items that run by themselves |
+| `POST /api/automation` | `run` / `compose` | tags a script (or a flow) to run by itself, once it's allowed on the Mac |
 | `GET  /api/doc` | — | this contract in one page of text (`text/markdown`), with the address and token filled in |
 | `GET  /api/runs` | `runs` | the latest runs (yours and the person's), without their output |
 | `GET  /api/runs/{id}` | `runs` | one run, with its output (and a flow's steps) |
@@ -99,7 +107,7 @@ is stopped).
   "scripts": [
     {"name": "hello.sh", "title": "hello", "group": "scripts", "language": "bash", "language_name": "Bash",
      "summary": "Says hello to whoever's named", "asks_for_input": false, "dangers": [], "uses_epa": false,
-     "inputs": [{"prompt": "Who to greet (the world unless set)", "kind": "argument", "optional": true}]},
+     "inputs": [{"prompt": "Who to greet (the world unless set)", "kind": "argument", "optional": true, "why": "It's put in the greeting as typed"}]},
     {"name": "tidy.py", "title": "tidy", "group": "scripts", "language": "python", "language_name": "Python",
      "summary": "Moves old downloads to the Trash", "asks_for_input": false,
      "dangers": ["deletes files"], "uses_epa": false},
@@ -129,8 +137,9 @@ is stopped).
 - `asks_for_input`: it looks like it reads typed answers (`read -p`, `input()`): send them as `stdin`.
 - `inputs`: what its header says it takes, in order (`# Input: …` lines): each `argument` goes in
   `args` (one argument each, spaces and all; an `optional` one can be left out), a `stdin` one
-  goes in `stdin`. The app's API board asks for exactly these before it runs one. A flow lists
-  its own in `/api/flows` the same way.
+  goes in `stdin`; `why` (when the header has a `# Why:` line under it) says what the answer is
+  for, to show whoever types it. The app's API board asks for exactly these before it runs one. A
+  flow lists its own in `/api/flows` the same way.
 
 What's *in* a script is never sent.
 
@@ -144,7 +153,7 @@ What's *in* a script is never sent.
 ### `POST /api/run`
 
 ```json
-{"script": "hello.sh", "args": ["world", "--loud"], "client": "My App"}
+{"script": "hello.sh", "args": ["world", "--loud"], "client": "My App", "why": "You pressed Greet in My App's toolbar"}
 ```
 
 | field | | |
@@ -153,8 +162,10 @@ What's *in* a script is never sent.
 | `args` | optional | a list of strings (numbers are taken as written), or one line split as a shell would: `"--all '/tmp/my files'"` |
 | `stdin` | optional | text handed to the script as its input |
 | `client` | optional | your app's name, shown on the Mac ("My App wants to run a script"). Without it, your `X-Client` header, else your User-Agent's first word (`curl`) |
+| `why` | **send it** | why your app wants this run, in a sentence or two the person reads on the card before clicking Run: what pressed the button, what the result is for. Without it the card says your app gave no reason. Up to six lines; kept with the run as `why`. `reason` means the same |
 | `wait` | optional | `false`: answer as soon as it has started (`202`), then read it from `/api/runs/{id}` |
 | `stream` | optional | `true`: answer at once and send events as they happen (see *Streaming*) |
+| `automation` | optional | tag it to run by itself instead of running it now (see *Automation*) |
 
 The script runs exactly as a click on its cell runs it: in the scripts folder, with the person's
 shell PATH, its `#!` line or its language's program. It shows on its cell and in Runs, marked as
@@ -169,7 +180,7 @@ connection doesn't stop the run, `POST /api/runs/{id}/stop` does):
   "code": 0, "seconds": 0.04, "started": "2026-10-18T09:12:03.120Z", "ended": "2026-10-18T09:12:03.161Z",
   "command": "cd /Users/sam/Scripts && /bin/bash /Users/sam/Scripts/hello.sh world --loud", "arguments": ["world", "--loud"],
   "output": "HELLO, WORLD!\n", "stdout": "HELLO, WORLD!\n", "stderr": "", "trimmed": false,
-  "requested_by": "My App, on this Mac"
+  "requested_by": "My App, on this Mac", "why": "You pressed Greet in My App's toolbar"
 }
 ```
 
@@ -215,7 +226,46 @@ on the Mac. The card shows your code in full; nothing runs until Run is clicked.
 A flow's result has `"kind": "flow"`, its own output (what it `print`s, a line as each step starts
 and ends) and `steps`: each script it ran, as a run of its own with its output. A flow that asks
 something (`confirm`, `ask`, `choose`…) asks the person at the Mac, in the app's question window,
-and waits for the answer.
+and waits for the answer. In code you send, say why each question is asked, so the person
+answers knowing: `confirmBecause "Delete them?" "They're 30 days old and take 12 GB"` (and
+`askBecause`, `askYesNoBecause`, `chooseBecause "Which?" "why" ["a"; "b"]`); the why shows under
+the question.
+
+### `GET /api/automation`, `POST /api/automation`
+
+A script or a flow can be tagged to **run by itself**. The tags are a fixed set (never made up):
+
+| schedules | triggers |
+|---|---|
+| `every-minute`, `every-5-minutes`, `every-10-minutes`, `every-30-minutes`, `every-hour` (counted from when it was tagged) | `when-api-called` (after another app has run something over this API) |
+| `every-morning` (7:00), `every-afternoon` (13:00), `every-evening` (19:00), `every-day` (9:00) | `when-a-script-runs`, `when-a-flow-runs`, `when-a-utility-runs`, `when-a-browser-script-runs` |
+| `every-week` (Monday 9:00), `every-month` (the 1st, 9:00) | `after-an-item` (with `after`: the items' names), `when-anything-runs` |
+
+Spaces work too (`"every morning"`). A trigger fires once the run that set it off has ended; a run
+the automation started never sets off another. An automated run uses the arguments remembered for
+its cell, shows in `/api/runs` with `"requested_by": "Automation: every morning"`, and asks on
+the card first when its cell would (it looks like it can't be undone, or it's set to ask).
+
+```json
+{"script": "backup.sh", "automation": ["every evening", "when-api-called"], "once": false, "client": "My App", "why": "So the backup never waits on anyone"}
+```
+
+`POST /api/automation` (or `/api/run` or `/api/compose` with `automation`) shows a card on the
+Mac saying your app wants it to run by itself and how; **Allow** tags it, **Don't Allow** doesn't
+(`403 denied` / `not_answered`, as for a run). Nothing runs now. `once: true` runs it the next
+time only, then takes its tags off. `"automation": []` takes its automation off. `after` names
+the items it runs after (`"after": ["hello.sh"]` adds `after-an-item`). Flow code you send
+(`source`) can't be automated: only a file in the folder can. An unknown tag is
+`400 unknown_tag`, with the tags listed in `error`.
+
+```json
+{"ok": true, "automated": true, "name": "backup.sh", "kind": "script", "group": "scripts", "title": "backup",
+ "tags": ["every-evening", "when-api-called"], "once": false, "after": [], "summary": "every evening, when the API is called",
+ "next": "2026-10-22T19:00:00.000Z"}
+```
+
+`GET /api/automation` answers `{"tags": [{"name", "title", "kind": "schedule"|"trigger", "about"}], "items": [… as above …]}`:
+every tag there is, and every item that runs by itself. `GET /api/health` counts them as `automated`.
 
 ### `POST /api/check`
 
@@ -304,6 +354,7 @@ Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
 | status | `code` | when |
 |---|---|---|
 | 400 | `missing_script`, `missing_flow`, `bad_args`, `bad_request` | the request isn't right |
+| 400 | `unknown_tag` | no such automation tag (`error` lists them) |
 | 400 | `flow_mistake` | the Flow code has a mistake (with `line` and `fix`) |
 | 401 | `unauthorized` | sharing on the network is on and the request didn't send the token |
 | 403 | `denied`, `not_answered` | it didn't run: Don't Run, or no answer in time |

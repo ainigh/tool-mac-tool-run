@@ -161,6 +161,15 @@ struct PromptCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
+                    if let why = q.why {
+                        // Why it's asking: what the answer decides, in the flow's own words.
+                        Label(why, systemImage: "text.quote")
+                            .font(compact ? .caption : .callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .help("Why the flow asks (written in the flow: confirmBecause, askBecause, …, or the step's Why field)")
+                    }
                 }
             }
             answerField

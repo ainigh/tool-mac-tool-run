@@ -5,9 +5,11 @@ import Foundation
 ///     # Input: What should Google be asked?            an argument, needed
 ///     # Input (optional): A place (empty: where you are) an argument, may be left empty
 ///     # Input text: The JSON to pick from               text handed to it as its input (stdin)
+///     # Why: It's typed into Google's search box as is  why the one before is asked for (optional)
 ///
 /// (`//` or `--` in front, for a flow or a language that comments that way.) The API board asks
-/// for each before a click runs it; `GET /api/scripts` lists them for other apps.
+/// for each before a click runs it, with its `Why:` under the field, so the person knows what
+/// the answer is for before typing it; `GET /api/scripts` lists them for other apps.
 public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
     public enum Kind: String, Equatable, Hashable, Sendable, Codable {
         /// One argument (the whole answer, spaces and all).
@@ -19,11 +21,14 @@ public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
     public var prompt: String
     public var kind: Kind
     public var optional: Bool
+    /// Why it's asked for, or what the answer is used for (the `Why:` line under its `Input:` line).
+    public var why: String?
 
-    public init(prompt: String, kind: Kind = .argument, optional: Bool = false) {
+    public init(prompt: String, kind: Kind = .argument, optional: Bool = false, why: String? = nil) {
         self.prompt = prompt
         self.kind = kind
         self.optional = optional
+        self.why = why
     }
 
     /// The inputs a script's header declares, in order. Only the comment lines at its top count.
@@ -34,9 +39,21 @@ public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
             if line.isEmpty || line.hasPrefix("#!") { continue }
             guard let marker = ["//", "#", "--"].first(where: { line.hasPrefix($0) }) else { break }
             let said = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
-            if let input = parse(said) { found.append(input) }
+            if let input = parse(said) {
+                found.append(input)
+            } else if let why = parseWhy(said), !found.isEmpty, found[found.count - 1].why == nil {
+                // A "Why:" line goes with the Input: line just above it.
+                found[found.count - 1].why = why
+            }
         }
         return found
+    }
+
+    /// "Why: …" (the line explaining the input above it), or nil.
+    public static func parseWhy(_ said: String) -> String? {
+        guard let colon = said.firstIndex(of: ":"), said[..<colon].lowercased().trimmingCharacters(in: .whitespaces) == "why" else { return nil }
+        let text = said[said.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
     }
 
     /// "Input: …", "Input (optional): …", "Input text: …", "Input text (optional): …".

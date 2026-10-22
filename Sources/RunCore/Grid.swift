@@ -16,19 +16,22 @@ public struct GridSettings: Codable, Equatable, Sendable {
     /// Ask before running (true), never ask (false); not here: ask when it looks like it does
     /// something that can't be undone (`Caution`).
     public var ask: [String: Bool]
+    /// How each cell runs by itself (`Automation`: its tags, once or recurring), when it does.
+    public var automation: [String: Automation]
 
     public static let minCells = 1
     public static let maxCells = 64
     public static let defaultCells = 12
 
     public init(cells: Int = GridSettings.defaultCells, order: [String] = [], tints: [String: Int] = [:],
-                arguments: [String: String] = [:], page: Int = 0, ask: [String: Bool] = [:]) {
+                arguments: [String: String] = [:], page: Int = 0, ask: [String: Bool] = [:], automation: [String: Automation] = [:]) {
         self.cells = cells
         self.order = order
         self.tints = tints
         self.arguments = arguments
         self.page = page
         self.ask = ask
+        self.automation = automation
     }
 
     public init(from decoder: Decoder) throws {
@@ -39,6 +42,15 @@ public struct GridSettings: Codable, Equatable, Sendable {
         arguments = (try? c.decode([String: String].self, forKey: .arguments)) ?? [:]
         page = max(0, (try? c.decode(Int.self, forKey: .page)) ?? 0)
         ask = (try? c.decode([String: Bool].self, forKey: .ask)) ?? [:]
+        automation = ((try? c.decode([String: Automation].self, forKey: .automation)) ?? [:]).filter { !$0.value.isEmpty }
+    }
+
+    /// How a cell runs by itself (nothing, unless it was tagged).
+    public func automation(for id: String) -> Automation { automation[id] ?? Automation() }
+
+    /// Tags a cell (an empty automation takes the tags off).
+    public mutating func setAutomation(_ a: Automation, for id: String) {
+        automation[id] = a.isEmpty ? nil : a
     }
 
     /// The light colors a cell can wear (as on the boards of Tool Mac Tool), red, green, blue 0–1.

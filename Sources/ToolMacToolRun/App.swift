@@ -227,7 +227,9 @@ final class AppModel: ObservableObject {
             if let t = s.tints.removeValue(forKey: old) { s.tints[new] = t }
             if let a = s.arguments.removeValue(forKey: old) { s.arguments[new] = a }
             if let a = s.ask.removeValue(forKey: old) { s.ask[new] = a }
+            if let a = s.automation.removeValue(forKey: old) { s.automation[new] = a }
         }
+        AutomationCenter.shared.renamed(from: old, to: new)
     }
 
     // MARK: windows
@@ -311,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar = StatusBarController()
         AppModel.shared.updater.start()
         APIService.shared.launch()
+        AutomationCenter.shared.start()
         // Asked to quit with SIGTERM (the installer closing it, a logout): quit as the menu's Quit
         // does, so runs are stopped and saved. Caught by a handler that does nothing, not ignored:
         // an ignored SIGTERM would be handed on to every script it starts, and Stop couldn't end them.

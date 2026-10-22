@@ -271,7 +271,9 @@ public enum EPA {
             let destructive = (event["cost"] as? String) == "destructive"
             let word = event["typed"] as? String ?? "DELETE"
             let prompt = destructive ? "\(consequence)\n\nThis can't be undone." : consequence
-            switch ask(FlowQuestion(kind: .proceed, prompt: prompt, line: line, destructive: destructive)) {
+            // EPA's own reason for the change, when it gives one, goes under the question.
+            let why = (event["why"] as? String) ?? (event["reason"] as? String) ?? (event["detail"] as? String)
+            switch ask(FlowQuestion(kind: .proceed, prompt: prompt, line: line, destructive: destructive, why: why)) {
             case .yes, .text:
                 say("  ❓ \(consequence) → Go ahead")
                 send((destructive ? word : "yes") + "\n")

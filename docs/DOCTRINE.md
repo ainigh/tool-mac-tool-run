@@ -70,7 +70,8 @@ Every feature keeps these. If a change breaks one, it isn't done.
 | **Fail loud, fail helpful** | No stack traces. Mistakes in a flow are caught before anything runs, with the line, the reason and the fix. |
 | **Diagnose yourself** | Check Setup looks at the folder, each language's program and each flow, changing nothing, with the fix beside every problem. |
 | **Fix it yourself, with a fallback** | The app finds your login shell's PATH so Homebrew's tools are found; when it can't build, the installer builds from source; when it still can't, it says the one command to run. |
-| **Another app asks; you decide** | A run asked for over the HTTP API shows a large card first: which app, from where, the exact command (or the Flow code in full), and what it looks like it does, in red. Nothing runs until Run is clicked; it never takes the keyboard (Return can't say yes for you); no answer in two minutes is Don't Run, and the app is told which. Flow code with a mistake is turned down before anyone is asked. |
+| **Another app asks; you decide** | A run asked for over the HTTP API shows a large card first: which app, from where, why it wants it (in the app's words, or that it gave no reason), the exact command (or the Flow code in full), and what it looks like it does, in red. Nothing runs until Run is clicked; it never takes the keyboard (Return can't say yes for you); no answer in two minutes is Don't Run, and the app is told which. Flow code with a mistake is turned down before anyone is asked. An app asking to tag something to run by itself gets the same card, with Allow. |
+| **Runs by itself, never silently** | The Automation board is every script and flow that runs on a schedule or a trigger, under its tag, with its next time. The tags are a fixed set (every morning, every 10 minutes, when the API is called, after an item…), never made up. A run started this way is marked as such everywhere, with its cell's arguments; one that would ask before running asks on the card; one that fails gets a notice; a run the automation started never sets off another. |
 | **Guard what can't be undone** | Nothing is deleted: removing a script moves it to the Trash, after asking. Editing autosaves, and Revert goes back to how the file was opened. |
 | **Simplest surface first** | Click runs, the pencil edits. Arguments, colors, the Finder and the rest are in the right-click menu. A flow is built from blocks first (nothing to remember); Flow code is the same file, one switch away. |
 | **EPA keeps its promises here too** | EPA's own narration is what a run shows (its plan, each step's status word, the one next step), written once, by EPA (`--ask-json` carries the words). Its go-aheads come to the app's question window with the consequence EPA names; what can't be undone is red and needs a click, never Return or `--yes`; a key it asks for is a hidden field, never kept. Setting it up is one cell (setup-epa), safe to run again, and Check Setup offers to run it. |
@@ -105,8 +106,12 @@ Every feature keeps these. If a change breaks one, it isn't done.
 - **Honesty** — no invented numbers, no placeholder pretending to be finished.
 - **Color is meaning** — mostly neutral; color for state and to tell same-type cells apart.
   The app follows light and dark mode; the cells keep their light colors in both.
-- **Keyboard** — ⌘1 to ⌘4 open the grids (Scripts, Composer, Utilities, Browser), ⌘5 the API board, ⌘R runs from the editor, ⌘S saves, ⌘. stops, Return
+- **Keyboard** — ⌘1 to ⌘4 open the grids (Scripts, Composer, Utilities, Browser), ⌘5 the API board, ⌘6 the Automation board, ⌘R runs from the editor, ⌘S saves, ⌘. stops, Return
   and Escape answer every sheet.
+- **A question says why** — nothing asks for an answer without saying what the answer decides:
+  a flow's question carries its why (`confirmBecause`, the Ask step's Why field), a script's
+  `Input:` carries its `Why:`, another app's request carries the app's `why` (and the card says
+  when it gave none), and a run that starts by itself says which tag started it.
 
 ## 6 · Self-healing launch (the installer and the runner)
 

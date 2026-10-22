@@ -213,6 +213,35 @@ extension Builtin {
             if case let .text(t) = try i.ask(FlowQuestion(kind: .choice(options), prompt: a[0].string, line: pos.line), pos: pos) { return .str(t) }
             return .str(options[0])
         },
+        // The same four, with a second string saying why: what the answer decides, or what
+        // happens next. It's shown with the question, so the person knows before answering.
+        Builtin("confirmBecause", "string -> string -> unit", "Asking",
+                "Like `confirm`, with why it's asking (what going on does, and what it's based on) shown under the question.",
+                "confirmBecause \"Delete the old backups?\" \"They're older than 30 days and take 12 GB; the newest three are kept.\"", arity: 2) { i, a, pos in
+            _ = try i.ask(FlowQuestion(kind: .proceed, prompt: a[0].string, line: pos.line, why: a[1].string), pos: pos)
+            return .unit
+        },
+        Builtin("askYesNoBecause", "string -> string -> bool", "Asking",
+                "Like `askYesNo`, with why it's asking shown under the question.",
+                "if askYesNoBecause \"Upload it too?\" \"The upload takes about a minute and replaces last week's file.\" then run \"upload\" [] |> print", arity: 2) { i, a, pos in
+            .bool(try i.ask(FlowQuestion(kind: .yesNo, prompt: a[0].string, line: pos.line, why: a[1].string), pos: pos) == .yes)
+        },
+        Builtin("askBecause", "string -> string -> string", "Asking",
+                "Like `ask`, with why it's asking (what the answer is used for) shown under the question.",
+                "let name = askBecause \"Who is it for?\" \"It goes at the top of the letter, exactly as typed.\"", arity: 2) { i, a, pos in
+            if case let .text(t) = try i.ask(FlowQuestion(kind: .text, prompt: a[0].string, line: pos.line, why: a[1].string), pos: pos) { return .str(t) }
+            return .str("")
+        },
+        Builtin("chooseBecause", "string -> string -> string list -> string", "Asking",
+                "Like `choose`, with why it's asking shown under the question (the why comes before the list).",
+                "let size = chooseBecause \"Which size?\" \"Large takes four times the space.\" [\"small\"; \"large\"]", arity: 3) { i, a, pos in
+            let options = a[2].strings
+            guard !options.isEmpty else {
+                throw FlowError(.run, pos, "`chooseBecause` was given an empty list, so there's nothing to pick.", fix: "Check the list with `isEmpty` first.")
+            }
+            if case let .text(t) = try i.ask(FlowQuestion(kind: .choice(options), prompt: a[0].string, line: pos.line, why: a[1].string), pos: pos) { return .str(t) }
+            return .str(options[0])
+        },
     ]
 
     // MARK: text

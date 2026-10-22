@@ -120,6 +120,7 @@ struct GridView: View {
             let item = all[index]
             let run = runs.latest(file: item.id, kind: kind)
             ScriptCell(item: item, kind: kind, tint: settings.tint(for: item.id), arguments: settings.arguments[item.id],
+                       automation: settings.automation(for: item.id),
                        run: run, lastLine: run.flatMap { runs.lastLine($0.id) }, count: count, actions: actions,
                        asksFirst: actions.asksFirst(item), waiting: run.map { prompts.pending(for: $0.id) != nil } ?? false,
                        shown: showsResult && run?.id == (focus ?? runs.latestTop(kind)?.id),
@@ -303,14 +304,22 @@ struct BoardSwitcher: View {
     @ObservedObject var app: AppModel
 
     static let api = "api"
+    static let automation = "automation"
 
     var body: some View {
         Picker("", selection: Binding(get: { current }, set: { picked in
             guard picked != current else { return }
-            if let kind = GridKind(rawValue: picked) { app.openGrid(kind) } else { Windows.showAPIBoard() }
+            if let kind = GridKind(rawValue: picked) {
+                app.openGrid(kind)
+            } else if picked == Self.automation {
+                Windows.showAutomationBoard()
+            } else {
+                Windows.showAPIBoard()
+            }
         })) {
             ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k.rawValue) }
             Text("API").tag(Self.api)
+            Text("Automation").tag(Self.automation)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -318,9 +327,9 @@ struct BoardSwitcher: View {
         .help(Self.help)
     }
 
-    /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, from the menu bar icon)".
+    /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, ⌘6 Automation, from the menu bar icon)".
     private static var help: String {
-        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" } + ["⌘\(GridKind.allCases.count + 1) API"]
+        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" } + ["⌘\(GridKind.allCases.count + 1) API", "⌘\(GridKind.allCases.count + 2) Automation"]
         return "Switch boards (\(keys.joined(separator: ", ")), from the menu bar icon)"
     }
 }
@@ -604,6 +613,8 @@ struct ScriptCell: View {
     let kind: GridKind
     let tint: Int
     let arguments: String?
+    /// How it runs by itself, when it does.
+    let automation: Automation
     let run: RunRecord?
     /// While it runs: the last line it printed.
     let lastLine: String?
@@ -691,6 +702,9 @@ struct ScriptCell: View {
                     .font(.system(size: max(11, titleSize * 0.55)))
                     .foregroundStyle(Color.black.opacity(0.6))
                     .lineLimit(count <= 9 ? 4 : 2)
+            }
+            if !automation.isEmpty, roomy {
+                AutomationBadge(automation: automation, next: AutomationCenter.shared.next(for: item.id, kind: kind)?.at, dark: true)
             }
             Spacer(minLength: 0)
             HStack(alignment: .bottom, spacing: 6) {
@@ -800,6 +814,7 @@ struct ScriptCell: View {
         Button("Open in \(GridActions.editorName)") { actions.openInEditor(item) }
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
         Toggle("Ask Before Running", isOn: Binding(get: { asksFirst }, set: { actions.setAsksFirst(item, $0) }))
+        AutomationMenu(item: item, app: actions.app)
         Menu("Color") {
             // The one it wears is ticked: "Automatic" when none was picked (it comes from the name).
             let picked = actions.app.settings(kind).tints[item.id]

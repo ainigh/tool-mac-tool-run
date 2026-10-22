@@ -61,9 +61,12 @@ public struct FlowQuestion: Sendable, Equatable {
     public var link: URL?
     /// Where the answer is kept (EPA saves a key to .env under this name).
     public var savedAs: String?
+    /// Why it's asked: what the answer decides, or what happens next (`confirmBecause`,
+    /// `askBecause`…). Shown with the question, so the person knows before answering.
+    public var why: String?
 
     public init(kind: Kind, prompt: String, line: Int, destructive: Bool = false, secret: Bool = false,
-                link: URL? = nil, savedAs: String? = nil) {
+                link: URL? = nil, savedAs: String? = nil, why: String? = nil) {
         self.kind = kind
         self.prompt = prompt
         self.line = line
@@ -71,6 +74,7 @@ public struct FlowQuestion: Sendable, Equatable {
         self.secret = secret
         self.link = link
         self.savedAs = savedAs
+        self.why = why.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
     }
 }
 

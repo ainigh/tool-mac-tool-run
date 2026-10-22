@@ -992,6 +992,185 @@ extension Examples {
         bash "$here/speak.sh" "$message" >/dev/null 2>&1 || true
         echo "$message"
         """# + "\n"),
+        ("utilities/copy-to-clipboard.sh", #"""
+        #!/bin/bash
+        # Puts text on the clipboard, ready to paste (its arguments, or its input), and says what it copied
+        #
+        # Input: The text to copy
+        # Why: It goes on the clipboard exactly as typed, replacing whatever was there
+        #
+        #   copy-to-clipboard.sh some words      puts "some words" on the clipboard
+        #   echo hi | copy-to-clipboard.sh       puts its input on it (a flow: pipe "copy-to-clipboard" [])
+        #   copy-to-clipboard.sh < notes.txt     a whole file
+        set -euo pipefail
+
+        if ! command -v pbcopy >/dev/null 2>&1; then
+          echo "The clipboard needs pbcopy, which comes with macOS." >&2
+          exit 1
+        fi
+
+        text=""
+        if [ $# -gt 0 ]; then
+          text="$*"
+        elif [ ! -t 0 ]; then
+          text=$(cat)
+        fi
+        if [ -z "$text" ]; then
+          echo "Nothing to copy. Give it the text (copy-to-clipboard.sh some words), or pipe some in (echo hi | copy-to-clipboard.sh)." >&2
+          exit 1
+        fi
+
+        printf '%s' "$text" | pbcopy
+        chars=$(printf '%s' "$text" | wc -m | tr -d ' ')
+        lines=$(printf '%s\n' "$text" | wc -l | tr -d ' ')
+        first=$(printf '%s' "$text" | head -n 1 | cut -c 1-60)
+        if [ "$lines" -gt 1 ]; then
+          echo "Copied to the clipboard: $lines lines, $chars characters, starting \"$first\"…"
+        elif [ "$chars" -gt 60 ]; then
+          echo "Copied to the clipboard: $chars characters, starting \"$first\"…"
+        else
+          echo "Copied to the clipboard: $text"
+        fi
+        """# + "\n"),
+        ("utilities/alarm.sh", #"""
+        #!/bin/bash
+        # Sets an alarm for later: when it's time, a sound, the words said out loud and a notification
+        #
+        # Input: When: a length from now (20 minutes, 1.5 hours, 90 seconds) or a time of day (16:30, 7am)
+        # Why: A helper keeps waiting after this run ends, and rings on this Mac at that time (the Clock app can't be set from a script)
+        # Input (optional): What it says when it rings (Alarm unless set)
+        #
+        #   alarm.sh "20 minutes" "Stand up"    rings in 20 minutes, saying "Stand up"
+        #   alarm.sh 20 minutes                  the same, the time as two words
+        #   alarm.sh 16:30 "Call Sam"            rings at 16:30 (tomorrow's, when today's has passed)
+        #   alarm.sh list                        the alarms set and still waiting
+        #   alarm.sh cancel                      cancels every alarm still waiting
+        set -euo pipefail
+
+        alarms="${TMPDIR:-/tmp}/toolmactoolrun-alarms"
+        here="$(dirname "$0")"
+
+        # The ringing, in the helper that waited (started below, in a session of its own so it
+        # outlives this run): a sound three times, the words, a notification.
+        if [ "${1:-}" = "--ring" ]; then
+          target="$2"
+          message="$3"
+          while [ "$(date +%s)" -lt "$target" ]; do sleep 15; done
+          rm "$alarms/$$" 2>/dev/null || true
+          for _ in 1 2 3; do bash "$here/play-sound.sh" Glass >/dev/null 2>&1 || afplay /System/Library/Sounds/Glass.aiff 2>/dev/null || true; done
+          ALARM_MESSAGE="$message" osascript -e 'display notification (system attribute "ALARM_MESSAGE") with title "Alarm" sound name "Glass"' >/dev/null 2>&1 || true
+          bash "$here/speak.sh" "$message" >/dev/null 2>&1 || say -- "$message" 2>/dev/null || true
+          exit 0
+        fi
+
+        mkdir -p "$alarms"
+
+        # The alarms still waiting: each helper's pid is its file, holding "when<TAB>what". A file
+        # whose helper is gone (it rang, or was ended) is tidied away.
+        waiting() {
+          for f in "$alarms"/*; do
+            [ -f "$f" ] || continue
+            pid=$(basename "$f")
+            if kill -0 "$pid" 2>/dev/null; then echo "$pid"; else rm "$f" 2>/dev/null || true; fi
+          done
+        }
+
+        case "${1:-}" in
+          list)
+            found=0
+            for pid in $(waiting); do
+              f="$alarms/$pid"
+              when=$(cut -f 1 "$f")
+              what=$(cut -f 2- "$f")
+              left=$(( when - $(date +%s) ))
+              echo "$(date -r "$when" '+%H:%M') (in $(( (left + 59) / 60 )) min): $what"
+              found=1
+            done
+            [ "$found" = 1 ] || echo "No alarms waiting. Set one: alarm.sh \"20 minutes\" \"Stand up\"."
+            exit 0 ;;
+          cancel)
+            n=0
+            for pid in $(waiting); do
+              f="$alarms/$pid"
+              echo "Cancelled: $(date -r "$(cut -f 1 "$f")" '+%H:%M'): $(cut -f 2- "$f")"
+              kill "$pid" 2>/dev/null || true
+              rm "$f" 2>/dev/null || true
+              n=$((n + 1))
+            done
+            [ "$n" -gt 0 ] || echo "No alarms were waiting."
+            exit 0 ;;
+          '')
+            echo "When? A length from now (alarm.sh \"20 minutes\" \"Stand up\") or a time of day (alarm.sh 16:30 \"Call Sam\"). alarm.sh list shows the ones waiting; alarm.sh cancel cancels them." >&2
+            exit 1 ;;
+        esac
+
+        # The time: one argument ("20 minutes", "16:30"), or a number and its unit as two.
+        when="$1"; shift
+        case "$when" in
+          *[0-9]) case "${1:-}" in
+                    s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours) when="$when $1"; shift ;;
+                  esac ;;
+        esac
+        message="Alarm"
+        if [ $# -gt 0 ]; then message="$*"; fi
+        now=$(date +%s)
+        target=""
+
+        lower=$(printf '%s' "$when" | tr '[:upper:]' '[:lower:]' | sed 's/^in //; s/^at //')
+        if printf '%s' "$lower" | grep -Eq '^[0-9]+(\.[0-9]+)?[ ]*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?$'; then
+          number=$(printf '%s' "$lower" | sed -E 's/^([0-9]+(\.[0-9]+)?).*$/\1/')
+          unit=$(printf '%s' "$lower" | sed -E 's/^[0-9]+(\.[0-9]+)?[ ]*//')
+          case "$unit" in
+            s|sec|secs|second|seconds) per=1 ;;
+            h|hr|hrs|hour|hours) per=3600 ;;
+            *) per=60 ;;   # minutes unless said
+          esac
+          seconds=$(awk -v n="$number" -v p="$per" 'BEGIN { printf "%d", n * p + 0.5 }')
+          target=$((now + seconds))
+        elif printf '%s' "$lower" | grep -Eq '^[0-9]{1,2}(:[0-9]{2})?[ ]*(am|pm)?$'; then
+          hour=$(printf '%s' "$lower" | sed -E 's/^([0-9]{1,2}).*$/\1/')
+          minute=$(printf '%s' "$lower" | sed -E 's/^[0-9]{1,2}:?([0-9]{2})?.*$/\1/')
+          minute="${minute:-0}"
+          case "$lower" in
+            *pm) [ "$hour" -lt 12 ] && hour=$((hour + 12)) ;;
+            *am) [ "$hour" -eq 12 ] && hour=0 ;;
+          esac
+          if [ "$hour" -gt 23 ] || [ "$minute" -gt 59 ]; then
+            echo "$when isn't a time of day. Try 16:30, or 7am." >&2
+            exit 1
+          fi
+          today=$(date '+%Y-%m-%d')
+          target=$(date -j -f '%Y-%m-%d %H:%M' "$today $hour:$minute" +%s 2>/dev/null || date -d "$today $hour:$minute" +%s)
+          # Already past today: tomorrow's.
+          [ "$target" -le "$now" ] && target=$((target + 86400))
+        else
+          echo "When? A length from now (20 minutes, 1.5 hours, 90 seconds) or a time of day (16:30, 7am), not \"$when\"." >&2
+          exit 1
+        fi
+
+        if [ "$target" -le "$now" ]; then
+          echo "That's no time at all: give it at least a few seconds." >&2
+          exit 1
+        fi
+
+        # The helper waits in a session of its own (perl's setsid, which every Mac has), so it
+        # goes on after this run ends, and Stop on this run doesn't end it. It writes its own
+        # record, and takes it away when it rings.
+        ALARM_DIR="$alarms" ALARM_TARGET="$target" ALARM_MESSAGE="$message" ALARM_SCRIPT="$0" \
+          perl -e 'use POSIX qw(setsid); my $pid = fork(); if ($pid) { exit 0 }
+                   setsid(); open(STDIN, "<", "/dev/null"); open(STDOUT, ">", "/dev/null"); open(STDERR, ">", "/dev/null");
+                   open(my $f, ">", "$ENV{ALARM_DIR}/$$"); print $f "$ENV{ALARM_TARGET}\t$ENV{ALARM_MESSAGE}"; close $f;
+                   exec("bash", $ENV{ALARM_SCRIPT}, "--ring", $ENV{ALARM_TARGET}, $ENV{ALARM_MESSAGE}) or exit 1;' </dev/null
+        left=$((target - now))
+        if [ "$left" -ge 3600 ]; then
+          in="$((left / 3600)) h $(( (left % 3600) / 60 )) min"
+        elif [ "$left" -ge 60 ]; then
+          in="$((left / 60)) min"
+        else
+          in="$left s"
+        fi
+        echo "Alarm set for $(date -r "$target" '+%H:%M') (in $in): \"$message\". It rings on this Mac with a sound, the words out loud and a notification. alarm.sh list shows it; alarm.sh cancel cancels it."
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the

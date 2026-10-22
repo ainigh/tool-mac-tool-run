@@ -26,9 +26,15 @@ public struct RunRequest: Identifiable, Sendable {
     public var command: String
     /// What a script looks like it does that can't be undone (`Caution`).
     public var dangers: [String]
+    /// Why the app wants it run, in its own words (the request's `why`), shown on the card so the
+    /// person knows before clicking Run. Nil: it didn't say (the card says that too).
+    public var why: String?
+    /// Not a run now: the app asks to tag the item so it runs by itself (the request's
+    /// `automation`). The card says so, and Run tags it. Empty tags take the automation off.
+    public var automation: Automation?
 
     public init(what: What, name: String, arguments: [String] = [], stdin: String? = nil, client: String,
-                from: String = "this Mac", command: String, dangers: [String] = []) {
+                from: String = "this Mac", command: String, dangers: [String] = [], why: String? = nil, automation: Automation? = nil) {
         self.what = what
         self.name = name
         self.arguments = arguments
@@ -37,10 +43,20 @@ public struct RunRequest: Identifiable, Sendable {
         self.from = from
         self.command = command
         self.dangers = dangers
+        self.why = why
+        self.automation = automation
     }
 
     /// Kept with the run: who asked for it ("curl, on this Mac").
     public var requestedBy: String { "\(client), \(from == "this Mac" ? "on this Mac" : "from \(from)")" }
+
+    /// The item's id, for a script or a flow in the folder (nil for code the app sent).
+    public var itemID: String? {
+        switch what {
+        case let .script(item), let .flow(item): item.id
+        case .source: nil
+        }
+    }
 
     /// Flow code: what it is (shown in full on the Mac before it's allowed).
     public var source: String? {
@@ -90,6 +106,20 @@ public protocol RunHost: AnyObject, Sendable {
     func recent(_ limit: Int) async -> [RunRecord]
     /// Stops a run: false when it isn't running.
     func stop(_ id: UUID) async -> Bool
+    /// The items that run by themselves, with their tags and next times.
+    func automations() async -> [AutomationEntry]
+    /// Tags the request's item as its `automation` says (the person allowed it): how it's
+    /// automated now. Throws an `HTTPError` when the item is gone.
+    func automate(_ request: RunRequest) async throws -> AutomationEntry
+}
+
+extension RunHost {
+    /// A host with no automation (a pretend one): nothing is automated, and nothing can be.
+    public func automations() async -> [AutomationEntry] { [] }
+
+    public func automate(_ request: RunRequest) async throws -> AutomationEntry {
+        throw HTTPError(status: 500, code: "failed", message: "automation isn't available here")
+    }
 }
 
 /// The HTTP API (see API.md): requests in, responses out. The server around it only moves bytes.
@@ -134,6 +164,7 @@ public final class RunAPI: @unchecked Sendable {
         var path = req.path
         if path.count > 1, path.hasSuffix("/") { path.removeLast() }
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
+        if path == "/api/automation" { return try await automationRoute(req, s) }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (see /api/health)")
         }
@@ -205,6 +236,34 @@ public final class RunAPI: @unchecked Sendable {
         return JSON.response(Self.runJSON(r, steps: await host.steps(of: id)))
     }
 
+    /// GET /api/automation: the tags there are, and the items that run by themselves. POST: tags
+    /// a script or a flow (the same as /api/run or /api/compose with "automation"), once Run is
+    /// clicked on the Mac.
+    private func automationRoute(_ req: HTTPRequest, _ s: APISettings) async throws -> HTTPResponse {
+        switch req.method {
+        case "GET", "HEAD":
+            try need(.catalog, s)
+            _ = try await catalog()
+            let tags = AutomationTag.allCases.map { ["name": $0.rawValue, "title": $0.title, "kind": $0.kind.rawValue, "about": $0.about] }
+            let items = await host.automations().map(Self.automationJSON)
+            return JSON.response(["tags": tags, "items": items])
+        case "POST":
+            let fields = try body(req)
+            guard fields["automation"] != nil || fields["tags"] != nil else {
+                throw HTTPError(status: 400, code: "bad_request",
+                                message: "send {\"script\": \"<name>\" or \"flow\": \"<name>\", \"automation\": [\"every morning\"]} (an empty list takes its automation off); GET /api/automation lists the tags")
+            }
+            if Self.text(fields["flow"]) != nil {
+                try need(.compose, s)
+                return try await compose(req, fields: fields)
+            }
+            try need(.run, s)
+            return try await runScript(req, fields: fields)
+        default:
+            throw HTTPError(status: 405, code: "bad_request", message: "/api/automation takes GET or POST")
+        }
+    }
+
     private func unknownRun(_ id: UUID) -> HTTPError {
         HTTPError(status: 404, code: "unknown_run", message: "no run \(id.uuidString) (runs are kept until Clear Finished, the latest 300)")
     }
@@ -234,6 +293,7 @@ public final class RunAPI: @unchecked Sendable {
             out["folder"] = c.folder.path
             out["scripts"] = c.scripts.count
             out["flows"] = c.flows.count
+            out["automated"] = await host.automations().count
         } else {
             out["folder"] = NSNull()
         }
@@ -243,8 +303,8 @@ public final class RunAPI: @unchecked Sendable {
 
     // MARK: Running
 
-    private func runScript(_ req: HTTPRequest) async throws -> HTTPResponse {
-        let fields = try body(req)
+    private func runScript(_ req: HTTPRequest, fields given: [String: Any]? = nil) async throws -> HTTPResponse {
+        let fields = try given ?? body(req)
         guard let name = Self.text(fields["script"]) ?? Self.text(fields["name"]), !name.isEmpty else {
             throw HTTPError(status: 400, code: "missing_script", message: "send {\"script\": \"<its file name>\"} (GET /api/scripts lists them)")
         }
@@ -258,12 +318,13 @@ public final class RunAPI: @unchecked Sendable {
                                     workingDirectory: c.folder, environment: [:]).commandLine
         let stdin = fields["stdin"].map { Self.text($0) ?? "" }
         let request = RunRequest(what: .script(item), name: item.id, arguments: args, stdin: stdin,
-                                 client: Self.client(req, fields), from: Self.from(req), command: command, dangers: item.dangers)
+                                 client: Self.client(req, fields), from: Self.from(req), command: command, dangers: item.dangers,
+                                 why: Self.why(fields), automation: try Self.automation(fields, items: c.scripts + c.flows))
         return try await execute(request, fields)
     }
 
-    private func compose(_ req: HTTPRequest) async throws -> HTTPResponse {
-        let fields = try body(req, plainTextAs: "source")
+    private func compose(_ req: HTTPRequest, fields given: [String: Any]? = nil) async throws -> HTTPResponse {
+        let fields = try given ?? body(req, plainTextAs: "source")
         let c = try await catalog()
         let names = c.scripts.map(\.id) + c.flows.map(\.id)
         let args = try Self.arguments(fields)
@@ -299,8 +360,12 @@ public final class RunAPI: @unchecked Sendable {
         } catch let e as FlowError {
             return Self.flowMistake(e)
         }
+        let automation = try Self.automation(fields, items: c.scripts + c.flows)
+        if automation != nil, case .source = what {
+            throw HTTPError(status: 400, code: "bad_request", message: "only a flow from the folder can be automated: send {\"flow\": \"<its name>\", \"automation\": […]}")
+        }
         let request = RunRequest(what: what, name: name, arguments: args, client: Self.client(req, fields),
-                                 from: Self.from(req), command: command)
+                                 from: Self.from(req), command: command, why: Self.why(fields), automation: automation)
         return try await execute(request, fields)
     }
 
@@ -329,6 +394,18 @@ public final class RunAPI: @unchecked Sendable {
     /// Asks on the Mac, then runs it: waiting for it to end (the default), answering at once
     /// (`"wait": false`), or sending what it prints as it prints it (`"stream": true`).
     private func execute(_ request: RunRequest, _ fields: [String: Any]) async throws -> HTTPResponse {
+        // Tagging it to run by itself: asked about the same way, then tagged rather than run.
+        if request.automation != nil {
+            switch await host.approve(request) {
+            case .allowed: break
+            case .denied: throw Self.denied(request)
+            case .unanswered: throw Self.unanswered(request)
+            }
+            var out = Self.automationJSON(try await host.automate(request))
+            out["ok"] = true
+            out["automated"] = true
+            return JSON.response(out)
+        }
         if fields["stream"] as? Bool == true { return stream(request) }
         switch await host.approve(request) {
         case .allowed: break
@@ -344,11 +421,15 @@ public final class RunAPI: @unchecked Sendable {
     }
 
     static func denied(_ r: RunRequest) -> HTTPError {
-        HTTPError(status: 403, code: "denied", message: "\(r.name) didn't run: the person at the Mac chose Don't Run")
+        HTTPError(status: 403, code: "denied", message: r.automation == nil
+                  ? "\(r.name) didn't run: the person at the Mac chose Don't Run"
+                  : "\(r.name) wasn't automated: the person at the Mac chose Don't Allow")
     }
 
     static func unanswered(_ r: RunRequest) -> HTTPError {
-        HTTPError(status: 403, code: "not_answered", message: "\(r.name) didn't run: no one clicked Run on the Mac in time")
+        HTTPError(status: 403, code: "not_answered", message: r.automation == nil
+                  ? "\(r.name) didn't run: no one clicked Run on the Mac in time"
+                  : "\(r.name) wasn't automated: no one clicked Allow on the Mac in time")
     }
 
     /// Waits for a run to end.
@@ -466,6 +547,57 @@ public final class RunAPI: @unchecked Sendable {
         }
     }
 
+    /// Why the app asks for it, in its words ("why", or "reason"; "justification" too): a few
+    /// lines at most, shown on the card. Nil when it didn't say.
+    static func why(_ fields: [String: Any]) -> String? {
+        guard let said = text(fields["why"]) ?? text(fields["reason"]) ?? text(fields["justification"]) else { return nil }
+        let lines = said.split(whereSeparator: \.isNewline).map { clean(String($0), limit: 200) }.filter { !$0.isEmpty }
+        let kept = lines.prefix(6).joined(separator: "\n")
+        return kept.isEmpty ? nil : kept
+    }
+
+    /// How the app wants the item automated: "automation" (or "tags"), a list of tag names or
+    /// one name (an empty list: not automated any more); "once": one time only; "after": the
+    /// items it runs after (their names, as /api/scripts and /api/flows give them). Nil when the
+    /// request doesn't mention it (a run now).
+    static func automation(_ fields: [String: Any], items: [ScriptItem]) throws -> Automation? {
+        // "after" alone means the after-an-item tag.
+        guard let value = fields["automation"] ?? fields["tags"] ?? (fields["after"] != nil ? [Any]() : nil) else { return nil }
+        var given: [String]
+        switch value {
+        case let one as String: given = one.isEmpty ? [] : [one]
+        case let list as [Any]: given = list.compactMap(text)
+        case is NSNull: given = []
+        default: throw HTTPError(status: 400, code: "bad_request", message: "automation is a list of tag names (GET /api/automation lists them)")
+        }
+        var tags: [AutomationTag] = []
+        for name in given {
+            guard let tag = AutomationTag.named(name) else {
+                throw HTTPError(status: 400, code: "unknown_tag", message: "there's no automation tag called \(name); the tags: \(AutomationTag.names)")
+            }
+            tags.append(tag)
+        }
+        var after: [String] = []
+        if let list = fields["after"] as? [Any] {
+            for name in list.compactMap(text) {
+                guard let match = ScriptNames.match(name, in: items.map(\.id)) else {
+                    throw HTTPError(status: 404, code: "unknown_script", message: "no script or flow named \(name) to run after; the names: \(names(items))")
+                }
+                after.append(match)
+            }
+        } else if let one = text(fields["after"]), !one.isEmpty {
+            guard let match = ScriptNames.match(one, in: items.map(\.id)) else {
+                throw HTTPError(status: 404, code: "unknown_script", message: "no script or flow named \(one) to run after; the names: \(names(items))")
+            }
+            after = [match]
+        }
+        if !after.isEmpty { tags.append(.afterItem) }
+        if tags.contains(.afterItem), after.isEmpty {
+            throw HTTPError(status: 400, code: "bad_request", message: "\"after-an-item\" needs \"after\": [\"<a script's or flow's name>\"]")
+        }
+        return Automation(tags: tags, once: fields["once"] as? Bool ?? false, after: after)
+    }
+
     /// Who's asking: what it calls itself, else its User-Agent's product ("curl/8.4" → "curl").
     static func client(_ req: HTTPRequest, _ fields: [String: Any]) -> String {
         if let named = text(fields["client"]).map({ clean($0, limit: 60) }), !named.isEmpty { return named }
@@ -508,7 +640,22 @@ public final class RunAPI: @unchecked Sendable {
     /// What it asks for before it runs (its header's `Input:` lines): each an argument, or text
     /// for its stdin, in order.
     static func inputsJSON(_ inputs: [ScriptInput]) -> [[String: Any]] {
-        inputs.map { ["prompt": $0.prompt, "kind": $0.kind == .text ? "stdin" : "argument", "optional": $0.optional] }
+        inputs.map { input in
+            var out: [String: Any] = ["prompt": input.prompt, "kind": input.kind == .text ? "stdin" : "argument", "optional": input.optional]
+            if let why = input.why { out["why"] = why }
+            return out
+        }
+    }
+
+    /// An automated item: its name, kind, tags, once, after, and when its schedule next runs.
+    static func automationJSON(_ e: AutomationEntry) -> [String: Any] {
+        var out: [String: Any] = [
+            "name": e.id, "kind": e.grid.isFlow ? "flow" : "script", "group": e.grid.rawValue, "title": e.title,
+            "tags": e.automation.tags.map(\.rawValue), "once": e.automation.once, "after": e.automation.after,
+            "summary": e.automation.summary,
+        ]
+        if let next = e.next { out["next"] = JSON.date(next) }
+        return out
     }
 
     static func flowJSON(_ f: ScriptItem) -> [String: Any] {
@@ -534,6 +681,7 @@ public final class RunAPI: @unchecked Sendable {
         if let signal = r.signal { out["signal"] = Int(signal) }
         if let p = r.problem { out["problem"] = p }
         if let by = r.requestedBy { out["requested_by"] = by }
+        if let why = r.why { out["why"] = why }
         if output {
             out["output"] = r.text
             out["stdout"] = r.output.filter { $0.stream == .out }.map(\.text).joined()

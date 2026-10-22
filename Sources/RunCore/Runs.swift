@@ -68,7 +68,10 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     /// Earlier output was dropped to keep it to `maxOutput` bytes.
     public var trimmed: Bool
     /// Another app asked for it, over the API, and the person allowed it: who ("curl, on this Mac").
+    /// The automation started it: "Automation: every morning".
     public var requestedBy: String?
+    /// Why it was asked for, in the asker's words (the API's `why`), when it said.
+    public var why: String?
     /// Every byte of output it has printed so far, counting what was dropped: only ever goes up,
     /// so it's a cheap way to notice new output (scroll to the end when it changes).
     public private(set) var receivedBytes: Int
@@ -96,7 +99,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, line, problem, trimmed, receivedBytes, requestedBy
+        case id, kind, name, file, arguments, command, started, ended, code, signal, state, output, parent, line, problem, trimmed, receivedBytes, requestedBy, why
     }
 
     public init(from decoder: Decoder) throws {
@@ -118,6 +121,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         trimmed = try c.decodeIfPresent(Bool.self, forKey: .trimmed) ?? false
         requestedBy = try c.decodeIfPresent(String.self, forKey: .requestedBy)
+        why = try c.decodeIfPresent(String.self, forKey: .why)
         outputBytes = output.reduce(0) { $0 + $1.text.utf8.count }
         receivedBytes = max(try c.decodeIfPresent(Int.self, forKey: .receivedBytes) ?? 0, outputBytes)
     }
@@ -142,6 +146,7 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
         try c.encode(trimmed, forKey: .trimmed)
         try c.encode(receivedBytes, forKey: .receivedBytes)
         try c.encodeIfPresent(requestedBy, forKey: .requestedBy)
+        try c.encodeIfPresent(why, forKey: .why)
     }
 
     /// Adds printed text (joined to the last piece when it's the same stream). Past `maxOutput`

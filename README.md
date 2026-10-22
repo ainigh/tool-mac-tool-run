@@ -25,7 +25,10 @@ apps use. The four grids:
 
 The utilities also look things up (`wikipedia`, `define`, `currency`, `world-clock`,
 `public-ip`), check things (`site-check`, `battery`, `system-info`) and help (`password`,
-`timer`, which plays a sound and speaks through the other utilities). The browser scripts build on
+`timer`, which plays a sound and speaks through the other utilities; `copy-to-clipboard`, which
+puts text on the clipboard and says what it copied; `alarm`, which rings on this Mac with a
+sound, the words out loud and a notification at a time you give it: `alarm "20 minutes" "Stand
+up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`). The browser scripts build on
 each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
 `close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
 
@@ -45,6 +48,23 @@ result shows beside the tiles, live, and stays when it's done, printed something
 drags into a flow's block editor, as the editor's library does; right-click copies the `curl`
 command (or the request) another app would send for the same run. It's the way to try anything
 the API offers by hand.
+
+**The Automation board** (⌘6) is everything that runs by itself, the same tiles grouped by what
+makes them run: a **schedule** (every minute, every 5, 10 or 30 minutes, every hour, every
+morning, afternoon or evening, every day, week or month) or a **trigger** (when the API is
+called, when a script, a flow, a utility or a browser script runs, after an item you pick, when
+anything runs). The tags are a fixed set, never made up; an item can wear several, and **One
+Time Only** takes them off once it has run. Right-click any cell or tile → **Automation** to tag
+it; the tag shows on the cell, with its next time under the pointer. A run started this way is
+marked in Runs (*Started by itself: every morning*), uses the cell's remembered arguments, asks
+on a card first if the cell would, and gets a notice if it fails. Other apps can tag things over
+the API too (`"automation": ["every evening"]`), and you're asked first.
+
+**Every question says why.** Before you answer anything, the screen says what the answer
+decides: a flow's question carries its reason (`confirmBecause "Delete them?" "They're 30 days
+old and take 12 GB"`, or the Ask step's **Why** field in the block editor), a script's `# Input:`
+line can carry a `# Why:` line shown under the field, and a run another app asks for shows the
+app's own `why` on the card (or that it gave none).
 
 Utilities and browser scripts are scripts, exactly: a click runs one, the pencil edits it, a flow
 runs it by name (`run "speak" ["Done"]`), and other apps run them over the API. Only their
@@ -108,8 +128,9 @@ SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
 
 ```bash
 curl -s localhost:8768/api/scripts
-curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App"}'
+curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App", "why": "You pressed Greet"}'
 curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
+curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App"}'
 ```
 
 The panel's **HTTP API** section starts and stops it, has a switch for each group of endpoints
@@ -157,7 +178,7 @@ install command again still works too.
 
 1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and four flows that use them, ten
+   examples" on and you start with five small scripts and four flows that use them, the
    utilities, eight browser scripts, and ten flows that use those (Google, the weather, the news,
    cloud services, YouTube, a morning briefing); keep "Add the EPA recipes" on
    and EPA's recipes are there too, with EPA set up for you. (Already set up? The empty Utilities
@@ -184,6 +205,7 @@ install command again still works too.
 | Copy the terminal command | right-click → **Copy Command for Terminal** |
 | Remove it | right-click → **Move to Trash…** (you can put it back from the Trash) |
 | Be asked before it runs | right-click → **Ask Before Running** (on by itself for a script that looks like it deletes files, uses `sudo`, force-pushes… ✋ on its cell says so) |
+| Make it run by itself | right-click → **Automation** → tick a schedule or a trigger (the Automation board, ⌘6, shows everything that does) |
 | Answer a flow's question | the window that comes forward, or click the cell that says **Waiting for your answer** |
 | Type into a script that asks (`read -p`, `input()`…) | the result pane (or Runs, or under the editor) has a line to type in |
 
@@ -267,7 +289,8 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/EPA.swift`, `EPARecipes.swift` | EPA: its commands, running `epa --ask-json` (its words shown, its questions asked here), the recipes |
 | `scripts/setup-epa.sh` | installs or updates EPA (the installer runs it; the app puts the same file in the folder) |
 | `Sources/flow/` | the `flow` command |
-| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`) |
+| `Sources/RunCore/Automation.swift` | the automation tags, when a schedule next runs, what sets a trigger off |
+| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`), the clock and triggers that start what's automated and the Automation board (`AutomationCenter.swift`, `AutomationBoard.swift`) |
 | `API.md` | the HTTP API, for client apps |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
 | `docs/DOCTRINE.md` | how the app should feel and the checks every change walks |
