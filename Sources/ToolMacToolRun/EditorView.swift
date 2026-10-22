@@ -219,10 +219,7 @@ final class EditorModel: ObservableObject {
     }
 
     /// The name `run` uses for a script: its name without the extension, unless another has it too.
-    func runName(_ item: ScriptItem) -> String {
-        let all = app.scripts + app.flows
-        return all.filter { $0.title == item.title }.count > 1 ? item.id : item.title
-    }
+    func runName(_ item: ScriptItem) -> String { app.runName(item) }
     @Published var name: String
     @Published private(set) var saveState: SaveState = .saved
     @Published private(set) var check: CheckState = .none

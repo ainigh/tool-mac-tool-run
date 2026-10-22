@@ -221,14 +221,8 @@ struct GridHeader: View {
                 }
             }
             Spacer(minLength: 12)
-            // The other grids, one click away (each has its own window).
-            Picker("", selection: Binding(get: { kind }, set: { if $0 != kind { app.openGrid($0) } })) {
-                ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .help(Self.switchHelp)
+            // The other grids, and the API board, one click away (each has its own window).
+            BoardSwitcher(current: kind.rawValue, app: app)
             // How many cells at once.
             HStack(spacing: 2) {
                 Button { app.update(kind) { $0.cells = max(GridSettings.minCells, $0.cells - 1) } } label: { Image(systemName: "minus") }
@@ -300,11 +294,34 @@ struct GridHeader: View {
     }
 
     static func short(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
+}
 
-    /// "Switch grids (⌘1 Scripts, ⌘2 Composer, …, from the menu bar icon)".
-    private static var switchHelp: String {
-        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" }.joined(separator: ", ")
-        return "Switch grids (\(keys), from the menu bar icon)"
+/// The grids and the API board, a segment each: a click opens that one's window.
+struct BoardSwitcher: View {
+    /// The one showing: a grid's raw value, or `BoardSwitcher.api`.
+    let current: String
+    @ObservedObject var app: AppModel
+
+    static let api = "api"
+
+    var body: some View {
+        Picker("", selection: Binding(get: { current }, set: { picked in
+            guard picked != current else { return }
+            if let kind = GridKind(rawValue: picked) { app.openGrid(kind) } else { Windows.showAPIBoard() }
+        })) {
+            ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k.rawValue) }
+            Text("API").tag(Self.api)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help(Self.help)
+    }
+
+    /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, from the menu bar icon)".
+    private static var help: String {
+        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" } + ["⌘\(GridKind.allCases.count + 1) API"]
+        return "Switch boards (\(keys.joined(separator: ", ")), from the menu bar icon)"
     }
 }
 
@@ -384,16 +401,19 @@ struct GridActions {
     let app: AppModel
     let kind: GridKind
 
-    /// Runs it with these arguments (nil: the ones remembered for its cell). One that asks first
-    /// (it looks like it can't be undone, or it's set to) says what it'll do and waits for Run.
-    /// `started`: told the run's id once it has started (not when Don't Run was chosen).
-    func run(_ item: ScriptItem, arguments line: String? = nil, started: ((UUID) -> Void)? = nil) {
+    /// Runs it with these arguments (nil: the ones remembered for its cell; `argv`: these words
+    /// exactly, as the API board's answers are). `stdin`: text handed to a script as its input.
+    /// One that asks first (it looks like it can't be undone, or it's set to) says what it'll do
+    /// and waits for Run. `started`: told the run's id once it has started (not when Don't Run
+    /// was chosen).
+    func run(_ item: ScriptItem, arguments line: String? = nil, argv given: [String]? = nil, stdin: String? = nil,
+             started: ((UUID) -> Void)? = nil) {
         guard let lib = app.library else { return }
-        let argv = ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
+        let argv = given ?? ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
         let go: () -> Void = {
             let id = kind.isFlow
                 ? app.runs.run(flow: item, arguments: argv, library: lib)
-                : app.runs.run(script: item, arguments: argv, folder: lib.root)
+                : app.runs.run(script: item, arguments: argv, folder: lib.root, stdin: stdin)
             started?(id)
         }
         if asksFirst(item) { confirm(item, argv: argv, then: go) } else { go() }

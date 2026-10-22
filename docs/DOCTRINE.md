@@ -105,7 +105,7 @@ Every feature keeps these. If a change breaks one, it isn't done.
 - **Honesty** — no invented numbers, no placeholder pretending to be finished.
 - **Color is meaning** — mostly neutral; color for state and to tell same-type cells apart.
   The app follows light and dark mode; the cells keep their light colors in both.
-- **Keyboard** — ⌘1 to ⌘4 open the grids (Scripts, Composer, Utilities, Browser), ⌘R runs from the editor, ⌘S saves, ⌘. stops, Return
+- **Keyboard** — ⌘1 to ⌘4 open the grids (Scripts, Composer, Utilities, Browser), ⌘5 the API board, ⌘R runs from the editor, ⌘S saves, ⌘. stops, Return
   and Escape answer every sheet.
 
 ## 6 · Self-healing launch (the installer and the runner)

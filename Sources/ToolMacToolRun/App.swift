@@ -232,6 +232,12 @@ final class AppModel: ObservableObject {
 
     // MARK: windows
 
+    /// The name `run` (and the block editor) uses for a script or a flow: its name without the
+    /// extension, unless another has it too.
+    func runName(_ item: ScriptItem) -> String {
+        (scripts + flows).filter { $0.title == item.title }.count > 1 ? item.id : item.title
+    }
+
     func openGrid(_ kind: GridKind) {
         reload()
         Windows.showGrid(kind)

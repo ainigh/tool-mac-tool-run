@@ -92,7 +92,10 @@ final class GridGroupTests: XCTestCase {
         let lib = Library(root: folder)
         // The weather, news and cloud flows need only utilities: they come with them. The rest
         // wait for the browser scripts they run.
-        let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow"]
+        let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow",
+                            "travel-check.flow", "site-watch.flow", "new-password.flow"]
+        // mac-health also runs disk-space, from the Scripts grid's examples: it comes with them.
+        let withScripts = ["mac-health.flow"]
         let utilities = try lib.addExamples(for: .utilities)
         XCTAssertEqual(utilities.count, Examples.utilities.count + utilityFlows.count)
         XCTAssertEqual(Set(lib.items(.utilities).map(\.id)), Set(Examples.utilities.map(\.0)))
@@ -100,12 +103,12 @@ final class GridGroupTests: XCTestCase {
         XCTAssertEqual(Set(lib.flows().map(\.id)), Set(utilityFlows))
 
         let browser = try lib.addExamples(for: .browser)
-        XCTAssertEqual(browser.count, Examples.browser.count + Examples.toolFlows.count - utilityFlows.count)
-        XCTAssertEqual(Set(lib.flows().map(\.id)), Set(Examples.toolFlows.map(\.0)))
+        XCTAssertEqual(browser.count, Examples.browser.count + Examples.toolFlows.count - utilityFlows.count - withScripts.count)
+        XCTAssertEqual(Set(lib.flows().map(\.id)), Set(Examples.toolFlows.map(\.0)).subtracting(withScripts))
         XCTAssertTrue(try lib.addExamples(for: .browser).isEmpty)
 
-        // The Scripts grid's examples are the ones it always had.
-        XCTAssertEqual(try lib.addExamples(for: .scripts).count, Examples.scripts.count + Examples.flows.count)
+        // The Scripts grid's examples are the ones it always had (and the flows waiting on them).
+        XCTAssertEqual(try lib.addExamples(for: .scripts).count, Examples.scripts.count + Examples.flows.count + withScripts.count)
         for kind in GridKind.scriptGrids {
             for item in lib.items(kind) {
                 XCTAssertNotNil(item.summary, "\(item.id) says what it does on its cell")
@@ -318,5 +321,103 @@ final class GridGroupTests: XCTestCase {
         XCTAssertTrue(services.out.contains("GitHub\n") && services.out.contains("Claude\n"), services.out)
         XCTAssertTrue(try run("weather", ["--days", "x"]).err.contains("--days takes a number"))
         XCTAssertTrue(try run("news", ["--count", "x"]).err.contains("--count takes a number"))
+    }
+}
+
+/// What a script asks for before it runs, and everything the API can run (the API board).
+final class APIBoardTests: XCTestCase {
+    func testInputsAreReadFromTheHeader() {
+        let script = """
+        #!/bin/bash
+        # Asks Google and gives back just the answer
+        #
+        # Input: What should Google be asked?
+        # Input (optional): A language (en unless set)
+        #   input text: The page to read
+        # Input text (optional): More text
+        # Input: never read: the header ended above
+        echo hi
+        # Input: after the code: not part of the header
+        """
+        XCTAssertEqual(ScriptInput.declared(in: script), [
+            ScriptInput(prompt: "What should Google be asked?"),
+            ScriptInput(prompt: "A language (en unless set)", optional: true),
+            ScriptInput(prompt: "The page to read", kind: .text),
+            ScriptInput(prompt: "More text", kind: .text, optional: true),
+            ScriptInput(prompt: "never read: the header ended above"),
+        ])
+        XCTAssertEqual(ScriptInput.declared(in: "// Input: A topic\nlet x = 1\n"), [ScriptInput(prompt: "A topic")])
+        XCTAssertEqual(ScriptInput.declared(in: "#!/bin/bash\n# Inputs are fun\n# Input:\n"), [], "no prompt, or another word: not an input")
+        // The summary is what it does, never what it asks for.
+        XCTAssertEqual(Library.summary("#!/bin/bash\n# Input: A name\n# Says hello\n"), "Says hello")
+
+        let inputs = [ScriptInput(prompt: "Question"), ScriptInput(prompt: "Place", optional: true), ScriptInput(prompt: "JSON", kind: .text)]
+        XCTAssertEqual(ScriptInput.split(inputs, answers: ["how tall", "", "{}"]).arguments, ["how tall"])
+        XCTAssertEqual(ScriptInput.split(inputs, answers: ["how tall", "Paris", "{}"]).stdin, "{}")
+        XCTAssertNil(ScriptInput.missing(inputs, answers: ["q", "", "{}"]))
+        XCTAssertEqual(ScriptInput.missing(inputs, answers: [" ", "x", "{}"]), "Question — this one is needed.")
+    }
+
+    func testTheCatalogHasEverythingTheAPICanRun() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let lib = Library(root: folder)
+        try lib.addExamples()
+        let actions = APICatalog.actions(scripts: lib.scripts(), flows: lib.flows())
+        XCTAssertEqual(Set(actions.map(\.id)).count, actions.count, "every id is unique")
+        XCTAssertEqual(actions.filter { $0.section == .utilities }.count, Examples.utilities.count)
+        XCTAssertEqual(actions.filter { $0.section == .browser }.count, Examples.browser.count)
+        XCTAssertEqual(actions.filter { $0.section == .flows }.count, lib.flows().count)
+        XCTAssertEqual(actions.filter { $0.section == .epa }.count, EPA.commands.count)
+        let functions = Set(actions.filter { $0.section == .functions }.map(\.title))
+        XCTAssertTrue(functions.isSuperset(of: ["upper", "replace", "notify", "showResult", "now", "sh", "ask", "choose", "range", "sleep"]), "\(functions)")
+        XCTAssertTrue(functions.isDisjoint(with: ["run", "attempt", "pipe", "epa", "map", "print", "fail", "parallel", "sum", "not"]), "\(functions)")
+        // The sections, in order, and each one's endpoint.
+        XCTAssertEqual(actions.map(\.section).reduce(into: [APIAction.Section]()) { if $0.last != $1 { $0.append($1) } },
+                       [.scripts, .utilities, .browser, .flows, .epa, .functions])
+        XCTAssertEqual(APIAction.Section.browser.endpoint, .run)
+        XCTAssertEqual(APIAction.Section.functions.endpoint, .compose)
+
+        // A script: its arguments and its input text, as POST /api/run takes them.
+        let google = try XCTUnwrap(actions.first { $0.id == "script:browser/google.sh" })
+        XCTAssertEqual(google.inputs.first?.optional, false)
+        let request = try google.request(answers: ["how tall is it"])
+        XCTAssertEqual(request.path, "/api/run")
+        XCTAssertEqual(request.body["script"] as? String, "browser/google.sh")
+        XCTAssertEqual(request.body["args"] as? [String], ["how tall is it"])
+        XCTAssertEqual(try google.curl(answers: ["how tall is it"], baseURL: "http://127.0.0.1:8768"),
+                       #"curl -s http://127.0.0.1:8768/api/run -H 'Content-Type: application/json' -d '{"args":["how tall is it"],"script":"browser/google.sh"}'"#)
+        XCTAssertTrue(try google.curl(answers: ["x"], baseURL: "http://10.0.0.2:8768", token: "secret").contains("'Authorization: Bearer secret'"))
+        let jsonGet = try XCTUnwrap(actions.first { $0.id == "script:utilities/json-get.py" })
+        XCTAssertEqual(jsonGet.inputs.map(\.kind), [.argument, .text])
+        XCTAssertEqual(try jsonGet.request(answers: ["a.b", "{\"a\": {\"b\": 1}}"]).body["stdin"] as? String, "{\"a\": {\"b\": 1}}")
+
+        // A function: one line of Flow, checked as any flow is, sent to /api/compose.
+        let replace = try XCTUnwrap(actions.first { $0.id == "function:replace" })
+        XCTAssertEqual(replace.inputs.map(\.prompt), ["First: text", "Second: text", "Third: text"])
+        let code = try XCTUnwrap(try replace.code(answers: ["%", "", "say \"87%\"\nok"]))
+        XCTAssertEqual(code, #"print (replace "%" "" "say \"87%\"\nok")"#)
+        XCTAssertNoThrow(try Flow.check(code, scripts: []))
+        XCTAssertEqual(try replace.request(answers: ["a", "b", "c"]).body["source"] as? String, #"print (replace "a" "b" "c")"#)
+        let range = try XCTUnwrap(actions.first { $0.id == "function:range" })
+        XCTAssertEqual(try range.code(answers: ["-2", "3"]), "print (range (-2) 3)")
+        XCTAssertThrowsError(try range.code(answers: ["two", "3"]))
+        XCTAssertEqual(try actions.first { $0.id == "function:now" }?.code(answers: []), "print (now ())")
+        XCTAssertEqual(try actions.first { $0.id == "function:notify" }?.code(answers: ["Done"]), #"notify "Done""#)
+        let choose = try XCTUnwrap(try actions.first { $0.id == "function:choose" }?.code(answers: ["Which?", "a\nb\n\nc"]))
+        XCTAssertEqual(choose, #"print (choose "Which?" ["a"; "b"; "c"])"#)
+        for action in actions where action.section == .functions {
+            let answers = action.inputs.map { $0.prompt.contains("number") ? "2" : "x" }
+            XCTAssertNoThrow(try Flow.check(try action.code(answers: answers) ?? "", scripts: []), action.title)
+        }
+        // EPA: its command and the words typed.
+        let doctor = try XCTUnwrap(actions.first { $0.section == .epa && $0.title == "Check Connections" })
+        XCTAssertEqual(try doctor.code(answers: ["--json 'two words'"]), #"epa ["doctor"; "--json"; "two words"] |> ignore"#)
+        XCTAssertNoThrow(try Flow.check(try doctor.code(answers: [""]) ?? "", scripts: []))
+
+        // Search: every word, anywhere.
+        XCTAssertTrue(google.matches("GOOGLE answer"))
+        XCTAssertTrue(google.matches("browser"))
+        XCTAssertFalse(google.matches("google weather"))
     }
 }

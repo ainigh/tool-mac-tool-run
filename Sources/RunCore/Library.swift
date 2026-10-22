@@ -20,6 +20,8 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     public var asksForInput = false
     /// It runs EPA (a flow with an `epa` step, or one of EPA's own scripts): its cell says so.
     public var usesEPA = false
+    /// What its header says it asks for before it runs (`# Input: …`).
+    public var inputs: [ScriptInput] = []
 
     public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil, grid: GridKind = .scripts) {
         self.url = url
@@ -148,14 +150,18 @@ public struct Library: Sendable {
             let lang = ScriptLanguage.detect(fileName: url.lastPathComponent, contents: contents, executableBit: executable)
             // A file we can't run and that isn't marked executable isn't a script (a note, a picture).
             if lang == .unknown { return nil }
-            return ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url), grid: kind).cautioned()
+            var item = ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url), grid: kind).cautioned()
+            item.inputs = contents.map(ScriptInput.declared) ?? []
+            return item
         }
     }
 
     /// The flows, by name.
     public func flows() -> [ScriptItem] {
         files(in: composerFolder).filter { $0.pathExtension.lowercased() == Self.flowExtension }.map { url in
-            var item = ScriptItem(url: url, language: .unknown, summary: Self.head(of: url).flatMap(Self.summary), modified: Self.modified(url), grid: .composer)
+            let head = Self.head(of: url)
+            var item = ScriptItem(url: url, language: .unknown, summary: head.flatMap(Self.summary), modified: Self.modified(url), grid: .composer)
+            item.inputs = head.map(ScriptInput.declared) ?? []
             let text = Caution.text(of: url)
             item.dangers = Caution.dangers(in: text)
             item.usesEPA = EPA.isUsed(in: text)
@@ -218,6 +224,8 @@ public struct Library: Sendable {
                 var text = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
                 if text.hasPrefix("-*-") || text.lowercased().hasPrefix("vim:") || text.lowercased().hasPrefix("shellcheck") { break }
                 text = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                // An "Input: …" line says what it asks for, not what it does.
+                if ScriptInput.parse(text) != nil { break }
                 if !text.isEmpty { return String(text.prefix(140)) }
             }
             // The first line that isn't a comment: there's no description.
@@ -301,13 +309,13 @@ public struct Library: Sendable {
         return added
     }
 
-    /// Brings each example utility, browser script and flow that is exactly an earlier version
+    /// Brings each example (script, utility, browser script or flow) that is exactly an earlier version
     /// this app wrote up to date (one someone changed, or that isn't there, is left alone).
     /// Returns the ones updated.
     @discardableResult
     public func updateExamples(earlier: [String: [UInt64]] = Examples.earlierTools) -> [URL] {
         var updated: [URL] = []
-        for (id, contents) in Examples.utilities + Examples.browser + Examples.toolFlows {
+        for (id, contents) in Examples.allScripts + Examples.flows + Examples.toolFlows {
             guard let hashes = earlier[id] else { continue }
             let url = id.hasSuffix("." + Self.flowExtension) ? composerFolder.appendingPathComponent(id) : root.appendingPathComponent(id)
             guard let now = try? String(contentsOf: url, encoding: .utf8), hashes.contains(Examples.fingerprint(now)) else { continue }
@@ -350,7 +358,7 @@ public struct Library: Sendable {
 
 /// The examples a new folder can start with: one in each common language, and flows that compose them.
 public enum Examples {
-    /// Earlier versions of the example utilities, browser scripts and flows this app wrote, by id,
+    /// Earlier versions of the examples this app wrote (scripts, utilities, browser scripts, flows), by id,
     /// as their `fingerprint`s: a file still exactly one of them is brought up to date by
     /// `updateExamples`.
     public static let earlierTools: [String: [UInt64]] = [
@@ -359,13 +367,39 @@ public enum Examples {
         // the Google and YouTube scripts use. 2nd: its AppleScript named Chrome only as it ran
         // (tell application id (item 1 of argv)), so Chrome's words (active tab, execute) were a
         // syntax error as it compiled.
-        "browser/browser.sh": [0xc47a_ff9c_213a_2f07, 0x050a_0b97_2fcd_f82f],
-        "browser/open-page.sh": [0x2bf6_5de2_2cd6_c476],
+        "browser/browser.sh": [0xc47a_ff9c_213a_2f07, 0x050a_0b97_2fcd_f82f, 0x47a8_ec9e_ea51_4d96],
+        "browser/open-page.sh": [0x2bf6_5de2_2cd6_c476, 0x1933_3b85_00a1_6c01],
         "browser/page-info.sh": [0xd722_e7fa_24b6_5454],
         "browser/page-text.sh": [0xaba1_e6d4_52c4_9b85],
         "browser/page-links.sh": [0xe5ff_f745_d256_dbeb],
         "page-aloud.flow": [0xea4e_3455_ab47_3b9f],
         "page-addresses.flow": [0x05eb_fa99_bd66_88f1],
+        // 3rd (and the 2nd of the others below): before their `Input:` lines, which say what the
+        // API board asks for before it runs them; google.sh had no --answer, browser.sh no
+        // close-duplicates or tabs --all, cloud-status.py read "github aws" as one service.
+        "hello.sh": [0xbb98_1239_6a0d_3ed3],
+        "count-lines.py": [0x0566_99de_2cd5_3fcb],
+        "shout.js": [0x87f0_e3c4_648e_75bf],
+        "big-files.sh": [0x8ea0_909a_ad99_f9b2],
+        "browser/google.sh": [0xcf38_1d1a_826a_d507],
+        "browser/youtube.sh": [0x6095_a4b6_10c4_aa93],
+        "browser/youtube-music.sh": [0x8b2f_cf83_a09b_7daf],
+        "ask-google.flow": [0xbb9c_1422_ec74_ead5],
+        "cloud-check.flow": [0xdb73_cd37_7af7_7965],
+        "play-music.flow": [0xb225_32c5_c315_8bd8],
+        "urgent-news.flow": [0x8de9_861d_b339_b4eb],
+        "weather-now.flow": [0x8848_8a35_32ff_eabe],
+        "youtube-search.flow": [0x1529_de0d_ed58_6876],
+        "utilities/clipboard.sh": [0x4dca_b392_e2b7_9450],
+        "utilities/cloud-status.py": [0x5fb0_c9e4_46cd_2c86],
+        "utilities/csv-to-json.py": [0x62e7_6926_5fa7_fb58],
+        "utilities/extract-urls.py": [0x27cf_fa22_ba9f_9b47],
+        "utilities/json-get.py": [0xd16f_4abf_71bd_b177],
+        "utilities/news.py": [0xb77d_6f02_904c_1140],
+        "utilities/play-song.sh": [0x4a57_d55a_4c0c_f94a],
+        "utilities/play-sound.sh": [0xf8dc_3726_fa03_41eb],
+        "utilities/speak.sh": [0x71ed_80b1_e7f9_8080],
+        "utilities/weather.py": [0xf533_9f5f_7124_5d71],
     ]
 
     /// A file's text, boiled down to a number (FNV-1a, 64 bits): the same text always gives the
@@ -380,6 +414,8 @@ public enum Examples {
         ("hello.sh", """
         #!/bin/bash
         # Says hello, with the date, to whoever is named (or the world)
+        #
+        # Input (optional): Who to greet (the world unless set)
         set -euo pipefail
 
         echo "Hello, ${1:-world}! It's $(date '+%A %H:%M')."
@@ -394,6 +430,8 @@ public enum Examples {
         ("count-lines.py", """
         #!/usr/bin/env python3
         # Counts the lines and words in its input (or in the files named)
+        #
+        # Input text: The text to count
         import sys
 
         text = "".join(open(p).read() for p in sys.argv[1:]) if sys.argv[1:] else sys.stdin.read()
@@ -402,6 +440,8 @@ public enum Examples {
         ("shout.js", """
         #!/usr/bin/env node
         // Repeats its arguments (or its input) in capitals
+        //
+        // Input: Words to shout
         const fromArgs = process.argv.slice(2).join(" ");
         if (fromArgs) {
           console.log(fromArgs.toUpperCase() + "!");
@@ -414,6 +454,8 @@ public enum Examples {
         ("big-files.sh", """
         #!/bin/bash
         # Lists the five biggest files in a folder (your Downloads unless one is named)
+        #
+        # Input (optional): A folder (your Downloads unless set)
         set -eu
 
         dir="${1:-$HOME/Downloads}"
