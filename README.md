@@ -14,13 +14,19 @@ apps use. The four grids:
   flow is also a small program in **Flow**, a little F#-like language, so it can be written as
   text too: the editor switches between the two, and they're the same file. Mistakes are caught
   before anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
-- **Utilities** — small reusable scripts, kept in your folder's `utilities` folder: play a sound
-  or a song, say something out loud, the clipboard, little parsers (pick values out of JSON, CSV
+- **Utilities** — small reusable scripts, kept in your folder's `utilities` folder: the weather
+  (`weather`), the news and what's urgent in it (`news`), whether 20 cloud services are up
+  (`cloud-status`: AWS, Google Cloud, Azure, GitHub, Cloudflare, OpenAI, Claude, Slack…), a sound
+  or a song, something said out loud, the clipboard, little parsers (pick values out of JSON, CSV
   to JSON, every web address in some text).
-- **Browser** — scripts that drive your default browser, kept in its `browser` folder: open a
-  page, read its title, address and text, run JavaScript in it and print what comes back.
-  `browser.sh` does the driving (Safari, Chrome, Edge, Brave, Arc, Vivaldi, Chromium); the
-  others are a line or two of it.
+- **Browser** — scripts that drive Google Chrome, kept in its `browser` folder: ask Google and
+  get just the answer (`google`), search YouTube or play a video (`youtube`), play music on
+  YouTube Music (`youtube-music`), read any page. `browser.sh` does the driving.
+
+The **Composer** examples put them together: `ask-google`, `weather-now`, `news-briefing`,
+`urgent-news`, `cloud-check`, `youtube-search` (pick a video from the top results),
+`play-music`, and `morning-briefing` (the weather, urgent news, the top stories and any cloud
+service that's down, fetched at once, in one result).
 
 Utilities and browser scripts are scripts, exactly: a click runs one, the pencil edits it, a flow
 runs it by name (`run "speak" ["Done"]`), and other apps run them over the API. Only their
@@ -133,8 +139,9 @@ install command again still works too.
 
 1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and four flows that use them, seven
-   utilities, five browser scripts, and two flows that use those; keep "Add the EPA recipes" on
+   examples" on and you start with five small scripts and four flows that use them, ten
+   utilities, eight browser scripts, and ten flows that use those (Google, the weather, the news,
+   cloud services, YouTube, a morning briefing); keep "Add the EPA recipes" on
    and EPA's recipes are there too, with EPA set up for you. (Already set up? The empty Utilities
    and Browser grids offer **Add the Examples** for theirs.)
 3. Click a cell. It runs; its border moves while it does, and what it prints shows beside the
@@ -201,20 +208,20 @@ scripts and every function, each a click away from being typed in.
 
 ## Driving the browser
 
-`browser/browser.sh` (on the Browser grid) drives your default browser through AppleScript:
+`browser/browser.sh` (on the Browser grid) drives Google Chrome through AppleScript:
 
 ```bash
-browser/browser.sh                         # which browser is the default, and what it can do
-browser/browser.sh open https://example.com  # a new tab; waits for it to load; prints its title
-browser/browser.sh title                   # also: url, text, tabs, wait
-browser/browser.sh js 'document.querySelectorAll("a").length'
+browser/browser.sh                             # is Chrome ready, and what to switch on if not
+browser/browser.sh open https://example.com    # a new tab, in front; waits for it; prints its title
+browser/browser.sh read https://example.com 'document.title'   # in a tab of its own, behind; closed after
+browser/browser.sh title                       # also: url, text, tabs, js, js-in, focus, go, wait, encode
+browser/google.sh how tall is the eiffel tower # just the answer, then the top results
+browser/youtube-music.sh bohemian rhapsody     # plays it; also pause, play, next, previous, now
 ```
 
-The first time, macOS asks whether the app may control the browser: click **Allow**. Running
-JavaScript in a page needs the browser's own switch, once: Safari › Settings › Advanced › **Show
-features for web developers**, then **Develop › Allow JavaScript from Apple Events**; in Chrome and
-the browsers built like it, **View › Developer › Allow JavaScript from Apple Events**. Until then
-it says which one is missing and where. `TMR_BROWSER=Safari` picks a browser that isn't the default.
+Two things are asked once: macOS asks whether the app may control Chrome (click **Allow**), and
+Chrome needs **View › Developer › Allow JavaScript from Apple Events** ticked. Until then the
+scripts say which one is missing and where.
 
 ## From a terminal
 

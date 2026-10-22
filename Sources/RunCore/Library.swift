@@ -100,8 +100,8 @@ public enum GridKind: String, Codable, CaseIterable, Sendable {
         switch self {
         case .scripts: "Every script, a click to run"
         case .composer: "Flows that compose your scripts"
-        case .utilities: "Small reusable helpers: sounds, the clipboard, parsing data"
-        case .browser: "Scripts that drive your default browser and read pages"
+        case .utilities: "Small reusable helpers: the weather, the news, cloud status, sounds, parsing data"
+        case .browser: "Scripts that drive Chrome: Google, YouTube, YouTube Music, any page"
         }
     }
 
@@ -288,6 +288,7 @@ public struct Library: Sendable {
     /// ones added.
     @discardableResult
     public func addExamples(for kind: GridKind? = nil) throws -> [URL] {
+        updateExamples()
         var added: [URL]
         switch kind {
         case nil: added = try add(scripts: Examples.allScripts, flows: Examples.flows)
@@ -298,6 +299,21 @@ public struct Library: Sendable {
         let names = LocalFlowHost.names(in: self)
         added += try add(scripts: [], flows: Examples.toolFlows.filter { (try? Flow.check($0.1, scripts: names)) != nil })
         return added
+    }
+
+    /// Brings each example utility, browser script and flow that is exactly an earlier version
+    /// this app wrote up to date (one someone changed, or that isn't there, is left alone).
+    /// Returns the ones updated.
+    @discardableResult
+    public func updateExamples(earlier: [String: [UInt64]] = Examples.earlierTools) -> [URL] {
+        var updated: [URL] = []
+        for (id, contents) in Examples.utilities + Examples.browser + Examples.toolFlows {
+            guard let hashes = earlier[id] else { continue }
+            let url = id.hasSuffix("." + Self.flowExtension) ? composerFolder.appendingPathComponent(id) : root.appendingPathComponent(id)
+            guard let now = try? String(contentsOf: url, encoding: .utf8), hashes.contains(Examples.fingerprint(now)) else { continue }
+            if (try? contents.write(to: url, atomically: true, encoding: .utf8)) != nil { updated.append(url) }
+        }
+        return updated
     }
 
     /// What `addExamples(for:)` puts in a grid, in words ("7 utilities", "5 scripts and 4 flows").
@@ -334,6 +350,30 @@ public struct Library: Sendable {
 
 /// The examples a new folder can start with: one in each common language, and flows that compose them.
 public enum Examples {
+    /// Earlier versions of the example utilities, browser scripts and flows this app wrote, by id,
+    /// as their `fingerprint`s: a file still exactly one of them is brought up to date by
+    /// `updateExamples`.
+    public static let earlierTools: [String: [UInt64]] = [
+        // 1st: browser.sh drove the default browser (Safari, Chrome and its kin); now it's Chrome
+        // alone, with read (a tab of its own, behind), js-in, focus, go and encode, which the
+        // Google and YouTube scripts use.
+        "browser/browser.sh": [0xc47a_ff9c_213a_2f07],
+        "browser/open-page.sh": [0x2bf6_5de2_2cd6_c476],
+        "browser/page-info.sh": [0xd722_e7fa_24b6_5454],
+        "browser/page-text.sh": [0xaba1_e6d4_52c4_9b85],
+        "browser/page-links.sh": [0xe5ff_f745_d256_dbeb],
+        "page-aloud.flow": [0xea4e_3455_ab47_3b9f],
+        "page-addresses.flow": [0x05eb_fa99_bd66_88f1],
+    ]
+
+    /// A file's text, boiled down to a number (FNV-1a, 64 bits): the same text always gives the
+    /// same number, on any Mac.
+    public static func fingerprint(_ text: String) -> UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in text.utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
+        return h
+    }
+
     public static let scripts: [(String, String)] = [
         ("hello.sh", """
         #!/bin/bash

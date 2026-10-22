@@ -90,14 +90,17 @@ final class GridGroupTests: XCTestCase {
 
     func testEachGridsExamplesAndTheFlowsThatNeedThemAll() throws {
         let lib = Library(root: folder)
+        // The weather, news and cloud flows need only utilities: they come with them. The rest
+        // wait for the browser scripts they run.
+        let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow"]
         let utilities = try lib.addExamples(for: .utilities)
-        XCTAssertEqual(utilities.count, Examples.utilities.count)
+        XCTAssertEqual(utilities.count, Examples.utilities.count + utilityFlows.count)
         XCTAssertEqual(Set(lib.items(.utilities).map(\.id)), Set(Examples.utilities.map(\.0)))
         XCTAssertTrue(lib.items(.scripts).isEmpty, "the Utilities grid's examples are its own")
-        XCTAssertTrue(lib.flows().isEmpty, "the flows wait for the browser scripts they run")
+        XCTAssertEqual(Set(lib.flows().map(\.id)), Set(utilityFlows))
 
         let browser = try lib.addExamples(for: .browser)
-        XCTAssertEqual(browser.count, Examples.browser.count + Examples.toolFlows.count)
+        XCTAssertEqual(browser.count, Examples.browser.count + Examples.toolFlows.count - utilityFlows.count)
         XCTAssertEqual(Set(lib.flows().map(\.id)), Set(Examples.toolFlows.map(\.0)))
         XCTAssertTrue(try lib.addExamples(for: .browser).isEmpty)
 
@@ -113,6 +116,28 @@ final class GridGroupTests: XCTestCase {
         XCTAssertEqual(Library.examplesSummary(for: .utilities), "\(Examples.utilities.count) utilities")
         XCTAssertEqual(Library.examplesSummary(for: .browser), "\(Examples.browser.count) browser scripts")
         XCTAssertEqual(Library.examplesSummary(for: .composer), "5 scripts and 4 flows")
+    }
+
+    /// An example still exactly as an earlier version wrote it is brought up to date; one someone
+    /// changed is left alone.
+    func testEarlierExamplesAreBroughtUpToDate() throws {
+        XCTAssertEqual(Examples.fingerprint(""), 0xcbf2_9ce4_8422_2325)
+        XCTAssertEqual(Examples.fingerprint("a"), 0xaf63_dc4c_8601_ec8c)
+        for (id, source) in Examples.utilities + Examples.browser + Examples.toolFlows {
+            XCTAssertFalse(Examples.earlierTools[id]?.contains(Examples.fingerprint(source)) == true, "\(id) is still its earlier version")
+        }
+        let lib = Library(root: folder)
+        try lib.ensure()
+        let helper = folder.appendingPathComponent("browser/browser.sh")
+        let flow = lib.composerFolder.appendingPathComponent("page-aloud.flow")
+        let old = "#!/bin/bash\n# the old one\n"
+        try old.write(to: helper, atomically: true, encoding: .utf8)
+        try "// mine, changed\n".write(to: flow, atomically: true, encoding: .utf8)
+        let earlier = ["browser/browser.sh": [Examples.fingerprint(old)], "page-aloud.flow": [Examples.fingerprint(old)]]
+        XCTAssertEqual(lib.updateExamples(earlier: earlier).map(\.lastPathComponent), ["browser.sh"])
+        XCTAssertEqual(try String(contentsOf: helper, encoding: .utf8), Examples.browser.first { $0.0 == "browser/browser.sh" }?.1)
+        XCTAssertEqual(try String(contentsOf: flow, encoding: .utf8), "// mine, changed\n")
+        XCTAssertEqual(lib.updateExamples(earlier: earlier), [], "safe to run again")
     }
 
     func testGridWords() {
@@ -183,48 +208,101 @@ final class GridGroupTests: XCTestCase {
         XCTAssertEqual(said.value, ["2", "4"])
     }
 
-    /// browser.sh with a stand-in for osascript: what it says when the browser can't be driven
-    /// yet, and what it hands back when it can.
-    func testTheBrowserHelperExplainsWhatsMissing() throws {
-        try XCTSkipIf(ShellEnvironment.shared.find("bash") == nil, "needs bash")
+    /// browser.sh with a stand-in for osascript: Chrome's answers, what it says when JavaScript
+    /// isn't allowed yet, and the scripts made of it.
+    func testTheBrowserHelperDrivesChromeAndExplainsWhatsMissing() throws {
+        try XCTSkipIf(ShellEnvironment.shared.find("bash") == nil || ShellEnvironment.shared.find("python3") == nil, "needs bash and python3")
         let lib = Library(root: folder)
         try lib.addExamples(for: .browser)
         let bin = folder.appendingPathComponent("fakebin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let fake = bin.appendingPathComponent("osascript")
+        let log = folder.appendingPathComponent("osascript.log")
         try #"""
         #!/bin/bash
-        script=$(cat)
+        script="$*
+        $(cat)"
         case "$script" in
-          *ObjC.import*) printf 'com.google.Chrome\tGoogle Chrome\n' ;;
-          *"execute active tab"*)
+          *encodeURIComponent*) python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$4" ;;
+          *"path to application id"*) echo "/Applications/Google Chrome.app/" ;;
+          *"is running"*) echo true ;;
+          *'javascript "1+1"'*) echo 2 ;;
+          *"execute t javascript"*)
             if [ -n "${FAKE_NO_JS:-}" ]; then echo "execution error: Executing JavaScript through AppleScript is turned off. (12)" >&2; exit 1; fi
-            printf 'ran %s\n' "$3" ;;
+            echo "js $4" >> "$FAKE_LOG"
+            echo "${FAKE_JS_OUT:-ran $4}" ;;
+          *"if wanted is"*) echo 11 ;;
+          *"make new tab"*) echo "opened $3 $4" >> "$FAKE_LOG"; echo 22 ;;
+          *"loading of t"*) echo false ;;
+          *"close t"*) echo "closed $3" >> "$FAKE_LOG" ;;
           *"title of t"*) echo "Example Domain" ;;
           *) echo "?" ;;
         esac
         """#.write(to: fake, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
-        let path = bin.path + ":/usr/bin:/bin"
+        func browse(_ id: String, _ args: [String], _ extra: [String: String] = [:]) throws -> RunResult {
+            let item = try XCTUnwrap(lib.script(named: id), id)
+            var env = ShellEnvironment.shared.environment
+            env["PATH"] = bin.path + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+            env["FAKE_LOG"] = log.path
+            env.merge(extra) { _, b in b }
+            return try ScriptProcess(script: item.url, language: item.language, arguments: args, workingDirectory: folder, environment: env).runToEnd()
+        }
 
-        let which = try run("browser.sh", path: path)
-        XCTAssertEqual(which.code, 0, which.err)
-        XCTAssertTrue(which.out.hasPrefix("Your browser: Google Chrome (com.google.Chrome)"), which.out)
-        XCTAssertEqual(try run("browser.sh", ["title"], path: path).out, "Example Domain\n")
-        let js = try run("browser.sh", ["js", "document.title;"], path: path)
-        XCTAssertTrue(js.out.hasPrefix("ran (() =>"), js.out)
-        XCTAssertTrue(js.out.contains("return (\ndocument.title\n);"), "an expression is given back, its ; dropped: \(js.out)")
-        let unknown = try run("browser.sh", ["fly"], path: path)
+        let status = try browse("browser.sh", [])
+        XCTAssertEqual(status.code, 0, status.err)
+        XCTAssertTrue(status.out.hasPrefix("Google Chrome: /Applications/Google Chrome.app/"), status.out)
+        XCTAssertTrue(status.out.contains("✅ JavaScript from Apple Events is on"), status.out)
+        XCTAssertEqual(try browse("browser.sh", ["title"]).out, "Example Domain\n")
+        XCTAssertEqual(try browse("browser.sh", ["encode", "a b&c"]).out, "a%20b%26c\n")
+
+        // An expression is given back (its ; dropped); statements keep their own return.
+        let js = try browse("browser.sh", ["js", "document.title;"])
+        XCTAssertTrue(js.out.contains("return (\ndocument.title\n);"), js.out)
+        let statements = try browse("browser.sh", ["js", "const t = document.title\nreturn t"])
+        XCTAssertFalse(statements.out.contains("return (\nconst"), statements.out)
+        let nested = try browse("browser.sh", ["js", "[1].map(x => { return x })"])
+        XCTAssertTrue(nested.out.contains("return (\n[1].map"), "a return inside a function is still one expression: \(nested.out)")
+
+        // Reading a page: a tab of its own behind the one in front, closed after.
+        try? FileManager.default.removeItem(at: log)
+        let read = try browse("browser.sh", ["read", "example.com"])
+        XCTAssertEqual(read.code, 0, read.err)
+        let steps = try String(contentsOf: log, encoding: .utf8)
+        XCTAssertTrue(steps.contains("opened https://example.com behind"), steps)
+        XCTAssertTrue(steps.contains("closed 22"), steps)
+
+        // Google: the question in the address, and Google's robot check said as such.
+        let google = try browse("google", ["how tall", "is it"])
+        XCTAssertEqual(google.code, 0, google.err)
+        XCTAssertTrue(try String(contentsOf: log, encoding: .utf8).contains("q=how%20tall%20is%20it"))
+        let robot = try browse("google", ["anything"], ["FAKE_JS_OUT": "TMR_ROBOT_CHECK"])
+        XCTAssertEqual(robot.code, 1)
+        XCTAssertTrue(robot.err.contains("Google wants to check this isn't a robot"), robot.err)
+        let none = try browse("youtube", [])
+        XCTAssertEqual(none.code, 1)
+        XCTAssertTrue(none.err.contains("What should YouTube be searched for?"), none.err)
+
+        let unknown = try browse("browser.sh", ["fly"])
         XCTAssertEqual(unknown.code, 1)
-        XCTAssertTrue(unknown.err.contains("It knows: which, open URL"), unknown.err)
+        XCTAssertTrue(unknown.err.contains("It knows: open, read"), unknown.err)
 
         // JavaScript not allowed yet: the one setting that allows it, by name.
-        var env = ShellEnvironment.shared.environment
-        env["PATH"] = path
-        env["FAKE_NO_JS"] = "1"
-        let item = try XCTUnwrap(lib.script(named: "page-links"))
-        let links = try ScriptProcess(script: item.url, language: item.language, workingDirectory: folder, environment: env).runToEnd()
+        let links = try browse("page-links", [], ["FAKE_NO_JS": "1"])
         XCTAssertEqual(links.code, 1)
         XCTAssertTrue(links.err.contains("View > Developer > Allow JavaScript from Apple Events"), links.err)
+    }
+
+    /// The weather, the news and the cloud services need the internet; what they say before
+    /// reaching for it doesn't.
+    func testTheInfoUtilitiesSayWhatTheyTake() throws {
+        try XCTSkipIf(ShellEnvironment.shared.find("python3") == nil, "they need python3")
+        try Library(root: folder).addExamples(for: .utilities)
+        let services = try run("cloud-status", ["--list"])
+        XCTAssertEqual(services.code, 0, services.err)
+        XCTAssertTrue(services.out.hasPrefix("AWS\nGoogle Cloud\nAzure\n"), services.out)
+        XCTAssertTrue(services.out.contains("GitHub\n") && services.out.contains("Claude\n"), services.out)
+        XCTAssertTrue(try run("weather", ["--days", "x"]).err.contains("--days takes a number"))
+        XCTAssertTrue(try run("news", ["--count", "x"]).err.contains("--count takes a number"))
     }
 }
