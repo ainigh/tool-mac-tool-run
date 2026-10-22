@@ -664,7 +664,9 @@ extension Examples {
           exit 1
         fi
 
-        # AppleScript (from its input) run with Chrome's id, then the words given, as argv.
+        # AppleScript (from its input) run with Chrome's id, then the words given, as argv. Each script
+        # names Chrome itself (tell application id "com.google.Chrome"): AppleScript reads Chrome's own
+        # words (active tab, execute, loading) from the app it names, as it compiles.
         tell_chrome() {
           osascript - "$CHROME" "$@"
         }
@@ -731,7 +733,7 @@ extension Examples {
           run_script "${1:-}" <<'APPLESCRIPT'
         on run argv
           set wanted to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
             if wanted is "" then return id of active tab of front window
             repeat with w in windows
@@ -751,7 +753,7 @@ extension Examples {
           out=$(run_script "$1" "$(wrap_js "$2")" <<'APPLESCRIPT'
         on run argv
           set tid to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             repeat with w in windows
               repeat with t in tabs of w
                 if (id of t as text) is tid then return execute t javascript (item 3 of argv)
@@ -775,7 +777,7 @@ extension Examples {
             state=$(tell_chrome "$1" 2>/dev/null <<'APPLESCRIPT'
         on run argv
           set tid to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             repeat with w in windows
               repeat with t in tabs of w
                 if (id of t as text) is tid then return loading of t
@@ -799,17 +801,17 @@ extension Examples {
         new_tab() {
           run_script "$1" "$2" <<'APPLESCRIPT'
         on run argv
-          set address to item 2 of argv
-          tell application id (item 1 of argv)
+          set targetURL to item 2 of argv
+          tell application id "com.google.Chrome"
             if (count of windows) = 0 then
               make new window
-              set URL of active tab of front window to address
+              set URL of active tab of front window to targetURL
               set t to active tab of front window
             else
               set w to front window
-              set before to active tab index of w
-              set t to make new tab at end of tabs of w with properties {URL:address}
-              if item 3 of argv is "behind" then set active tab index of w to before
+              set frontIndex to active tab index of w
+              set t to make new tab at end of tabs of w with properties {URL:targetURL}
+              if item 3 of argv is "behind" then set active tab index of w to frontIndex
             end if
             if item 3 of argv is "front" then activate
             return id of t
@@ -822,7 +824,7 @@ extension Examples {
           tell_chrome "$1" >/dev/null 2>&1 <<'APPLESCRIPT'
         on run argv
           set tid to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             repeat with w in windows
               repeat with t in tabs of w
                 if (id of t as text) is tid then
@@ -849,7 +851,7 @@ extension Examples {
           id=$(run_script "$1" "$(with_scheme "$2")" <<'APPLESCRIPT'
         on run argv
           set wanted to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             repeat with w in windows
               set k to 0
               repeat with t in tabs of w
@@ -904,7 +906,7 @@ extension Examples {
         tab_property() {
           run_script "$1" <<'APPLESCRIPT'
         on run argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
             set t to active tab of front window
             if item 2 of argv is "url" then return URL of t
@@ -917,11 +919,11 @@ extension Examples {
         list_tabs() {
           run_script <<'APPLESCRIPT'
         on run argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
             set rows to {}
             repeat with t in tabs of front window
-              set end of rows to (title of t) & tab & (URL of t)
+              set end of rows to (title of t) & (character id 9) & (URL of t)
             end repeat
           end tell
           set AppleScript's text item delimiters to linefeed
@@ -934,7 +936,7 @@ extension Examples {
           run_script "$1" <<'APPLESCRIPT'
         on run argv
           set wanted to item 2 of argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             repeat with w in windows
               set k to 0
               repeat with t in tabs of w
@@ -976,7 +978,7 @@ extension Examples {
           echo "Chrome needs View > Developer > Allow JavaScript from Apple Events ticked."
           if [ "$running" = "true" ] && js_check=$(tell_chrome 2>&1 <<'APPLESCRIPT'
         on run argv
-          tell application id (item 1 of argv)
+          tell application id "com.google.Chrome"
             if (count of windows) = 0 then return "no window"
             return execute active tab of front window javascript "1+1"
           end tell

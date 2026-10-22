@@ -354,10 +354,12 @@ public enum Examples {
     /// as their `fingerprint`s: a file still exactly one of them is brought up to date by
     /// `updateExamples`.
     public static let earlierTools: [String: [UInt64]] = [
-        // 1st: browser.sh drove the default browser (Safari, Chrome and its kin); now it's Chrome
-        // alone, with read (a tab of its own, behind), js-in, focus, go and encode, which the
-        // Google and YouTube scripts use.
-        "browser/browser.sh": [0xc47a_ff9c_213a_2f07],
+        // browser.sh, 1st: it drove the default browser (Safari, Chrome and its kin); now it's
+        // Chrome alone, with read (a tab of its own, behind), js-in, focus, go and encode, which
+        // the Google and YouTube scripts use. 2nd: its AppleScript named Chrome only as it ran
+        // (tell application id (item 1 of argv)), so Chrome's words (active tab, execute) were a
+        // syntax error as it compiled.
+        "browser/browser.sh": [0xc47a_ff9c_213a_2f07, 0x050a_0b97_2fcd_f82f],
         "browser/open-page.sh": [0x2bf6_5de2_2cd6_c476],
         "browser/page-info.sh": [0xd722_e7fa_24b6_5454],
         "browser/page-text.sh": [0xaba1_e6d4_52c4_9b85],
