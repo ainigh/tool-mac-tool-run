@@ -140,6 +140,20 @@ final class GridGroupTests: XCTestCase {
         XCTAssertEqual(lib.updateExamples(earlier: earlier), [], "safe to run again")
     }
 
+    /// AppleScript reads an app's own words (Chrome's active tab, execute…) from the app a tell
+    /// names as it compiles: one named only as it runs makes them a syntax error.
+    func testEveryAppleScriptNamesItsApp() throws {
+        let tell = try NSRegularExpression(pattern: #"tell application (?!id "|")"#)
+        for (id, source) in Examples.allScripts {
+            let range = NSRange(source.startIndex..., in: source)
+            XCTAssertEqual(tell.numberOfMatches(in: source, range: range), 0, "\(id): tell application \"Name\" (or id \"bundle.id\"), written out")
+        }
+        let helper = try XCTUnwrap(Examples.browser.first { $0.0 == "browser/browser.sh" }?.1)
+        XCTAssertTrue(helper.contains(#"tell application id "com.google.Chrome""#))
+        // Inside a tell to Chrome, `tab` is Chrome's tab, not a tab character.
+        XCTAssertFalse(helper.contains("& tab &"))
+    }
+
     func testGridWords() {
         XCTAssertEqual(GridKind.allCases.map(\.title), ["Scripts", "Composer", "Utilities", "Browser"])
         XCTAssertEqual(GridKind.utilities.count(1), "1 utility")
