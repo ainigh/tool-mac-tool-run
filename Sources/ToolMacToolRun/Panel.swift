@@ -250,7 +250,7 @@ struct PanelView: View {
     private var statusText: String {
         guard let lib = app.library else { return "Choose your scripts folder to begin" }
         let n = runs.runningCount
-        let counts = "\(app.scripts.count) \(app.scripts.count == 1 ? "script" : "scripts"), \(app.flows.count) \(app.flows.count == 1 ? "flow" : "flows") in \(GridHeader.short(lib.root))"
+        let counts = "\(GridKind.scripts.count(app.scripts.count)), \(GridKind.composer.count(app.flows.count)) in \(GridHeader.short(lib.root))"
         return n > 0 ? "\(n) running · \(counts)" : counts
     }
 
@@ -302,18 +302,28 @@ struct PanelView: View {
 
     private var tiles: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            ToolTile(title: "Scripts", detail: app.library == nil ? "Every script, a click to run" : "\(app.scripts.count) to click and run",
-                     symbol: "terminal.fill", colors: [Color(red: 0.23, green: 0.52, blue: 0.95), Color(red: 0.36, green: 0.36, blue: 0.84)],
-                     shortcut: "⌘1") { go { app.openGrid(.scripts) } }
-            ToolTile(title: "Composer", detail: app.library == nil ? "Flows that compose them" : "\(app.flows.count) \(app.flows.count == 1 ? "flow" : "flows") composing them",
-                     symbol: "point.3.connected.trianglepath.dotted", colors: [Color(red: 0.58, green: 0.36, blue: 0.86), Color(red: 0.93, green: 0.33, blue: 0.55)],
-                     shortcut: "⌘2") { go { app.openGrid(.composer) } }
+            ForEach(GridKind.allCases, id: \.self) { kind in
+                ToolTile(title: kind.title, detail: gridDetail(kind), symbol: kind.symbol, colors: kind.colors,
+                         shortcut: "⌘\(kind.key)") { go { app.openGrid(kind) } }
+            }
             ToolTile(title: "Runs", detail: runs.runningCount > 0 ? "\(runs.runningCount) running now" : "Everything they printed",
                      symbol: "list.bullet.rectangle.fill", colors: [Color(red: 0.18, green: 0.70, blue: 0.72), Color(red: 0.20, green: 0.72, blue: 0.42)],
                      shortcut: "⌘R") { go { Windows.showRuns(nil) } }
             ToolTile(title: "Flow Guide", detail: "The language, every function",
                      symbol: "book.fill", colors: [Color(red: 0.98, green: 0.58, blue: 0.24), Color(red: 0.90, green: 0.30, blue: 0.26)],
                      shortcut: nil) { go { Windows.showGuide() } }
+        }
+    }
+
+    /// What a grid's tile says under its name: what's on it, or (with no folder yet) what it's for.
+    private func gridDetail(_ kind: GridKind) -> String {
+        guard app.library != nil else { return kind.purpose }
+        let n = app.items(kind).count
+        switch kind {
+        case .scripts: return "\(n) to click and run"
+        case .composer: return "\(kind.count(n)) composing them"
+        case .utilities: return n == 0 ? "Sounds, the clipboard, parsing data" : "\(kind.count(n)) to reuse"
+        case .browser: return n == 0 ? "Drive your default browser" : "\(kind.count(n)) for your browser"
         }
     }
 
@@ -397,11 +407,12 @@ struct PanelView: View {
         seconds < 60 ? "\(seconds) s" : "\(seconds / 60) min"
     }
 
-    /// The menu's keys, while the panel is up: ⌘1 ⌘2 the grids, ⌘R the runs, ⌘Q quits.
+    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘R the runs, ⌘Q quits.
     private var shortcuts: some View {
         ZStack {
-            Button("") { go { app.openGrid(.scripts) } }.keyboardShortcut("1")
-            Button("") { go { app.openGrid(.composer) } }.keyboardShortcut("2")
+            ForEach(GridKind.allCases, id: \.self) { kind in
+                Button("") { go { app.openGrid(kind) } }.keyboardShortcut(KeyEquivalent(kind.key))
+            }
             Button("") { go { Windows.showRuns(nil) } }.keyboardShortcut("r")
             Button("") { go { app.quit() } }.keyboardShortcut("q")
         }

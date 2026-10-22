@@ -128,6 +128,30 @@ final class APITests: XCTestCase {
         XCTAssertEqual(h["folder"] as? String, folder.path)
     }
 
+    func testUtilitiesAndBrowserScriptsAreScriptsWithTheirGroup() async throws {
+        let lib = Library(root: folder)
+        try "#!/bin/bash\n# Says it\nsay \"$@\"\n".write(to: lib.folder(.utilities).appendingPathComponent("speak.sh"), atomically: true, encoding: .utf8)
+        try "#!/bin/bash\n# The page\necho page\n".write(to: lib.folder(.browser).appendingPathComponent("page-info.sh"), atomically: true, encoding: .utf8)
+        host.catalogValue = Catalog(folder: folder, scripts: lib.scripts(), flows: lib.flows())
+
+        let (_, d) = await api.send("GET", "/api/scripts")
+        let all = json(d)["scripts"] as? [[String: Any]] ?? []
+        XCTAssertEqual(all.map { $0["name"] as? String }, ["hello.sh", "wipe.sh", "utilities/speak.sh", "browser/page-info.sh"])
+        XCTAssertEqual(all.map { $0["group"] as? String }, ["scripts", "scripts", "utilities", "browser"])
+        let (_, u) = await api.send("GET", "/api/scripts?group=utilities")
+        XCTAssertEqual((json(u)["scripts"] as? [[String: Any]])?.map { $0["name"] as? String }, ["utilities/speak.sh"])
+        let (bad, b) = await api.send("GET", "/api/scripts?group=composer")
+        XCTAssertEqual(bad.status, 400)
+        XCTAssertEqual(json(b)["code"] as? String, "unknown_group")
+
+        // Run by its name alone, or with its folder.
+        let (r, _) = await api.post("/api/run", #"{"script": "speak", "args": ["hi"]}"#)
+        XCTAssertEqual(r.status, 200)
+        let (r2, _) = await api.post("/api/run", #"{"script": "browser/page-info.sh"}"#)
+        XCTAssertEqual(r2.status, 200)
+        XCTAssertEqual(host.started.map(\.name), ["utilities/speak.sh", "browser/page-info.sh"])
+    }
+
     func testScriptsAndFlowsAreListed() async {
         let (_, d) = await api.send("GET", "/api/scripts")
         let scripts = json(d)["scripts"] as? [[String: Any]]

@@ -253,7 +253,7 @@ final class EditorModel: ObservableObject {
         readOnlyReason = loaded.problem
         name = item.title
         scheduleCheck(delay: 0)
-        if kind == .composer && loaded.problem == nil { readBlocks() }
+        if kind.isFlow && loaded.problem == nil { readBlocks() }
     }
 
     /// The file's text, or why it can't be edited here.
@@ -273,7 +273,7 @@ final class EditorModel: ObservableObject {
         return (text, nil)
     }
 
-    var isFlow: Bool { kind == .composer }
+    var isFlow: Bool { kind.isFlow }
     var isReadOnly: Bool { readOnlyReason != nil }
 
     /// What it's written in, told from what's typed now.
@@ -386,7 +386,7 @@ final class EditorModel: ObservableObject {
             return
         }
         let fileName = Self.fileName(typed: typed, current: item.url, isFlow: isFlow)
-        guard fileName != item.id else {
+        guard fileName != item.url.lastPathComponent else {
             renameProblem = nil
             return
         }
@@ -794,7 +794,7 @@ struct FlowSidebar: View {
                     }
                     ForEach(model.app.scripts) { s in
                         Button {
-                            model.handle.insert("run \"\(s.title)\" []")
+                            model.handle.insert("run \"\(model.runName(s))\" []")
                         } label: {
                             HStack {
                                 Text(s.language.badge).font(.caption.monospaced()).foregroundStyle(.secondary).frame(width: 34, alignment: .leading)

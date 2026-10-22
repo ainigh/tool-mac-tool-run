@@ -2,6 +2,30 @@ import AppKit
 import RunCore
 import SwiftUI
 
+/// How each grid looks wherever it's offered: its icon, its tile's colors, its key (⌘1…⌘4).
+extension GridKind {
+    var symbol: String {
+        switch self {
+        case .scripts: "terminal.fill"
+        case .composer: "point.3.connected.trianglepath.dotted"
+        case .utilities: "wrench.and.screwdriver.fill"
+        case .browser: "globe"
+        }
+    }
+
+    var colors: [Color] {
+        switch self {
+        case .scripts: [Color(red: 0.23, green: 0.52, blue: 0.95), Color(red: 0.36, green: 0.36, blue: 0.84)]
+        case .composer: [Color(red: 0.58, green: 0.36, blue: 0.86), Color(red: 0.93, green: 0.33, blue: 0.55)]
+        case .utilities: [Color(red: 0.95, green: 0.62, blue: 0.20), Color(red: 0.86, green: 0.42, blue: 0.18)]
+        case .browser: [Color(red: 0.16, green: 0.68, blue: 0.86), Color(red: 0.14, green: 0.45, blue: 0.82)]
+        }
+    }
+
+    /// Its key, with ⌘: its place in the list.
+    var key: Character { Character(String((GridKind.allCases.firstIndex(of: self) ?? 0) + 1)) }
+}
+
 /// The one look each state has, everywhere it shows (a cell, a row in Runs, the doctor).
 enum Theme {
     static func color(_ state: RunRecord.State) -> Color {

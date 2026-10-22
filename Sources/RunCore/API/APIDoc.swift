@@ -36,7 +36,8 @@ public enum APIDoc {
         ## Endpoints
 
         GET  /api/health              is it up, which groups are on, the folder, how many scripts and flows
-        GET  /api/scripts             the scripts: name, title, language, language_name, summary, asks_for_input, dangers, uses_epa
+        GET  /api/scripts             the scripts: name, title, group, language, language_name, summary, asks_for_input, dangers, uses_epa
+                                      (?group=utilities or ?group=browser: only that grid's)
         GET  /api/flows               the flows: name, title, summary, uses_epa
         POST /api/run                 run a script  {"script", "args"?, "stdin"?, "client"?, "wait"?, "stream"?}
         POST /api/compose             run a flow    {"flow", "args"?, "client"?, "wait"?, "stream"?}
@@ -53,7 +54,7 @@ public enum APIDoc {
         ## Running
 
         POST /api/run with {"script": "hello.sh", "args": ["world"], "client": "My App"}
-        - script: its name from /api/scripts, with or without the extension.
+        - script: its name from /api/scripts, with or without the extension. A utility or browser script's name starts with its folder (utilities/speak.sh); its file name alone works too ("speak") when no script in the folder above has it.
         - args: a list of strings, or one line split as a shell would ("--all '/tmp/my files'").
         - stdin: text handed to the script as its input (for scripts with "asks_for_input": true).
         - client: your app's name, shown on the card. Without it, the X-Client header, else the User-Agent's first word.

@@ -45,7 +45,8 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     public var kind: Kind
     /// Its file name (or, for a line of shell, the line).
     public var name: String
-    /// Which grid's cell it belongs to (its file name), for the cell to show it.
+    /// Which grid's cell it belongs to (its id: the file name, after its folder for a utility or a
+    /// browser script), for the cell to show it.
     public var file: String?
     public var arguments: [String]
     /// What was run, as typed in a terminal (to copy and run there).

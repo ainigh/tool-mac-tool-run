@@ -3,8 +3,9 @@ import RunCore
 import ServiceManagement
 import SwiftUI
 
-/// A terminal icon in the menu bar. It drops down a panel (`PanelView`) that opens the two grids
-/// (every script; the flows that compose them), the runs, and the folder they all live in, and
+/// A terminal icon in the menu bar. It drops down a panel (`PanelView`) that opens the grids
+/// (every script; the flows that compose them; the utilities; the browser scripts), the runs, and
+/// the folder they all live in, and
 /// switches the HTTP API other apps run your scripts through.
 @main
 struct ToolMacToolRunApp: App {
@@ -78,7 +79,7 @@ final class AppModel: ObservableObject {
 
     // MARK: the folder
 
-    /// Uses this folder from now on (making it, and its composer folder, if they aren't there).
+    /// Uses this folder from now on (making it, and its grids' folders, if they aren't there).
     func setFolder(_ url: URL, remember: Bool = true) {
         let lib = Library(root: url)
         do {
@@ -105,7 +106,7 @@ final class AppModel: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.title = "Choose your scripts folder"
-        panel.message = "Your scripts go at the top of this folder; flows go in a \"composer\" folder inside it (made for you)."
+        panel.message = "Your scripts go at the top of this folder; flows, utilities and browser scripts go in its \"composer\", \"utilities\" and \"browser\" folders (made for you)."
         panel.prompt = "Use This Folder"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -136,14 +137,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Reloads whenever something in the folder (or its composer folder) changes. A folder that's
+    /// Reloads whenever something in the folder (or one of its grids' folders) changes. A folder that's
     /// deleted, renamed or not there is watched again once it's back.
     private func watch() {
         watchers.forEach { $0.cancel() }
         watchers = []
         guard let library else { return }
         var missing = false
-        for folder in [library.root, library.composerFolder] {
+        for folder in GridKind.allCases.map(library.folder) {
             let fd = open(folder.path, O_EVTONLY)
             guard fd >= 0 else {
                 missing = true
@@ -179,7 +180,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func items(_ kind: GridKind) -> [ScriptItem] { kind == .scripts ? scripts : flows }
+    /// A grid's cells: the flows, or the scripts in its folder (`scripts` holds every script).
+    func items(_ kind: GridKind) -> [ScriptItem] { kind.isFlow ? flows : scripts.filter { $0.grid == kind } }
 
     // MARK: the grids' settings
 

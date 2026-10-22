@@ -288,7 +288,7 @@ final class EPATests: XCTestCase {
     /// name: `"$KIT…"` was `KIT\xE2: unbound variable` under set -u. Every script we write says ${NAME}.
     func testNoScriptPutsNonASCIIRightAfterAVariable() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        var scripts = (Examples.scripts + Examples.epaScripts).map { ($0.0, $0.1) }
+        var scripts = (Examples.allScripts + Examples.epaScripts).map { ($0.0, $0.1) }
         for file in ["install.sh", "scripts/setup-epa.sh", "scripts/build-app.sh"] {
             scripts.append((file, try String(contentsOf: repo.appendingPathComponent(file), encoding: .utf8)))
         }

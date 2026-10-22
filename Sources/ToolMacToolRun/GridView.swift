@@ -155,18 +155,36 @@ struct GridView: View {
                 Pill(text: "Pencil to edit", symbol: "pencil")
                 Pill(text: "Drag to reorder", symbol: "hand.draw")
                 Pill(text: "Right-click for more", symbol: "contextualmenu.and.cursorarrow")
-                if kind == .composer {
+                switch kind {
+                case .composer:
                     Pill(text: "Flows run your scripts by name, and EPA", symbol: "point.3.connected.trianglepath.dotted")
+                case .utilities:
+                    Pill(text: "Flows run them by name: run \"speak\" [\"Done\"]", symbol: "point.3.connected.trianglepath.dotted")
+                case .browser:
+                    Pill(text: "browser.sh drives your default browser", symbol: "globe")
+                case .scripts:
+                    EmptyView()
                 }
                 Spacer()
             }
         }
         .font(.callout)
-        .help(kind == .scripts
-              ? "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
-              : "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run the scripts from the Scripts grid by name, and EPA (menu bar icon → EPA).")
+        .help(footerHelp)
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
+    }
+
+    private var footerHelp: String {
+        let basics = "Click a cell to run it. The pencil edits it. Drag a cell onto another to move it. Right-click for arguments, its color, the Finder and more."
+        switch kind {
+        case .scripts: return basics
+        case .composer:
+            return "Click a flow to run it. The pencil edits it (its types are worked out as you type). Flows run your scripts, utilities and browser scripts by name, and EPA (menu bar icon → EPA)."
+        case .utilities:
+            return basics + " Utilities are scripts kept in the utilities folder: small reusable helpers. A flow runs one by its name (run \"speak\" [\"Done\"]), or by utilities/ and its name when a script elsewhere has the same name."
+        case .browser:
+            return basics + " Browser scripts are scripts kept in the browser folder. browser.sh drives your default browser (open a page, read its title, address and text, run JavaScript in it); the others are made of it, and a flow runs any of them by name."
+        }
     }
 }
 
@@ -183,16 +201,16 @@ struct GridHeader: View {
     var body: some View {
         let s = app.settings(kind)
         HStack(spacing: 14) {
-            IconTile(symbol: kind == .scripts ? "terminal.fill" : "point.3.connected.trianglepath.dotted", size: 46)
+            IconTile(symbol: kind.symbol, size: 46)
             VStack(alignment: .leading, spacing: 3) {
-                Text(kind == .scripts ? "Scripts" : "Composer")
+                Text(kind.title)
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                 if let lib = app.library {
                     Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([kind == .scripts ? lib.root : lib.composerFolder])
+                        NSWorkspace.shared.activateFileViewerSelecting([lib.folder(kind)])
                     } label: {
                         HStack(spacing: 4) {
-                            Text("\(count) \(kind == .scripts ? (count == 1 ? "script" : "scripts") : (count == 1 ? "flow" : "flows")) in \(Self.short(kind == .scripts ? lib.root : lib.composerFolder))")
+                            Text("\(kind.count(count)) in \(Self.short(lib.folder(kind)))")
                             Image(systemName: "arrow.up.forward").font(.caption2.weight(.bold))
                         }
                         .font(.callout)
@@ -203,15 +221,14 @@ struct GridHeader: View {
                 }
             }
             Spacer(minLength: 12)
-            // The other grid, one click away (each has its own window).
+            // The other grids, one click away (each has its own window).
             Picker("", selection: Binding(get: { kind }, set: { if $0 != kind { app.openGrid($0) } })) {
-                Text("Scripts").tag(GridKind.scripts)
-                Text("Composer").tag(GridKind.composer)
+                ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            .help("Switch grids (⌘1 Scripts, ⌘2 Composer, from the menu bar icon)")
+            .help(Self.switchHelp)
             // How many cells at once.
             HStack(spacing: 2) {
                 Button { app.update(kind) { $0.cells = max(GridSettings.minCells, $0.cells - 1) } } label: { Image(systemName: "minus") }
@@ -283,19 +300,25 @@ struct GridHeader: View {
     }
 
     static func short(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
+
+    /// "Switch grids (⌘1 Scripts, ⌘2 Composer, …, from the menu bar icon)".
+    private static var switchHelp: String {
+        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" }.joined(separator: ", ")
+        return "Switch grids (\(keys), from the menu bar icon)"
+    }
 }
 
-/// "New Script" (picking its language) or "New Flow".
+/// "New Script" (or Utility, or Browser Script: picking its language) or "New Flow".
 struct NewButton: View {
     let kind: GridKind
     let actions: GridActions
     @State private var picking = false
 
     var body: some View {
-        if kind == .scripts {
-            Button { picking = true } label: { Label("New Script", systemImage: "plus") }
+        if !kind.isFlow {
+            Button { picking = true } label: { Label("New \(kind.noun.capitalized)", systemImage: "plus") }
                 .buttonStyle(ProminentButtonStyle())
-                .help("A new script, in the language you pick")
+                .help("A new \(kind.noun), in the language you pick")
                 .popover(isPresented: $picking, arrowEdge: .bottom) {
                     LanguagePicker { lang in
                         picking = false
@@ -368,9 +391,9 @@ struct GridActions {
         guard let lib = app.library else { return }
         let argv = ShellEnvironment.split(line ?? app.settings(kind).arguments[item.id] ?? "")
         let go: () -> Void = {
-            let id = kind == .scripts
-                ? app.runs.run(script: item, arguments: argv, folder: lib.root)
-                : app.runs.run(flow: item, arguments: argv, library: lib)
+            let id = kind.isFlow
+                ? app.runs.run(flow: item, arguments: argv, library: lib)
+                : app.runs.run(script: item, arguments: argv, folder: lib.root)
             started?(id)
         }
         if asksFirst(item) { confirm(item, argv: argv, then: go) } else { go() }
@@ -399,7 +422,7 @@ struct GridActions {
 
     /// The command it runs, as typed in a terminal.
     func command(_ item: ScriptItem, argv: [String]) -> String {
-        if kind == .scripts {
+        if !kind.isFlow {
             // Only the command is wanted: no environment (reading it can wait on the login shell).
             return ScriptProcess(script: item.url, language: item.language, arguments: argv, workingDirectory: app.library?.root, environment: [:]).commandLine
         }
@@ -439,12 +462,12 @@ struct GridActions {
     func newScript(_ lang: ScriptLanguage) {
         guard let lib = app.library else { return }
         do {
-            let url = try lib.newScript(name: "untitled", language: lang)
+            let url = try lib.newScript(name: "untitled", language: lang, in: kind)
             app.problem = nil
             app.reload()
-            Windows.showEditor(ScriptItem(url: url, language: lang, summary: nil, modified: Date()), kind: .scripts)
+            Windows.showEditor(ScriptItem(url: url, language: lang, summary: nil, modified: Date(), grid: kind), kind: kind)
         } catch {
-            app.problem = "Couldn't make a new script: \(error.localizedDescription)"
+            app.problem = "Couldn't make a new \(kind.noun): \(error.localizedDescription)"
         }
     }
 
@@ -454,16 +477,17 @@ struct GridActions {
             let url = try lib.newFlow(name: "untitled")
             app.problem = nil
             app.reload()
-            Windows.showEditor(ScriptItem(url: url, language: .unknown, summary: nil, modified: Date()), kind: .composer)
+            Windows.showEditor(ScriptItem(url: url, language: .unknown, summary: nil, modified: Date(), grid: .composer), kind: .composer)
         } catch {
             app.problem = "Couldn't make a new flow: \(error.localizedDescription)"
         }
     }
 
-    func addExamples() {
+    /// This grid's examples (`all`: every grid's, as when the folder is set up).
+    func addExamples(all: Bool = false) {
         guard let lib = app.library else { return }
         do {
-            try lib.addExamples()
+            try lib.addExamples(for: all ? nil : kind)
             app.problem = nil
             app.reload()
         } catch {
@@ -497,7 +521,7 @@ struct GridActions {
     func runFile(_ file: String, started: ((UUID) -> Void)? = nil) -> Bool {
         guard let lib = app.library else { return false }
         if let script = lib.script(named: file) {
-            GridActions(app: app, kind: .scripts).run(script, started: started)
+            GridActions(app: app, kind: script.grid).run(script, started: started)
             return true
         }
         if let flow = lib.flows().first(where: { $0.id == file }) {
@@ -589,7 +613,7 @@ struct ScriptCell: View {
         let shape = RoundedRectangle(cornerRadius: Theme.radiusCell, style: .continuous)
         VStack(alignment: .leading, spacing: roomy ? 7 : 3) {
             HStack(spacing: 6) {
-                if kind == .scripts {
+                if !kind.isFlow {
                     Text(item.language.badge)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.white)
@@ -887,7 +911,7 @@ struct NewCell: View {
                 .foregroundStyle(hover ? Color.white : Color.accentColor)
                 .frame(width: count <= 9 ? 48 : 34, height: count <= 9 ? 48 : 34)
                 .background(Circle().fill(hover ? Color.accentColor : Color.accentColor.opacity(0.12)))
-            if count <= 30 { Text(kind == .scripts ? "New script" : "New flow").font(.headline) }
+            if count <= 30 { Text("New \(kind.noun)").font(.headline) }
         }
         .foregroundStyle(hover ? Color.accentColor : Color.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -898,9 +922,9 @@ struct NewCell: View {
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture {
-            if kind == .scripts { picking = true } else { actions.newFlow() }
+            if kind.isFlow { actions.newFlow() } else { picking = true }
         }
-        .help(kind == .scripts ? "A new script: pick its language" : "A new flow")
+        .help(kind.isFlow ? "A new flow" : "A new \(kind.noun): pick its language")
         .accessibilityAddTraits(.isButton)
         .popover(isPresented: $picking, arrowEdge: .bottom) {
             LanguagePicker { lang in
@@ -921,12 +945,10 @@ struct EmptyFolderCard: View {
     var body: some View {
         let actions = GridActions(app: app, kind: kind)
         VStack(spacing: 16) {
-            IconTile(symbol: kind == .scripts ? "terminal.fill" : "point.3.connected.trianglepath.dotted", size: 64)
-            Text(kind == .scripts ? "No scripts in this folder yet" : "No flows yet")
+            IconTile(symbol: kind.symbol, size: 64)
+            Text(kind == .scripts ? "No scripts in this folder yet" : "No \(kind.nouns) yet")
                 .font(.system(size: 26, weight: .bold, design: .rounded))
-            Text(kind == .scripts
-                 ? "Each script in your folder gets a cell here: bash, zsh, Python, JavaScript, Ruby and more (the language is told from its first line or its name). Start with the examples, or write one."
-                 : "A flow composes your scripts: it runs them by name, passes what one prints to the next, and decides what to do with the results. Start with the examples (they use the example scripts), or write one.")
+            Text(blurb)
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -935,14 +957,16 @@ struct EmptyFolderCard: View {
                 Button { actions.addExamples() } label: { Label("Add the Examples", systemImage: "sparkles") }
                     .buttonStyle(ProminentButtonStyle(large: true))
                     .keyboardShortcut(.defaultAction)
-                    .help("Adds 5 example scripts and 4 flows to the folder (nothing there is changed)")
-                Button { actions.addEPARecipes() } label: { Label("Add the EPA Recipes", systemImage: "bolt.horizontal.circle") }
-                    .buttonStyle(SoftButtonStyle(large: true))
-                    .help("Adds EPA's recipes: setup-epa, epa-keys, and flows to connect services, secure a site, onboard and offboard people… (nothing there is changed). If EPA isn't on this Mac yet, setup-epa then runs to install it.")
+                    .help(examplesHelp)
+                if kind == .scripts || kind == .composer {
+                    Button { actions.addEPARecipes() } label: { Label("Add the EPA Recipes", systemImage: "bolt.horizontal.circle") }
+                        .buttonStyle(SoftButtonStyle(large: true))
+                        .help("Adds EPA's recipes: setup-epa, epa-keys, and flows to connect services, secure a site, onboard and offboard people… (nothing there is changed). If EPA isn't on this Mac yet, setup-epa then runs to install it.")
+                }
             }
             HStack(spacing: 8) {
-                if kind == .scripts {
-                    Button { picking = true } label: { Label("New Script", systemImage: "plus") }
+                if !kind.isFlow {
+                    Button { picking = true } label: { Label("New \(kind.noun.capitalized)", systemImage: "plus") }
                         .popover(isPresented: $picking, arrowEdge: .bottom) {
                             LanguagePicker { lang in
                                 picking = false
@@ -954,7 +978,7 @@ struct EmptyFolderCard: View {
                     Button { Windows.showGuide() } label: { Label("Read the Guide", systemImage: "book") }
                 }
                 Button {
-                    if let lib = app.library { NSWorkspace.shared.activateFileViewerSelecting([kind == .scripts ? lib.root : lib.composerFolder]) }
+                    if let lib = app.library { NSWorkspace.shared.activateFileViewerSelecting([lib.folder(kind)]) }
                 } label: { Label("Show Folder", systemImage: "folder") }
             }
             .buttonStyle(SoftButtonStyle())
@@ -962,6 +986,25 @@ struct EmptyFolderCard: View {
         .padding(36)
         .frame(maxWidth: 600)
         .card(radius: 24)
+    }
+
+    private var examplesHelp: String {
+        let flows = kind == .utilities || kind == .browser ? ", and the example flows that use them once both are there" : ""
+        return "Adds \(Library.examplesSummary(for: kind)) to the folder (nothing there is changed)" + flows
+    }
+
+    /// What goes on this grid, and how to start.
+    private var blurb: String {
+        switch kind {
+        case .scripts:
+            "Each script in your folder gets a cell here: bash, zsh, Python, JavaScript, Ruby and more (the language is told from its first line or its name). Start with the examples, or write one."
+        case .composer:
+            "A flow composes your scripts: it runs them by name, passes what one prints to the next, and decides what to do with the results. Start with the examples (they use the example scripts), or write one."
+        case .utilities:
+            "Utilities are small scripts to reuse: play a sound or a song, say something out loud, use the clipboard, pick values out of JSON or CSV. They live in the utilities folder; flows run them by name. Start with the examples, or write one."
+        case .browser:
+            "Browser scripts drive your default browser: open a page, read its title, address and text, run JavaScript in it and print what comes back. They live in the browser folder; browser.sh does the driving. Start with the examples, or write one."
+        }
     }
 }
 

@@ -608,8 +608,8 @@ final class FlowTests: XCTestCase {
     }
 
     func testEveryExampleChecks() throws {
-        let names = Examples.scripts.map(\.0) + Examples.flows.map(\.0)
-        for (name, source) in Examples.flows {
+        let names = Examples.allScripts.map(\.0) + Examples.flows.map(\.0) + Examples.toolFlows.map(\.0)
+        for (name, source) in Examples.flows + Examples.toolFlows {
             XCTAssertNoThrow(try Flow.check(source, scripts: names), name)
         }
         XCTAssertNoThrow(try Flow.check(Examples.newFlow, scripts: names))

@@ -78,7 +78,7 @@ enum Windows {
         let id = "grid-\(kind.rawValue)"
         let frame = ninetyPercent
         let isNew = windows[id] == nil
-        show(id, title: kind == .scripts ? "Scripts" : "Composer", size: frame.size, minSize: NSSize(width: 640, height: 440), autosave: false) {
+        show(id, title: kind.title, size: frame.size, minSize: NSSize(width: 640, height: 440), autosave: false) {
             GridView(kind: kind, app: AppModel.shared, runs: AppModel.shared.runs)
         }
         guard let w = windows[id] else { return }
@@ -112,7 +112,7 @@ enum Windows {
         }
         let model = EditorModel(item: item, kind: kind, app: AppModel.shared)
         // A flow's block editor has its library beside it: a little more room.
-        let size = kind == .composer ? NSSize(width: 1120, height: 760) : NSSize(width: 1000, height: 680)
+        let size = kind.isFlow ? NSSize(width: 1120, height: 760) : NSSize(width: 1000, height: 680)
         let w = makeWindow(title: item.id, size: size, minSize: NSSize(width: 720, height: 440))
         w.contentViewController = NSHostingController(rootView: EditorView(model: model))
         w.setContentSize(size)

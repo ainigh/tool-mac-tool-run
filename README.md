@@ -2,7 +2,7 @@
 
 A terminal icon in the macOS menu bar. Click it, and a panel drops down: what's waiting for you,
 a tile for each grid (each fills 90% of the screen), the latest runs, EPA, and the HTTP API other
-apps use. The two grids:
+apps use. The four grids:
 
 - **Scripts** — a cell for every script in your scripts folder: bash, zsh, PowerShell, Python, JavaScript,
   TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, or any
@@ -14,6 +14,18 @@ apps use. The two grids:
   flow is also a small program in **Flow**, a little F#-like language, so it can be written as
   text too: the editor switches between the two, and they're the same file. Mistakes are caught
   before anything runs. → [The Flow guide](docs/FLOW-GUIDE.md)
+- **Utilities** — small reusable scripts, kept in your folder's `utilities` folder: play a sound
+  or a song, say something out loud, the clipboard, little parsers (pick values out of JSON, CSV
+  to JSON, every web address in some text).
+- **Browser** — scripts that drive your default browser, kept in its `browser` folder: open a
+  page, read its title, address and text, run JavaScript in it and print what comes back.
+  `browser.sh` does the driving (Safari, Chrome, Edge, Brave, Arc, Vivaldi, Chromium); the
+  others are a line or two of it.
+
+Utilities and browser scripts are scripts, exactly: a click runs one, the pencil edits it, a flow
+runs it by name (`run "speak" ["Done"]`), and other apps run them over the API. Only their
+folder puts them on a grid of their own.
+→ [Utilities and the browser](docs/FLOW-GUIDE.md#utilities-and-the-browser)
 
 **Results where you're looking.** Beside the cells, the result pane shows the run you just
 started, live: how it went in big letters, everything it printed (errors in red), Stop or Run
@@ -121,8 +133,10 @@ install command again still works too.
 
 1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and four flows that use them; keep "Add the
-   EPA recipes" on and EPA's recipes are there too, with EPA set up for you.
+   examples" on and you start with five small scripts and four flows that use them, seven
+   utilities, five browser scripts, and two flows that use those; keep "Add the EPA recipes" on
+   and EPA's recipes are there too, with EPA set up for you. (Already set up? The empty Utilities
+   and Browser grids offer **Add the Examples** for theirs.)
 3. Click a cell. It runs; its border moves while it does, and what it prints shows beside the
    cells, in the result pane, as it prints it. When it's done, the pane says how it went (and the
    bottom of the cell too), with **Run Again** a click away. Nothing else to open.
@@ -148,7 +162,8 @@ install command again still works too.
 | Answer a flow's question | the window that comes forward, or click the cell that says **Waiting for your answer** |
 | Type into a script that asks (`read -p`, `input()`…) | the result pane (or Runs, or under the editor) has a line to type in |
 
-**Your scripts folder**: scripts go at its top; flows go in its `composer` folder (made for you).
+**Your scripts folder**: scripts go at its top; flows go in its `composer` folder, utilities in
+its `utilities` folder and browser scripts in its `browser` folder (all made for you).
 The grids follow the folder: add, rename or remove a file in the Finder and the grid changes
 with it. Each script's first comment line is shown on its cell, under its name.
 
@@ -184,6 +199,23 @@ For a flow, the panel beside it shows, as you type, whether it checks out and th
 for everything it defines, or what's wrong, on which line, and how to fix it. Under that: your
 scripts and every function, each a click away from being typed in.
 
+## Driving the browser
+
+`browser/browser.sh` (on the Browser grid) drives your default browser through AppleScript:
+
+```bash
+browser/browser.sh                         # which browser is the default, and what it can do
+browser/browser.sh open https://example.com  # a new tab; waits for it to load; prints its title
+browser/browser.sh title                   # also: url, text, tabs, wait
+browser/browser.sh js 'document.querySelectorAll("a").length'
+```
+
+The first time, macOS asks whether the app may control the browser: click **Allow**. Running
+JavaScript in a page needs the browser's own switch, once: Safari › Settings › Advanced › **Show
+features for web developers**, then **Develop › Allow JavaScript from Apple Events**; in Chrome and
+the browsers built like it, **View › Developer › Allow JavaScript from Apple Events**. Until then
+it says which one is missing and where. `TMR_BROWSER=Safari` picks a browser that isn't the default.
+
 ## From a terminal
 
 ```bash
@@ -191,7 +223,7 @@ flow run ~/Scripts/composer/morning.flow     # check, then run a flow (questions
 flow run --yes ~/Scripts/composer/tidy.flow  # with no one at the keyboard: Continue and Yes
 flow check ~/Scripts/composer/morning.flow   # check it, and see its types
 flow functions                               # every builtin, with its type
-flow examples ~/Scripts                      # add the examples to a folder
+flow examples ~/Scripts                      # add the examples (scripts, utilities, browser, flows)
 flow recipes ~/Scripts                       # add the EPA recipes (then run setup-epa.sh once)
 ```
 

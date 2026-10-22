@@ -331,6 +331,9 @@ items, `fold` carries a value through a list, and a `let rec` function can call 
 - **Names.** `run "hello"` finds `hello.sh` (or `hello.py`…): the file name with or without its
   extension. If two scripts share a name with different extensions, write the extension. A flow
   can run another flow the same way (`run "morning" []`); what that flow prints is its output.
+  Utilities and browser scripts are found the same way (`run "speak" ["Done"]`); when a script at
+  the top of the folder has the same name, that one wins, and `run "utilities/speak"` picks the
+  utility.
 - **Arguments** always go in a list of text: `run "resize" [file; "800"]`. A number goes in as
   `string n`, or inside `$"…"`. They reach the script exactly as given (no shell splitting), so a
   space in an argument is fine.
@@ -350,6 +353,53 @@ if r.ok then print "up" else notify $"Server down: {r.err}"
   now, and nothing after it starts.
 - **The flow's own arguments** are `args : string list` (from the cell's arguments, or
   `flow run x.flow a b`).
+
+### Utilities and the browser
+
+Two more grids hold scripts too, each in a folder of its own inside your scripts folder:
+
+- **Utilities** (`utilities/`): small reusable helpers. The examples play a sound
+  (`play-sound`) or a song from Music (`play-song`), say text out loud (`speak`), use the
+  clipboard (`clipboard`), and parse data: `json-get` picks values out of JSON, `csv-to-json`
+  turns CSV into JSON, `extract-urls` lists every web address in some text.
+- **Browser** (`browser/`): scripts that drive your default browser. `browser.sh` does the
+  driving; the other examples (`open-page`, `page-info`, `page-text`, `page-links`) are a line
+  or two of it.
+
+They're scripts like any other: a click runs one, the pencil edits it, and a flow runs it by
+name. What they print is what a flow gets back, so the browser hands data straight to the next
+step:
+
+```
+// Lists every address the page in front of your browser links to, then plays a sound
+let addresses = run "page-links" [] |> pipe "extract-urls" [] |> lines
+print $"{length addresses} addresses on the page:"
+addresses |> each print
+
+run "play-sound" ["Glass"] |> ignore
+```
+
+```
+"name,email\nAda,ada@example.com" |> pipe "csv-to-json" [] |> pipe "json-get" ["*.email"] |> print
+```
+
+`browser.sh` works with Safari, Chrome, Edge, Brave, Arc, Vivaldi and Chromium (any other
+browser can only open pages); `TMR_BROWSER=Safari` picks one that isn't the default:
+
+| `run "browser.sh" […]` | gives back |
+|---|---|
+| `[]` | which browser is the default, and what it can do from here |
+| `["open"; url]` | opens the page in a new tab, waits for it to load, gives its title |
+| `["url"]`, `["title"]`, `["text"]` | the address, title or text of the page in front |
+| `["tabs"]` | each tab of the front window: its title, a tab, its address |
+| `["js"; code]` | runs JavaScript in the page in front: an expression (`document.title`), or statements with a `return`; what isn't text comes back as JSON |
+| `["wait"]` | waits (up to 30 seconds) for the page in front to finish loading |
+
+Two things are asked once, the first time: macOS asks whether the app may control the browser
+(click **Allow**), and running JavaScript needs the browser's own switch: in Safari, **Settings ›
+Advanced › Show features for web developers**, then **Develop › Allow JavaScript from Apple
+Events**; in Chrome and the others, **View › Developer › Allow JavaScript from Apple Events**. Until
+then, `browser.sh` says which one is missing, and where it is.
 
 ### Asking the person running it
 

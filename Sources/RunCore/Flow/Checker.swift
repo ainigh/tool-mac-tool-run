@@ -620,8 +620,16 @@ extension FType {
 
 /// How `run "name"` finds its script: the file name, else the name without its extension.
 public enum ScriptNames {
+    /// The name `name` means: one exactly so, else one without its extension (`hello` for
+    /// `hello.sh`, `utilities/speak` for `utilities/speak.sh`), else, for a name with no folder in
+    /// it, a utility's or browser script's file name alone (`speak`, `speak.sh`), the first in order.
     public static func match(_ name: String, in names: [String]) -> String? {
         if names.contains(name) { return name }
-        return names.first { ($0 as NSString).deletingPathExtension == name }
+        if let found = names.first(where: { ($0 as NSString).deletingPathExtension == name }) { return found }
+        guard !name.contains("/") else { return nil }
+        return names.first { id in
+            let file = (id as NSString).lastPathComponent
+            return file != id && (file == name || (file as NSString).deletingPathExtension == name)
+        }
     }
 }

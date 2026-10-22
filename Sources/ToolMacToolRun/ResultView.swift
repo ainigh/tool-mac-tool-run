@@ -179,7 +179,7 @@ struct RunResultView: View {
         }
     }
 
-    private var kind: GridKind { run.kind == .flow ? .composer : .scripts }
+    private var kind: GridKind { run.kind == .flow ? .composer : GridKind.of(scriptID: run.file ?? "") }
 
     /// The script or flow it ran, when it's still in the folder.
     private var item: ScriptItem? {
@@ -266,9 +266,9 @@ struct ResultPane: View {
                     IconTile(symbol: "text.alignleft", size: 52)
                     Text("Results show here")
                         .font(.system(size: 19, weight: .bold, design: .rounded))
-                    Text(kind == .scripts
-                         ? "Click a cell to run it: what it prints shows here as it prints it, and how it went when it's done."
-                         : "Click a flow to run it: what it prints, each step's output, and how it went show here.")
+                    Text(kind.isFlow
+                         ? "Click a flow to run it: what it prints, each step's output, and how it went show here."
+                         : "Click a cell to run it: what it prints shows here as it prints it, and how it went when it's done.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)

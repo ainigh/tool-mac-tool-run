@@ -67,14 +67,14 @@ final class RunStore: ObservableObject {
 
     /// The latest run of a cell's script or flow.
     func latest(file: String, kind: GridKind) -> RunRecord? {
-        let k: RunRecord.Kind = kind == .scripts ? .script : .flow
+        let k: RunRecord.Kind = kind.isFlow ? .flow : .script
         return store.last { $0.file == file && $0.kind == k }
     }
 
     /// The latest run of a grid's script or flow, whichever cell it was (what its result pane shows).
     func latestTop(_ kind: GridKind) -> RunRecord? {
-        let k: RunRecord.Kind = kind == .scripts ? .script : .flow
-        return store.last { $0.parent == nil && $0.kind == k }
+        if kind.isFlow { return store.last { $0.parent == nil && $0.kind == .flow } }
+        return store.last { $0.parent == nil && $0.kind == .script && GridKind.of(scriptID: $0.file ?? "") == kind }
     }
 
     func record(_ id: UUID) -> RunRecord? { store.first { $0.id == id } }
@@ -284,7 +284,10 @@ final class RunStore: ObservableObject {
         let pending = self.pending
         // A script asks from inside a flow as its cell does: when it's set to Ask Before Running,
         // or when it looks like it does something that can't be undone (unless set never to ask).
-        let askSettings = AppModel.shared.settings(.scripts).ask
+        let app = AppModel.shared
+        let askSettings = GridKind.scriptGrids.reduce(into: [String: Bool]()) { all, kind in
+            all.merge(app.settings(kind).ask) { mine, _ in mine }
+        }
         let host = LocalFlowHost(library: library, asker: { question in
             PromptCenter.ask(run: id, from: flowName, question)
         }, askBefore: { script in
