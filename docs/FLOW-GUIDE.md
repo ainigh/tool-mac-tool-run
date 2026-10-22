@@ -442,15 +442,19 @@ A comment line near the top says what a script (or a flow) takes before it runs:
 # Asks Google and gives back just the answer
 #
 # Input: What should Google be asked?
+# Why: It's typed into Google's search box as is
 # Input (optional): A language (English unless set)
 # Input text: The page to read
 ```
 
 `Input:` is one argument (the whole answer, spaces and all); `(optional)` may be left empty
-(then it's left out); `Input text:` is text handed to it as its input (stdin). In a flow, the
-answers are its `args`. The API board asks for each before a click runs it (with the last
-answers already in), and `GET /api/scripts` and `/api/flows` list them for other apps. The
-summary on a cell is the first comment line that isn't an `Input:` line.
+(then it's left out); `Input text:` is text handed to it as its input (stdin). A `Why:` line
+right under an `Input:` line says what the answer is for: it's shown under the field when the
+app asks, so whoever types knows what they're deciding (say it whenever it isn't obvious). In a
+flow, the answers are its `args`. The API board asks for each before a click runs it (with the
+last answers already in), and `GET /api/scripts` and `/api/flows` list them for other apps
+(`why` with each). The summary on a cell is the first comment line that isn't an `Input:` or
+`Why:` line.
 
 ### Asking the person running it
 
@@ -460,6 +464,10 @@ summary on a cell is the first comment line that isn't an `Input:` line.
 | `askYesNo` | `string -> bool` | asks a yes-or-no question: `true` for Yes |
 | `ask` | `string -> string` | asks for a line of text |
 | `choose` | `string -> string list -> string` | asks to pick one of a list |
+| `confirmBecause` | `string -> string -> unit` | `confirm`, with why it's asking shown under the question |
+| `askYesNoBecause` | `string -> string -> bool` | `askYesNo`, with why |
+| `askBecause` | `string -> string -> string` | `ask`, with why |
+| `chooseBecause` | `string -> string -> string list -> string` | `choose`, with why (before the list) |
 
 ```
 confirm "Delete last month's backups?"
@@ -468,6 +476,23 @@ run "clean-backups" [] |> print
 let size = choose "Which size?" ["small"; "large"]
 if askYesNo $"Upload the {size} one too?" then run "upload" [size] |> print
 ```
+
+**Say why.** Whoever answers should know what the answer decides before they give it, without
+reading the flow. Each asking function has a `…Because` form whose second string says why: what
+going on does and what that's based on, what the answer is used for, what Yes and No each do.
+It's shown under the question (in the app's window, on the cell, in a terminal), so prefer it
+wherever the question alone wouldn't say enough:
+
+```
+let old = run "list-backups" ["--older-than"; "30"] |> lines
+confirmBecause $"Delete {length old} old backups?" $"They're older than 30 days and take {run "backup-size" []}; the newest three are kept."
+let who = askBecause "Who is it for?" "It goes at the top of the letter, exactly as typed."
+let size = chooseBecause "Which size?" "Large takes four times the space." ["small"; "large"]
+```
+
+In the block editor, every Ask step has a **Why** field that writes these for you. EPA's own
+questions carry EPA's reason the same way, and a run another app asks for over the API carries
+that app's `why` on the card that asks you.
 
 A script that asks before it runs from its cell asks from inside a flow too: one set to **Ask
 Before Running** (on its cell's right-click menu), and one that looks like it does something that

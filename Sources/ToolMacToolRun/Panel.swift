@@ -261,7 +261,7 @@ struct PanelView: View {
         if let first = approvals.pending.first {
             let n = approvals.pending.count
             Banner(symbol: "hand.raised.fill", color: first.request.dangers.isEmpty ? .orange : .red,
-                   text: n == 1 ? "\(first.request.client) wants to run \(first.request.name)" : "\(n) requests to run are waiting for you",
+                   text: n == 1 ? "\(first.request.client) wants to \(first.request.automation == nil ? "run" : "automate") \(first.request.name)" : "\(n) requests are waiting for you",
                    action: "Show") { go { ApprovalCenter.shared.show() } }
         }
         if !prompts.pending.isEmpty {
@@ -309,6 +309,9 @@ struct PanelView: View {
             ToolTile(title: "API", detail: "Everything other apps can run: try each",
                      symbol: APIBoardView.symbol, colors: APIBoardView.colors,
                      shortcut: "⌘\(GridKind.allCases.count + 1)") { go { Windows.showAPIBoard() } }
+            ToolTile(title: "Automation", detail: automationDetail,
+                     symbol: AutomationBoardView.symbol, colors: AutomationBoardView.colors,
+                     shortcut: "⌘\(GridKind.allCases.count + 2)") { go { Windows.showAutomationBoard() } }
             ToolTile(title: "Runs", detail: runs.runningCount > 0 ? "\(runs.runningCount) running now" : "Everything they printed",
                      symbol: "list.bullet.rectangle.fill", colors: [Color(red: 0.18, green: 0.70, blue: 0.72), Color(red: 0.20, green: 0.72, blue: 0.42)],
                      shortcut: "⌘R") { go { Windows.showRuns(nil) } }
@@ -316,6 +319,13 @@ struct PanelView: View {
                      symbol: "book.fill", colors: [Color(red: 0.98, green: 0.58, blue: 0.24), Color(red: 0.90, green: 0.30, blue: 0.26)],
                      shortcut: nil) { go { Windows.showGuide() } }
         }
+    }
+
+    /// What the Automation tile says: how many run by themselves, or what it's for.
+    private var automationDetail: String {
+        guard app.library != nil else { return "Scripts and flows that run by themselves" }
+        let n = GridKind.allCases.reduce(0) { $0 + app.settings($1).automation.count }
+        return n == 0 ? "Tag anything to run on a schedule" : "\(n) running by \(n == 1 ? "itself" : "themselves")"
     }
 
     /// What a grid's tile says under its name: what's on it, or (with no folder yet) what it's for.
@@ -410,14 +420,15 @@ struct PanelView: View {
         seconds < 60 ? "\(seconds) s" : "\(seconds / 60) min"
     }
 
-    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 the API board, ⌘R the runs,
-    /// ⌘Q quits.
+    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 the API board, ⌘6 the
+    /// Automation board, ⌘R the runs, ⌘Q quits.
     private var shortcuts: some View {
         ZStack {
             ForEach(GridKind.allCases, id: \.self) { kind in
                 Button("") { go { app.openGrid(kind) } }.keyboardShortcut(KeyEquivalent(kind.key))
             }
             Button("") { go { Windows.showAPIBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 1))))
+            Button("") { go { Windows.showAutomationBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 2))))
             Button("") { go { Windows.showRuns(nil) } }.keyboardShortcut("r")
             Button("") { go { app.quit() } }.keyboardShortcut("q")
         }

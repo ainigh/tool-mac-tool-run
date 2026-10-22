@@ -224,8 +224,8 @@ public struct Library: Sendable {
                 var text = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
                 if text.hasPrefix("-*-") || text.lowercased().hasPrefix("vim:") || text.lowercased().hasPrefix("shellcheck") { break }
                 text = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                // An "Input: …" line says what it asks for, not what it does.
-                if ScriptInput.parse(text) != nil { break }
+                // An "Input: …" line (and the "Why: …" under it) says what it asks for, not what it does.
+                if ScriptInput.parse(text) != nil || ScriptInput.parseWhy(text) != nil { break }
                 if !text.isEmpty { return String(text.prefix(140)) }
             }
             // The first line that isn't a comment: there's no description.

@@ -27,10 +27,10 @@ public enum BlockType: String, CaseIterable, Codable, Sendable {
         case .show: ("Show in Output", "text.alignleft", .tell, "Writes text (or a value from an earlier step) into the run's output, without stopping.")
         case .showResult: ("Show Result", "text.bubble", .tell, "Shows text (or a value from an earlier step) in a window, like Shortcuts' Show Result, and waits for Done.")
         case .notify: ("Show Notification", "bell.badge", .tell, "Shows a notification on the screen.")
-        case .confirm: ("Ask to Continue", "hand.raised", .ask, "Stops and asks before going on: Continue carries on, Stop ends the flow there. Put it before anything that deletes, sends or costs.")
-        case .ask: ("Ask for Text", "character.cursor.ibeam", .ask, "Asks for a line of text and keeps the answer.")
-        case .askYesNo: ("Ask Yes or No", "questionmark.circle", .ask, "Asks a yes-or-no question and keeps the answer (true or false).")
-        case .choose: ("Choose from List", "list.bullet.circle", .ask, "Asks to pick one of a list and keeps the one picked.")
+        case .confirm: ("Ask to Continue", "hand.raised", .ask, "Stops and asks before going on: Continue carries on, Stop ends the flow there. Put it before anything that deletes, sends or costs, and say why it's asking.")
+        case .ask: ("Ask for Text", "character.cursor.ibeam", .ask, "Asks for a line of text and keeps the answer. Say why, so the person knows what the answer is for.")
+        case .askYesNo: ("Ask Yes or No", "questionmark.circle", .ask, "Asks a yes-or-no question and keeps the answer (true or false). Say why, so the person knows what each answer does.")
+        case .choose: ("Choose from List", "list.bullet.circle", .ask, "Asks to pick one of a list and keeps the one picked. Say why, so the person knows what the choice decides.")
         case .text: ("Text", "text.alignleft", .values, "Some text, with values from earlier steps in it, kept under a name.")
         case .readFile: ("Get File Contents", "doc.text", .values, "Reads a text file and keeps what's in it.")
         case .writeFile: ("Save to File", "square.and.arrow.down", .values, "Writes text into a file (replacing what was in it).")
@@ -165,6 +165,9 @@ public struct FlowBlock: Identifiable, Equatable, Sendable {
     public var input = ""
     /// Run Script, EPA: when it fails, keep going (its result is kept, with .ok) rather than stop.
     public var keepGoing = false
+    /// Ask to Continue, Ask for Text, Ask Yes or No, Choose from List: why it's asking (what the
+    /// answer decides, or what happens next), shown under the question. Empty: not said.
+    public var why = ""
     /// What its output is called (empty: it's thrown away). Repeat: what each item is called.
     public var name = ""
     /// If: its test.
@@ -1231,16 +1234,19 @@ struct BlockWriter {
         case .epa:
             let words = [Template.quote(b.script)] + b.args.map { str($0, 1) }
             return [named("\(b.keepGoing ? "attemptEpa" : "epa") [\(words.joined(separator: "; "))]")]
-        case .ask: return [named("ask \(str(b.text))")]
-        case .askYesNo: return [named("askYesNo \(str(b.text))")]
-        case .choose: return [named("choose \(str(b.text)) [\(b.args.map { str($0, 1) }.joined(separator: "; "))]")]
+        // With a why, the …Because form: the question, then why, (then the choices).
+        case .ask: return [named(b.why.isEmpty ? "ask \(str(b.text))" : "askBecause \(str(b.text)) \(str(b.why))")]
+        case .askYesNo: return [named(b.why.isEmpty ? "askYesNo \(str(b.text))" : "askYesNoBecause \(str(b.text)) \(str(b.why))")]
+        case .choose:
+            let choices = "[\(b.args.map { str($0, 1) }.joined(separator: "; "))]"
+            return [named(b.why.isEmpty ? "choose \(str(b.text)) \(choices)" : "chooseBecause \(str(b.text)) \(str(b.why)) \(choices)")]
         // Text is always written as text (a lone {name} as $"{name}"), so it reads back as Text.
         case .text: return [named(Template.string(b.text, level: 1, known: { e in if case .str = e.kind { true } else { false } }))]
         case .readFile: return [named("read \(str(b.text))")]
         case .show: return ["print \(Template.value(b.text, level: 10))"]
         case .showResult: return ["showResult \(str(b.text))"]
         case .notify: return ["notify \(str(b.text))"]
-        case .confirm: return ["confirm \(str(b.text))"]
+        case .confirm: return [b.why.isEmpty ? "confirm \(str(b.text))" : "confirmBecause \(str(b.text)) \(str(b.why))"]
         case .stop: return ["fail \(str(b.text))"]
         case .writeFile: return ["write \(str(b.input)) \(str(b.text))"]
         case .wait: return ["sleep \(Template.number(b.number, level: 10))"]
@@ -1585,6 +1591,19 @@ struct BlockReader {
             b.text = t
             b.args = options
             return b
+        case ("askBecause", 2), ("askYesNoBecause", 2):
+            var b = FlowBlock(head == "askBecause" ? .ask : .askYesNo)
+            guard let t = Template.of(args[0]), let why = Template.of(args[1]), !why.isEmpty else { return nil }
+            b.text = t
+            b.why = why
+            return b
+        case ("chooseBecause", 3):
+            guard let t = Template.of(args[0]), let why = Template.of(args[1]), !why.isEmpty, let options = strings(args[2]) else { return nil }
+            var b = FlowBlock(.choose)
+            b.text = t
+            b.why = why
+            b.args = options
+            return b
         default:
             return nil
         }
@@ -1609,6 +1628,12 @@ struct BlockReader {
             var b = FlowBlock(head == "notify" ? .notify : head == "confirm" ? .confirm : head == "showResult" ? .showResult : .stop)
             guard let t = Template.of(args[0]) else { return nil }
             b.text = t
+            return b
+        case ("confirmBecause", 2):
+            var b = FlowBlock(.confirm)
+            guard let t = Template.of(args[0]), let why = Template.of(args[1]), !why.isEmpty else { return nil }
+            b.text = t
+            b.why = why
             return b
         case ("sleep", 1):
             var b = FlowBlock(.wait)

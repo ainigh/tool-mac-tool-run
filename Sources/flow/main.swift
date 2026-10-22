@@ -141,6 +141,8 @@ final class TerminalAsker: @unchecked Sendable {
             fputs(s, tty)
             fflush(tty)
         }
+        // Why it's asking, before the question, so the answer is given knowing.
+        if let why = q.why { say("   (\(why))\n") }
         // A line typed, read a byte at a time (and not through stdio's buffer) so a Control-C
         // ends the wait at once rather than at the next Return. Nil: end of input, or Control-C.
         func line() -> String? {

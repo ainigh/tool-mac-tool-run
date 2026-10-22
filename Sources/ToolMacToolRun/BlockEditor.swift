@@ -533,15 +533,19 @@ struct BlockFields: View {
             Note("A notification on the screen (a banner from the app, if notifications are off for it).")
         case .confirm:
             TemplateField(model: model, id: id, key: \.text, placeholder: "The question, such as Delete the old backups?", vars: vars)
-            Note("The flow stops here and asks. Continue goes on; Stop ends the flow.")
+            whyField("Why it's asking: what going on does, and what that's based on (e.g. They're older than 30 days and take 12 GB)")
+            Note("The flow stops here and asks, showing the why under the question. Continue goes on; Stop ends the flow.")
         case .ask:
             TemplateField(model: model, id: id, key: \.text, placeholder: "The question", vars: vars)
+            whyField("Why it's asking: what the answer is used for")
             OutputName(model: model, block: block, what: "The answer is called")
         case .askYesNo:
             TemplateField(model: model, id: id, key: \.text, placeholder: "A yes-or-no question", vars: vars)
+            whyField("Why it's asking: what Yes does, and what No does")
             OutputName(model: model, block: block, what: "The answer (true or false) is called")
         case .choose:
             TemplateField(model: model, id: id, key: \.text, placeholder: "The question", vars: vars)
+            whyField("Why it's asking: what the choice decides")
             LabeledRow("Choices") { ArgumentChips(model: model, id: id, key: \.args, vars: vars, addTitle: "Add a Choice") }
             OutputName(model: model, block: block, what: "The one picked is called")
         case .text:
@@ -592,6 +596,12 @@ struct BlockFields: View {
             }
             LoopName(model: model, block: block)
         }
+    }
+
+    /// The Why of an Ask step: shown under its question when it's asked, so the person answers knowing.
+    private func whyField(_ placeholder: String) -> some View {
+        LabeledRow("Why") { TemplateField(model: model, id: id, key: \.why, placeholder: placeholder, vars: vars) }
+            .help("Shown under the question when the flow asks it. Written as confirmBecause / askBecause / askYesNoBecause / chooseBecause in Flow.")
     }
 
     @ViewBuilder

@@ -136,13 +136,31 @@ final class AppRunHost: RunHost, @unchecked Sendable {
             switch request.what {
             case let .script(item):
                 return runs.run(script: item, arguments: request.arguments, folder: lib.root, stdin: request.stdin,
-                                requestedBy: request.requestedBy)
+                                requestedBy: request.requestedBy, why: request.why)
             case let .flow(item):
-                return runs.run(flow: item, arguments: request.arguments, library: lib, requestedBy: request.requestedBy)
+                return runs.run(flow: item, arguments: request.arguments, library: lib, requestedBy: request.requestedBy, why: request.why)
             case let .source(code):
                 return runs.run(flowSource: code, name: request.name, arguments: request.arguments, library: lib,
-                                requestedBy: request.requestedBy)
+                                requestedBy: request.requestedBy, why: request.why)
             }
+        }
+    }
+
+    func automations() async -> [AutomationEntry] {
+        await MainActor.run { AutomationCenter.shared.entries() }
+    }
+
+    func automate(_ request: RunRequest) async throws -> AutomationEntry {
+        try await MainActor.run { () throws -> AutomationEntry in
+            guard let a = request.automation else { throw HTTPError(status: 400, code: "bad_request", message: "nothing to tag") }
+            let item: ScriptItem
+            switch request.what {
+            case let .script(s), let .flow(s): item = s
+            case .source: throw HTTPError(status: 400, code: "bad_request", message: "only a script or a flow from the folder can be automated")
+            }
+            let center = AutomationCenter.shared
+            center.set(a, for: item)
+            return AutomationEntry(id: item.id, grid: item.grid, title: item.title, automation: a, next: center.next(for: item.id, kind: item.grid)?.at)
         }
     }
 

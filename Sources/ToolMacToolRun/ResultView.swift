@@ -29,9 +29,19 @@ struct RunResultView: View {
             VStack(alignment: .leading, spacing: 12) {
                 header
                 if let by = run.requestedBy {
-                    Label("Asked for over the HTTP API by \(by), and allowed", systemImage: "network")
+                    Label(run.isAutomated
+                          ? "Started by itself: \(by.dropFirst(RunRecord.automationPrefix.count + 2)) (the Automation board has its tags)"
+                          : "Asked for over the HTTP API by \(by), and allowed",
+                          systemImage: run.isAutomated ? "clock.badge.checkmark" : "network")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                }
+                if let why = run.why {
+                    Label("Why, in the asker's words: \(why)", systemImage: "text.quote")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
                 if let problem = run.problem {
                     HStack(alignment: .top, spacing: 10) {

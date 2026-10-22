@@ -155,12 +155,13 @@ final class RunStore: ObservableObject {
     /// `stdin`: text handed to it as its input. `requestedBy`: the app that asked for it over the
     /// API (and was allowed).
     @discardableResult
-    func run(script item: ScriptItem, arguments: [String], folder: URL, stdin: String? = nil, requestedBy: String? = nil) -> UUID {
+    func run(script item: ScriptItem, arguments: [String], folder: URL, stdin: String? = nil, requestedBy: String? = nil, why: String? = nil) -> UUID {
         // The command, for the record (an empty environment: working it out isn't needed for this).
         let command = ScriptProcess(script: item.url, language: item.language, arguments: arguments,
                                     workingDirectory: folder, environment: [:]).commandLine
         var rec = RunRecord(kind: .script, name: item.id, file: item.id, arguments: arguments, command: command)
         rec.requestedBy = requestedBy
+        rec.why = why
         let id = rec.id
         objectWillChange.send()
         store.append(rec)
@@ -218,7 +219,10 @@ final class RunStore: ObservableObject {
         change(id) { $0.finish(ending) }
         lastLines[id] = nil
         lastOutputAt[id] = nil
-        if let r = record(id) { tellIfLong(r) }
+        if let r = record(id) {
+            tellIfLong(r)
+            AutomationCenter.shared.runEnded(r)
+        }
         save()
     }
 
@@ -226,10 +230,11 @@ final class RunStore: ObservableObject {
 
     /// Checks a flow and runs it on a thread of its own; each script it runs is a step under it.
     @discardableResult
-    func run(flow item: ScriptItem, arguments: [String], library: Library, requestedBy: String? = nil) -> UUID {
+    func run(flow item: ScriptItem, arguments: [String], library: Library, requestedBy: String? = nil, why: String? = nil) -> UUID {
         var rec = RunRecord(kind: .flow, name: item.id, file: item.id, arguments: arguments,
                             command: "flow run \(ShellEnvironment.quote(item.url.path))" + arguments.map { " " + ShellEnvironment.quote($0) }.joined())
         rec.requestedBy = requestedBy
+        rec.why = why
         let source: String
         do {
             source = try String(contentsOf: item.url, encoding: .utf8)
@@ -250,9 +255,10 @@ final class RunStore: ObservableObject {
     /// what Runs shows was run; `fix`: what to do when the code has a mistake.
     @discardableResult
     func run(flowSource source: String, name: String, arguments: [String], library: Library, requestedBy: String?,
-             command: String = "flow code sent over the API", fix: String? = nil) -> UUID {
+             command: String = "flow code sent over the API", fix: String? = nil, why: String? = nil) -> UUID {
         var rec = RunRecord(kind: .flow, name: name, file: nil, arguments: arguments, command: command)
         rec.requestedBy = requestedBy
+        rec.why = why
         return start(flow: source, record: rec, arguments: arguments, library: library,
                      fix: fix ?? "It came from \(requestedBy ?? "another app"): it's for that app to fix.")
     }
@@ -340,7 +346,10 @@ final class RunStore: ObservableObject {
             lastLines[store[i].id] = nil
         }
         lastLines[id] = nil
-        if let r = record(id) { tellIfLong(r) }
+        if let r = record(id) {
+            tellIfLong(r)
+            AutomationCenter.shared.runEnded(r)
+        }
         save()
     }
 
