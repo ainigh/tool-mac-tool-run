@@ -323,6 +323,7 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/Automation.swift` | the automation tags, when a schedule next runs, what sets a trigger off |
 | `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`), the clock and triggers that start what's automated and the Automation board (`AutomationCenter.swift`, `AutomationBoard.swift`) |
 | `API.md` | the HTTP API, for client apps |
+| `docs/AGENTS-GUIDE.md` | the API from an agent's loop (Super Voice's Tom and Jerry): request ids, `async`, polling, what to tell the person |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
 | `docs/DOCTRINE.md` | how the app should feel and the checks every change walks |
 
