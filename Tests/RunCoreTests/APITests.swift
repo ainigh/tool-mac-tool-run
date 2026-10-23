@@ -354,6 +354,130 @@ final class APITests: XCTestCase {
         XCTAssertEqual(g.status, 404)
     }
 
+    /// Every request has an id from the moment it arrives, in the header and the JSON, on
+    /// success and refusal alike; /api/requests/{id} answers for it afterwards.
+    func testEveryRequestHasAnIdToAskAboutLater() async {
+        let (r, d) = await api.post("/api/run", #"{"script": "hello.sh", "client": "My App", "why": "Testing"}"#)
+        XCTAssertEqual(r.status, 200)
+        let id = json(d)["request"] as? String ?? ""
+        XCTAssertNotNil(UUID(uuidString: id), id)
+        XCTAssertEqual(r.header("X-Request-Id"), id)
+        let runID = json(d)["id"] as? String ?? ""
+        let (q, qd) = await api.send("GET", "/api/requests/\(id)")
+        XCTAssertEqual(q.status, 200)
+        XCTAssertEqual(q.header("X-Request-Id"), id)
+        let status = json(qd)
+        XCTAssertEqual(status["state"] as? String, "succeeded")
+        XCTAssertEqual(status["ok"] as? Bool, true)
+        XCTAssertEqual(status["kind"] as? String, "script")
+        XCTAssertEqual(status["via"] as? String, "run")
+        XCTAssertEqual(status["name"] as? String, "hello.sh")
+        XCTAssertEqual(status["client"] as? String, "My App")
+        XCTAssertEqual(status["why"] as? String, "Testing")
+        XCTAssertEqual(status["run_id"] as? String, runID)
+        XCTAssertEqual(status["run_url"] as? String, "/api/runs/\(runID)")
+        XCTAssertEqual(status["url"] as? String, "/api/requests/\(id)")
+        XCTAssertNotNil(status["asked"]); XCTAssertNotNil(status["answered"])
+        let run = status["run"] as? [String: Any]
+        XCTAssertEqual(run?["output"] as? String, "hi\n")
+        XCTAssertEqual(run?["request"] as? String, id)
+        // The run knows its request too, alone and in the list.
+        let (_, rd) = await api.send("GET", "/api/runs/\(runID)")
+        XCTAssertEqual(json(rd)["request"] as? String, id)
+        let (_, ld) = await api.send("GET", "/api/runs")
+        XCTAssertEqual((json(ld)["runs"] as? [[String: Any]])?.first?["request"] as? String, id)
+
+        // Refused: the id is there just the same, and the request says why.
+        host.answer = .denied
+        let (r2, d2) = await api.post("/api/run", #"{"script": "hello.sh"}"#)
+        XCTAssertEqual(r2.status, 403)
+        let denied = json(d2)["request"] as? String ?? ""
+        XCTAssertEqual(r2.header("X-Request-Id"), denied)
+        let (_, q2) = await api.send("GET", "/api/requests/\(denied)")
+        XCTAssertEqual(json(q2)["state"] as? String, "denied")
+        XCTAssertEqual(json(q2)["ok"] as? Bool, false)
+        XCTAssertEqual(json(q2)["code"] as? String, "denied")
+        XCTAssertTrue((json(q2)["error"] as? String ?? "").contains("Don't Run"))
+        host.answer = .unanswered
+        let (r3, d3) = await api.post("/api/compose", #"{"flow": "greet"}"#)
+        XCTAssertEqual(r3.status, 403)
+        let (_, q3) = await api.send("GET", "/api/requests/\(json(d3)["request"] as? String ?? "")")
+        XCTAssertEqual(json(q3)["state"] as? String, "not_answered")
+        XCTAssertEqual(json(q3)["kind"] as? String, "flow")
+        XCTAssertEqual(json(q3)["via"] as? String, "compose")
+
+        // Automated: the same.
+        host.answer = .allowed
+        let (r4, d4) = await api.post("/api/automation", #"{"script": "hello.sh", "automation": ["every morning"]}"#)
+        XCTAssertEqual(r4.status, 200)
+        let tagged = json(d4)["request"] as? String ?? ""
+        XCTAssertEqual(r4.header("X-Request-Id"), tagged)
+        let (_, q4) = await api.send("GET", "/api/requests/\(tagged)")
+        XCTAssertEqual(json(q4)["state"] as? String, "automated")
+        XCTAssertEqual(json(q4)["kind"] as? String, "automation")
+        XCTAssertEqual(json(q4)["via"] as? String, "automation")
+        XCTAssertEqual(json(q4)["ok"] as? Bool, true)
+
+        // The list: newest first, without the runs' output; an unknown id is said.
+        let (_, list) = await api.send("GET", "/api/requests?limit=2")
+        let listed = json(list)["requests"] as? [[String: Any]]
+        XCTAssertEqual(listed?.map { $0["request"] as? String }, [tagged, json(d3)["request"] as? String])
+        XCTAssertNil(listed?.first?["run"])
+        let (g, gd) = await api.send("GET", "/api/requests/\(UUID().uuidString)")
+        XCTAssertEqual(g.status, 404)
+        XCTAssertEqual(json(gd)["code"] as? String, "unknown_request")
+        let (bad, _) = await api.send("GET", "/api/requests/nope")
+        XCTAssertEqual(bad.status, 404)
+        settings.off = [.runs]
+        let (off, _) = await api.send("GET", "/api/requests/\(id)")
+        XCTAssertEqual(off.status, 503)
+    }
+
+    /// "async": true answers before anyone has clicked; the run goes on by itself, and the
+    /// request's id is the way to follow it.
+    func testAsyncAnswersBeforeTheClickAndTheRequestFollowsTheRun() async {
+        host.behave = { r in r.append(.out, "working\n") }
+        let (r, d) = await api.post("/api/run", #"{"script": "hello.sh", "async": true}"#)
+        XCTAssertEqual(r.status, 202)
+        let id = json(d)["request"] as? String ?? ""
+        XCTAssertEqual(r.header("X-Request-Id"), id)
+        XCTAssertEqual(json(d)["state"] as? String, "waiting")
+        XCTAssertEqual(json(d)["url"] as? String, "/api/requests/\(id)")
+        XCTAssertNil(json(d)["id"], "no run yet")
+        // It's asked and started on its own.
+        var status: [String: Any] = [:]
+        for _ in 0..<200 {
+            status = json(await api.send("GET", "/api/requests/\(id)").1)
+            if status["state"] as? String == "running" { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(status["state"] as? String, "running")
+        XCTAssertNil(status["ok"])
+        let runID = status["run_id"] as? String ?? ""
+        XCTAssertEqual(host.started.map(\.name), ["hello.sh"])
+        XCTAssertEqual((status["run"] as? [String: Any])?["output"] as? String, "working\n")
+        host.update(UUID(uuidString: runID)!) { r in r.finish(code: 2, state: .failed) }
+        let after = json(await api.send("GET", "/api/requests/\(id)").1)
+        XCTAssertEqual(after["state"] as? String, "failed")
+        XCTAssertEqual(after["ok"] as? Bool, false)
+        XCTAssertEqual((after["run"] as? [String: Any])?["code"] as? Int, 2)
+        // A run cleared from the app's history: said as such, not lost.
+        host.runs = [:]
+        let gone = json(await api.send("GET", "/api/requests/\(id)").1)
+        XCTAssertEqual(gone["state"] as? String, "gone")
+        // Denied while nobody waited: the request says so.
+        host.answer = .denied
+        let (r2, d2) = await api.post("/api/compose", #"{"flow": "greet", "async": true}"#)
+        XCTAssertEqual(r2.status, 202)
+        var state = ""
+        for _ in 0..<200 {
+            state = json(await api.send("GET", "/api/requests/\(json(d2)["request"] as? String ?? "")").1)["state"] as? String ?? ""
+            if state == "denied" { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(state, "denied")
+    }
+
     func testWaitingFollowsTheRunToItsEnd() async {
         host.behave = { r in r.append(.out, "first\n") }
         let api = self.api!, host = self.host!
@@ -382,6 +506,12 @@ final class APITests: XCTestCase {
         XCTAssertEqual(r.header("Content-Type"), "application/x-ndjson")
         let e = events(d)
         XCTAssertEqual(e.map { $0["type"] as? String }, ["waiting", "started", "output", "done"])
+        let rq = e[0]["request"] as? String ?? ""
+        XCTAssertEqual(r.header("X-Request-Id"), rq)
+        XCTAssertEqual(e[0]["url"] as? String, "/api/requests/\(rq)")
+        XCTAssertEqual(e.map { $0["request"] as? String }, [rq, rq, nil, rq])
+        let (_, followed) = await api.send("GET", "/api/requests/\(rq)")
+        XCTAssertEqual(json(followed)["state"] as? String, "succeeded")
         XCTAssertEqual(e[2]["text"] as? String, "hi\n")
         XCTAssertEqual(e[3]["state"] as? String, "succeeded")
     }
@@ -390,6 +520,7 @@ final class APITests: XCTestCase {
         host.answer = .denied
         let (_, d) = await api.post("/api/run", #"{"script": "hello.sh", "stream": true}"#)
         XCTAssertEqual(events(d).map { $0["type"] as? String }, ["waiting", "denied"])
+        XCTAssertEqual(events(d).map { $0["request"] as? String }.compactMap { $0 }.count, 2)
         XCTAssertTrue(host.started.isEmpty)
     }
 
@@ -525,10 +656,10 @@ final class APITests: XCTestCase {
         XCTAssertEqual(r.header("Content-Type"), "text/markdown; charset=utf-8")
         let doc = String(decoding: d, as: UTF8.self)
         XCTAssertTrue(doc.contains("Base URL: http://127.0.0.1:8768"))
-        for route in ["/api/health", "/api/scripts", "/api/flows", "/api/run", "/api/compose", "/api/check", "/api/runs", "/api/runs/{id}/stop", "/api/doc", "/api/automation"] {
+        for route in ["/api/health", "/api/scripts", "/api/flows", "/api/run", "/api/compose", "/api/check", "/api/runs", "/api/runs/{id}/stop", "/api/doc", "/api/automation", "/api/requests/{id}"] {
             XCTAssertTrue(doc.contains(route), route)
         }
-        for word in ["endpoint_off", "not_answered", "flow_mistake", "x-ndjson", "\"stream\": true", "v0.1.9", "\"why\"", "every-morning", "confirmBecause", "unknown_tag"] {
+        for word in ["endpoint_off", "not_answered", "flow_mistake", "x-ndjson", "\"stream\": true", "v0.1.9", "\"why\"", "every-morning", "confirmBecause", "unknown_tag", "X-Request-Id", "\"async\": true", "unknown_request"] {
             XCTAssertTrue(doc.contains(word), word)
         }
         XCTAssertFalse(doc.contains("Bearer"), "no token while sharing is off")
