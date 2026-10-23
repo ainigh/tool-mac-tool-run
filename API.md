@@ -28,6 +28,10 @@ the app runs (the latest 500).
 Base URL   http://127.0.0.1:8768
 ```
 
+**From an agent** (Super Voice's Tom and Jerry, or any assistant with tools): the
+[agents guide](docs/AGENTS-GUIDE.md) is this contract as a loop: send with `"async": true`, keep
+the request id, poll `/api/requests/{id}`, and what to tell the person at each state.
+
 **The same, in one page:** `GET /api/doc` answers this contract compacted to a page of text (every
 endpoint, field, event and error, with the address you reached it at and, from another device,
 the token to send), as does **Copy API Doc** in the app's panel. Paste it into your app's code, its
