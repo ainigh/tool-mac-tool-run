@@ -3,8 +3,10 @@ import Foundation
 /// The example utilities and browser scripts, and the flows that use them. They're scripts like
 /// any other: only their folders (`utilities`, `browser`) put them on grids of their own.
 extension Examples {
-    /// Small reusable helpers: sounds, speech, the clipboard, parsing JSON, CSV and addresses, and
-    /// what's going on (the weather, the news, whether cloud services are up).
+    /// Small reusable helpers: sounds, speech, the clipboard, parsing JSON, CSV and addresses, what's
+    /// going on (the weather, the news, whether cloud services are up), the date and the time every
+    /// way they're written, the apps (open one by name, quit one, which is in front), this Mac's
+    /// volume, screen and notifications, and text (cases, encodings, hashes, ids, chance).
     public static let utilities: [(String, String)] = [
         ("utilities/play-sound.sh", #"""
         #!/bin/bash
@@ -1171,6 +1173,1120 @@ extension Examples {
         fi
         echo "Alarm set for $(date -r "$target" '+%H:%M') (in $in): \"$message\". It rings on this Mac with a sound, the words out loud and a notification. alarm.sh list shows it; alarm.sh cancel cancels it."
         """# + "\n"),
+        ("utilities/today.sh", #"""
+        #!/bin/bash
+        # Today's date, every way it's written: the day, ISO, week and day of the year, the quarter, what's left of the year
+        #
+        # Input (optional): One piece of it: iso, long, short, us, day, week, month, year, year-day, quarter, left or compact (all of them unless set)
+        #
+        #   today.sh            Friday 23 October 2026 · 2026-10-23 · week 43 · day 296 of 365 (69 left) · Q4
+        #   today.sh iso        2026-10-23          (for file names and sorting)
+        #   today.sh long       Friday, 23 October 2026
+        #   today.sh short      23/10/2026          today.sh us → 10/23/2026
+        #   today.sh day        Friday              today.sh week → 43      today.sh quarter → Q4
+        set -euo pipefail
+
+        year=$(date +%Y); month=$(date +%m); day=$(date +%d)
+        yday=$((10#$(date +%j)))
+        week=$((10#$(date +%V)))
+        m=$((10#$month))
+        if [ $((year % 4)) -eq 0 ] && { [ $((year % 100)) -ne 0 ] || [ $((year % 400)) -eq 0 ]; }; then days=366; else days=365; fi
+        left=$((days - yday))
+        quarter=$(( (m - 1) / 3 + 1 ))
+        weekday=$(date +%A); monthname=$(date +%B)
+
+        case "${1:-}" in
+          '') echo "$weekday $((10#$day)) $monthname $year · $year-$month-$day · week $week · day $yday of $days ($left left) · Q$quarter" ;;
+          iso) echo "$year-$month-$day" ;;
+          long) echo "$weekday, $((10#$day)) $monthname $year" ;;
+          short|uk|eu) echo "$day/$month/$year" ;;
+          us) echo "$month/$day/$year" ;;
+          day|weekday) echo "$weekday" ;;
+          week) echo "$week" ;;
+          month) echo "$monthname" ;;
+          year) echo "$year" ;;
+          year-day|day-of-year) echo "$yday" ;;
+          quarter) echo "Q$quarter" ;;
+          left|days-left) echo "$left" ;;
+          compact) echo "$year$month$day" ;;
+          *) echo "Which piece? iso, long, short, us, day, week, month, year, year-day, quarter, left or compact (today.sh alone gives them all), not \"$1\"." >&2; exit 1 ;;
+        esac
+        """# + "\n"),
+        ("utilities/now.sh", #"""
+        #!/bin/bash
+        # The time now, every way it's written: this Mac's time, UTC, its time zone, ISO 8601 and Unix seconds
+        #
+        # Input (optional): One piece of it: time, 12h, seconds, utc, zone, iso, unix or stamp (all of them unless set)
+        #
+        #   now.sh           14:05 · 2:05 pm · 14:05:32 · UTC 13:05 · BST (+0100) · 2026-10-23T14:05:32+01:00 · 1792764332
+        #   now.sh iso       2026-10-23T14:05:32+01:00   (ISO 8601, with the zone)
+        #   now.sh unix      1792764332                  (seconds since 1970, for scripts and APIs)
+        #   now.sh stamp     20261023-140532             (for file names)
+        #   now.sh utc       13:05:32
+        set -euo pipefail
+
+        hm=$(date +%H:%M); hms=$(date +%H:%M:%S)
+        hour=$((10#$(date +%H))); minute=$(date +%M)
+        ampm=pm; h12=$hour
+        if [ "$hour" -lt 12 ]; then ampm=am; fi
+        if [ "$hour" -eq 0 ]; then h12=12; elif [ "$hour" -gt 12 ]; then h12=$((hour - 12)); fi
+        twelve="$h12:$minute $ampm"
+        utc=$(date -u +%H:%M:%S)
+        offset=$(date +%z)
+        zone="$(date +%Z) ($offset)"
+        unix=$(date +%s)
+        iso="$(date +%Y-%m-%dT%H:%M:%S)${offset:0:3}:${offset:3:2}"
+        stamp=$(date +%Y%m%d-%H%M%S)
+
+        case "${1:-}" in
+          '') echo "$hm · $twelve · $hms · UTC ${utc%:*} · $zone · $iso · $unix" ;;
+          time|24h) echo "$hm" ;;
+          12h) echo "$twelve" ;;
+          seconds) echo "$hms" ;;
+          utc) echo "$utc" ;;
+          zone) echo "$zone" ;;
+          iso) echo "$iso" ;;
+          unix|epoch) echo "$unix" ;;
+          stamp) echo "$stamp" ;;
+          *) echo "Which piece? time, 12h, seconds, utc, zone, iso, unix or stamp (now.sh alone gives them all), not \"$1\"." >&2; exit 1 ;;
+        esac
+        """# + "\n"),
+        ("utilities/format-date.py", #"""
+        #!/usr/bin/env python3
+        # Reads a date written any way (today, next friday, in 3 days, 23 Oct, 2026-10-23, Unix seconds…) and writes it the way you ask
+        #
+        # Input (optional): A date, written any way (today unless set)
+        # Input (optional): How to write it: iso, long, short, us, day, week, unix, rfc, compact, relative, full, time, or a strftime pattern (iso unless set)
+        #
+        #   format-date.py                       2026-10-23
+        #   format-date.py tomorrow long         Saturday, 24 October 2026
+        #   format-date.py next friday           2026-10-30
+        #   format-date.py "in 3 weeks" relative in 21 days
+        #   format-date.py christmas day         Friday
+        #   format-date.py 1792764332 full       2026-10-23 14:05:32 (Unix seconds, read as this Mac's time)
+        #   format-date.py 23 Oct 2026 "%d.%m.%Y"   23.10.2026 (any strftime pattern)
+        # The last word is the way to write it when it's one of the ways above; everything before is the date.
+        # Numbers with slashes are day/month/year when the first can only be a day (23/10/2026); otherwise
+        # month/day/year in the United States, day/month/year elsewhere (DATE_ORDER=dmy or mdy says which).
+        import calendar
+        import datetime
+        import os
+        import re
+        import sys
+
+        WAYS = {
+            "iso": "%Y-%m-%d", "long": "%A, %-d %B %Y", "short": "%d/%m/%Y", "uk": "%d/%m/%Y", "eu": "%d/%m/%Y",
+            "us": "%m/%d/%Y", "day": "%A", "weekday": "%A", "month": "%B", "year": "%Y", "compact": "%Y%m%d",
+            "full": "%Y-%m-%d %H:%M:%S", "time": "%H:%M", "rfc": "%a, %d %b %Y %H:%M:%S %z", "stamp": "%Y%m%d-%H%M%S",
+            "week": "%V", "unix": "unix", "relative": "relative",
+        }
+        UNITS = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
+        NAMED = {"christmas": (12, 25), "christmas eve": (12, 24), "boxing day": (12, 26), "new year": (1, 1),
+                 "new year's": (1, 1), "new year's day": (1, 1), "new year's eve": (12, 31), "halloween": (10, 31),
+                 "valentine's": (2, 14), "valentine's day": (2, 14), "valentines": (2, 14)}
+        MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
+        MONTHS.update({m.lower(): i for i, m in enumerate(calendar.month_abbr) if m})
+        MONTHS["sept"] = 9
+        DAYS = {d.lower(): i for i, d in enumerate(calendar.day_name)}
+        DAYS.update({d.lower(): i for i, d in enumerate(calendar.day_abbr)})
+
+
+        def months_later(when, months):
+            month = when.month - 1 + months
+            year = when.year + month // 12
+            month = month % 12 + 1
+            day = min(when.day, calendar.monthrange(year, month)[1])
+            return when.replace(year=year, month=month, day=day)
+
+
+        def at_time(when, hour, minute, second=0):
+            return when.replace(hour=hour, minute=minute, second=second, microsecond=0)
+
+
+        def read(text, now):
+            """The moment some words name, or None when they don't name one."""
+            t = " ".join(text.lower().replace(",", " ").split())
+            t = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", t)
+            t = re.sub(r"^(on|at|the)\s+", "", t)
+            today = at_time(now, 0, 0)
+
+            if t in ("", "today"):
+                return today
+            if t == "now":
+                return now
+            if t == "tomorrow":
+                return today + datetime.timedelta(days=1)
+            if t == "yesterday":
+                return today - datetime.timedelta(days=1)
+            if t in NAMED:
+                month, day = NAMED[t]
+                when = today.replace(month=month, day=day)
+                return when if when >= today else when.replace(year=when.year + 1)
+
+            # A number alone: Unix seconds (ten or more digits), or a day of this month.
+            if re.fullmatch(r"\d{10,13}", t):
+                seconds = int(t) / (1000 if len(t) == 13 else 1)
+                return datetime.datetime.fromtimestamp(seconds).astimezone()
+            if re.fullmatch(r"\d{1,2}", t) and 1 <= int(t) <= calendar.monthrange(today.year, today.month)[1]:
+                return today.replace(day=int(t))
+
+            # A length from now, or ago: in 3 days, 2 weeks ago, in 1.5 hours, next month, last year.
+            m = re.fullmatch(r"(in\s+)?(\d+(?:\.\d+)?|an?)\s+(second|minute|hour|day|week|month|year)s?(\s+ago|\s+from now)?", t)
+            if m and (m.group(1) or m.group(4)):
+                number = 1.0 if m.group(2) in ("a", "an") else float(m.group(2))
+                sign = -1 if (m.group(4) or "").strip() == "ago" else 1
+                unit = m.group(3)
+                base = now if unit in ("second", "minute", "hour") else today
+                if unit == "month":
+                    return months_later(base, sign * int(number))
+                if unit == "year":
+                    return months_later(base, sign * int(number) * 12)
+                return base + datetime.timedelta(seconds=sign * number * UNITS[unit])
+            m = re.fullmatch(r"(next|last|this)\s+(week|month|year)", t)
+            if m:
+                step = {"next": 1, "last": -1, "this": 0}[m.group(1)]
+                if m.group(2) == "week":
+                    return today + datetime.timedelta(days=7 * step)
+                return months_later(today, step * (1 if m.group(2) == "month" else 12))
+
+            # A day of the week: friday (the coming one, today if it's today), next friday, last friday.
+            m = re.fullmatch(r"(next|last|this)?\s*([a-z]+)", t)
+            if m and m.group(2) in DAYS:
+                ahead = (DAYS[m.group(2)] - today.weekday()) % 7
+                if m.group(1) == "next":
+                    ahead = ahead or 7
+                elif m.group(1) == "last":
+                    ahead = ahead - 7 if ahead else -7
+                return today + datetime.timedelta(days=ahead)
+
+            # A clock time, today: 14:30, 2:30pm, 7am, 14:30:05.
+            m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?", t)
+            if m and (m.group(2) or m.group(4)):
+                hour, minute, second = int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0)
+                if m.group(4) == "pm" and hour < 12:
+                    hour += 12
+                if m.group(4) == "am" and hour == 12:
+                    hour = 0
+                if hour > 23 or minute > 59 or second > 59:
+                    return None
+                return at_time(today, hour, minute, second)
+
+            # A date and maybe a time: 2026-10-23, 2026-10-23 14:30, 2026-10-23T14:30:00, 23/10/2026, 10/23/26, 23.10.2026.
+            m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[t ](\d{1,2}):(\d{2})(?::(\d{2}))?)?(?:z|[+-]\d{2}:?\d{2})?", t)
+            if m:
+                try:
+                    return datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                                             int(m.group(4) or 0), int(m.group(5) or 0), int(m.group(6) or 0)).astimezone()
+                except ValueError:
+                    return None
+            m = re.fullmatch(r"(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2}|\d{4}))?", t)
+            if m:
+                a, b = int(m.group(1)), int(m.group(2))
+                order = os.environ.get("DATE_ORDER", "").lower()
+                if not order:
+                    lang = os.environ.get("LC_ALL") or os.environ.get("LC_TIME") or os.environ.get("LANG") or ""
+                    order = "mdy" if "_US" in lang else "dmy"
+                day, month = (a, b) if a > 12 or (b <= 12 and order == "dmy") else (b, a)
+                year = int(m.group(3)) if m.group(3) else today.year
+                if year < 100:
+                    year += 2000
+                try:
+                    return today.replace(year=year, month=month, day=day)
+                except ValueError:
+                    return None
+
+            # Words: 23 oct, oct 23, 23 october 2026, october 23 2026, with a time after (23 oct 14:30, oct 23 at 2pm).
+            m = re.fullmatch(r"(?:(\d{1,2})\s+([a-z]+)|([a-z]+)\s+(\d{1,2}))(?:\s+(\d{4}))?(?:\s+(?:at\s+)?(.+))?", t)
+            if m:
+                day = int(m.group(1) or m.group(4))
+                month = MONTHS.get(m.group(2) or m.group(3))
+                if not month:
+                    return None
+                year = int(m.group(5)) if m.group(5) else today.year
+                try:
+                    when = today.replace(year=year, month=month, day=day)
+                except ValueError:
+                    return None
+                if not m.group(5) and when < today - datetime.timedelta(days=180):
+                    when = when.replace(year=year + 1)
+                if m.group(6):
+                    clock = read(m.group(6), now)
+                    if clock is None:
+                        return None
+                    when = at_time(when, clock.hour, clock.minute, clock.second)
+                return when
+            m = re.fullmatch(r"([a-z]+)\s+(\d{4})", t)
+            if m and m.group(1) in MONTHS:
+                return today.replace(year=int(m.group(2)), month=MONTHS[m.group(1)], day=1)
+            return None
+
+
+        def relative(when, now):
+            seconds = (when - now).total_seconds()
+            today = at_time(now, 0, 0)
+            days = (at_time(when, 0, 0) - today).days
+            if abs(seconds) < 60 and when.hour == now.hour and days == 0:
+                return "now"
+            if at_time(when, 0, 0) == when and days != 0 or abs(days) >= 2:
+                if days == 0:
+                    return "today"
+                if days == 1:
+                    return "tomorrow"
+                if days == -1:
+                    return "yesterday"
+                return f"in {days} days" if days > 0 else f"{-days} days ago"
+            unit, size = next((u, s) for u, s in (("hour", 3600), ("minute", 60), ("second", 1)) if abs(seconds) >= s or s == 1)
+            n = int(round(abs(seconds) / size))
+            words = f"{n} {unit}{'s' if n != 1 else ''}"
+            return f"in {words}" if seconds > 0 else f"{words} ago"
+
+
+        def write(when, way, now):
+            if way == "unix":
+                return str(int(when.timestamp()))
+            if way == "relative":
+                return relative(when, now)
+            pattern = WAYS.get(way, way)
+            if sys.platform.startswith("win"):
+                pattern = pattern.replace("%-d", "%#d")
+            return when.strftime(pattern)
+
+
+        def main(argv):
+            now = datetime.datetime.now().astimezone()
+            words = [w for w in argv if w.strip()]
+            way = "iso"
+            if words and (words[-1].lower() in WAYS or "%" in words[-1]):
+                way = words.pop().lower() if "%" not in words[-1] else words.pop()
+            text = " ".join(words)
+            when = read(text, now)
+            if when is None:
+                sys.exit(f"I can't read \"{text}\" as a date. Try today, tomorrow, next friday, in 3 days, 23 Oct, 2026-10-23, 14:30, or Unix seconds.")
+            print(write(when, way, now))
+
+
+        if __name__ == "__main__":
+            main(sys.argv[1:])
+        """# + "\n"),
+        ("utilities/days-until.py", #"""
+        #!/usr/bin/env python3
+        # How long until a date (or since one): days, weeks and days, and which day of the week it falls on
+        #
+        # Input: The date, written any way (Christmas, 2026-12-25, 25 Dec, next friday…)
+        # Input (optional): Counting from when (today unless set)
+        #
+        #   days-until.py christmas           In 63 days (9 weeks): Friday, 25 December 2026
+        #   days-until.py 2026-01-01          295 days ago: Thursday, 1 January 2026
+        #   days-until.py 25 dec 2026-12-01   24 days from Tuesday, 1 December 2026 (3 weeks and 3 days): Friday, 25 December 2026
+        # The dates are read by format-date.py, beside this script.
+        import datetime
+        import os
+        import subprocess
+        import sys
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        reader = os.path.join(here, "format-date.py")
+
+
+        def read(words):
+            done = subprocess.run([sys.executable, reader, words, "iso"], capture_output=True, text=True)
+            if done.returncode != 0:
+                sys.exit(done.stderr.strip() or f"I can't read \"{words}\" as a date.")
+            return datetime.date.fromisoformat(done.stdout.strip())
+
+
+        def long(day):
+            return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}"
+
+
+        def span(days):
+            weeks, rest = divmod(days, 7)
+            if weeks and rest:
+                return f"{weeks} week{'s' if weeks != 1 else ''} and {rest} day{'s' if rest != 1 else ''}"
+            if weeks:
+                return f"{weeks} week{'s' if weeks != 1 else ''}"
+            return f"{rest} day{'s' if rest != 1 else ''}"
+
+
+        args = sys.argv[1:]
+        if not args or not args[0].strip():
+            sys.exit("Until when? (days-until.py christmas, days-until.py 2026-12-25, days-until.py \"next friday\")")
+        target = read(args[0])
+        start = read(args[1]) if len(args) > 1 and args[1].strip() else datetime.date.today()
+        days = (target - start).days
+
+        def say(days, target, start, given):
+            where = long(target)
+            size = f" ({span(abs(days))})" if abs(days) >= 7 else ""
+            if days == 0:
+                return f"That's the day itself: {where}" if given else f"That's today: {where}"
+            n = f"{abs(days)} day{'s' if abs(days) != 1 else ''}"
+            if given:
+                return f"{n} {'after' if days > 0 else 'before'} {long(start)}{size}: {where}"
+            return f"In {n}{size}: {where}" if days > 0 else f"{n} ago{size}: {where}"
+
+
+        print(say(days, target, start, len(args) > 1 and bool(args[1].strip())))
+        """# + "\n"),
+        ("utilities/month.py", #"""
+        #!/usr/bin/env python3
+        # A calendar of this month with today marked, or of a month you name, or the whole year
+        #
+        # Input (optional): A month (December, next month, 2027-03) or a year (2027); this month unless set
+        #
+        #   month.py                 this month, today in brackets
+        #   month.py december        a month of this year (a past month is next year's)
+        #   month.py 2027-03         a month of another year
+        #   month.py 2027            the whole year
+        #   month.py next            next month (also: last)
+        import calendar
+        import datetime
+        import re
+        import sys
+
+        today = datetime.date.today()
+        MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
+        MONTHS.update({m.lower(): i for i, m in enumerate(calendar.month_abbr) if m})
+
+        text = " ".join(sys.argv[1:]).strip().lower().replace(" month", "")
+        year, month = today.year, today.month
+        if text in ("", "this"):
+            pass
+        elif text in ("next", "last", "previous"):
+            step = 1 if text == "next" else -1
+            month += step
+            if month > 12:
+                month, year = 1, year + 1
+            if month < 1:
+                month, year = 12, year - 1
+        elif re.fullmatch(r"\d{4}", text):
+            cal = calendar.TextCalendar(calendar.MONDAY)
+            print(cal.formatyear(int(text), 2, 1, 6, 3).rstrip())
+            sys.exit(0)
+        elif re.fullmatch(r"\d{4}-\d{1,2}", text):
+            year, month = (int(p) for p in text.split("-"))
+        elif re.fullmatch(r"\d{1,2}[/-]\d{4}", text):
+            month, year = (int(p) for p in re.split(r"[/-]", text))
+        elif text in MONTHS:
+            month = MONTHS[text]
+            if month < today.month:
+                year += 1
+        else:
+            m = re.fullmatch(r"([a-z]+)\s+(\d{4})", text)
+            if m and m.group(1) in MONTHS:
+                month, year = MONTHS[m.group(1)], int(m.group(2))
+            else:
+                sys.exit(f"Which month? A name (december), a year and month (2027-03), a year (2027), or next or last; not \"{text}\".")
+        if not 1 <= month <= 12:
+            sys.exit(f"There's no month {month}: 1 to 12.")
+
+        cal = calendar.TextCalendar(calendar.MONDAY)
+        lines = cal.formatmonth(year, month).rstrip().split("\n")
+        if year == today.year and month == today.month:
+            # Today in brackets, in the space around it, so the columns stay put: "22 23 24" → "22[23]24".
+            day = f"{today.day:2d}"
+            lines = lines[:2] + [re.sub(f" {day} ", f"[{today.day}]".rjust(4), " " + line + " ")[1:].rstrip() for line in lines[2:]]
+        print("\n".join(line.rstrip() for line in lines))
+        """# + "\n"),
+        ("utilities/stopwatch.sh", #"""
+        #!/bin/bash
+        # A stopwatch across runs: start it, see how long it's been (and mark laps), stop it and get the total
+        #
+        # Input (optional): start, lap, stop, or nothing to see the time (a name after start says what's being timed)
+        #
+        #   stopwatch.sh start "the build"   starts (or starts again from zero)
+        #   stopwatch.sh                     how long it's been running, and the laps so far
+        #   stopwatch.sh lap                 marks a lap
+        #   stopwatch.sh stop                stops it, with the total and every lap
+        set -euo pipefail
+
+        state="${TMPDIR:-/tmp}/toolmactoolrun-stopwatch"
+        clock() { # seconds as h:mm:ss, or m:ss under an hour
+          local s=$1
+          if [ "$s" -ge 3600 ]; then printf '%d:%02d:%02d' $((s / 3600)) $(((s % 3600) / 60)) $((s % 60))
+          else printf '%d:%02d' $((s / 60)) $((s % 60)); fi
+        }
+        laps() {
+          [ -f "$state/laps" ] || return 0
+          local n=0 previous
+          previous=$(cat "$state/start")
+          for at in $(cat "$state/laps"); do
+            n=$((n + 1))
+            echo "  lap $n: $(clock $((at - previous))) (at $(clock $((at - $(cat "$state/start")))))"
+            previous=$at
+          done
+        }
+
+        now=$(date +%s)
+        case "${1:-}" in
+          start)
+            mkdir -p "$state"
+            echo "$now" > "$state/start"
+            shift
+            printf '%s' "$*" > "$state/name"
+            rm "$state/laps" 2>/dev/null || true
+            echo "Started${*:+: $*} (stopwatch.sh shows the time, lap marks one, stop ends it)." ;;
+          '' | time | lap | stop)
+            if [ ! -f "$state/start" ]; then
+              echo "The stopwatch isn't running. Start it: stopwatch.sh start \"the build\"." >&2
+              exit 1
+            fi
+            start=$(cat "$state/start"); name=$(cat "$state/name" 2>/dev/null || true)
+            elapsed=$((now - start))
+            case "${1:-}" in
+              lap)
+                echo "$now" >> "$state/laps"
+                echo "Lap at $(clock $elapsed)${name:+ ($name)}"
+                laps ;;
+              stop)
+                echo "Stopped at $(clock $elapsed)${name:+: $name} (started $(date -r "$start" '+%H:%M' 2>/dev/null || date -d "@$start" '+%H:%M'))"
+                laps
+                rm "$state/start" "$state/name" "$state/laps" 2>/dev/null || true; rmdir "$state" 2>/dev/null || true ;;
+              *)
+                echo "$(clock $elapsed)${name:+ · $name} (started $(date -r "$start" '+%H:%M' 2>/dev/null || date -d "@$start" '+%H:%M'))"
+                laps ;;
+            esac ;;
+          *) echo "start, lap, stop, or nothing to see the time; not \"$1\"." >&2; exit 1 ;;
+        esac
+        """# + "\n"),
+        ("utilities/sunrise.py", #"""
+        #!/usr/bin/env python3
+        # Sunrise and sunset today and tomorrow, and how long the day is: where this Mac is, or a place you name
+        #
+        # Input (optional): A place (where you are unless set)
+        #
+        #   sunrise.py              where you are (told from your internet address)
+        #   sunrise.py Reykjavik    a place by name ("Paris, Texas" picks among the Parises)
+        # The first line says whether the sun is up now. From Open-Meteo (no account needed).
+        import datetime
+        import json
+        import sys
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+
+        def fetch(url, tries=3, timeout=15):
+            request = urllib.request.Request(url, headers={"User-Agent": "ToolMacToolRun sunrise"})
+            for attempt in range(tries):
+                try:
+                    with urllib.request.urlopen(request, timeout=timeout) as response:
+                        return json.load(response)
+                except (urllib.error.URLError, TimeoutError):
+                    if attempt == tries - 1:
+                        raise
+                    time.sleep(1 + attempt)
+
+
+        def here():
+            """Where this Mac is, from its internet address: (name, latitude, longitude)."""
+            try:
+                d = fetch("https://ipinfo.io/json", tries=1, timeout=8)
+                lat, lon = d["loc"].split(",")
+                return ", ".join(p for p in [d.get("city"), d.get("country")] if p), float(lat), float(lon)
+            except (urllib.error.URLError, TimeoutError, KeyError, ValueError):
+                pass
+            d = fetch("https://ipapi.co/json/", tries=1, timeout=8)
+            return ", ".join(p for p in [d.get("city"), d.get("country_name")] if p), d["latitude"], d["longitude"]
+
+
+        def find(place):
+            name, _, near = place.partition(",")
+            query = urllib.parse.urlencode({"name": name.strip(), "count": 20, "language": "en"})
+            found = fetch("https://geocoding-api.open-meteo.com/v1/search?" + query).get("results") or []
+            near = near.strip().lower()
+            if near:
+                found = [r for r in found if any(near in (r.get(k) or "").lower() for k in ("admin1", "admin2", "country", "country_code"))]
+            if not found:
+                sys.exit(f"There's no place called {place} that I can find. Try its name and its country: \"Paris, France\".")
+            r = found[0]
+            return ", ".join([r["name"]] + [p for p in (r.get("country"),) if p]), r["latitude"], r["longitude"]
+
+
+        place = " ".join(sys.argv[1:]).strip()
+        try:
+            name, lat, lon = find(place) if place else here()
+            query = urllib.parse.urlencode({"latitude": lat, "longitude": lon, "daily": "sunrise,sunset,daylight_duration",
+                                            "timezone": "auto", "forecast_days": 2})
+            d = fetch("https://api.open-meteo.com/v1/forecast?" + query)
+        except (urllib.error.URLError, TimeoutError) as e:
+            sys.exit(f"Couldn't reach the sun times ({getattr(e, 'reason', e)}). Is this Mac online?")
+
+        daily = d["daily"]
+        zone = d.get("timezone", "")
+        rises = [datetime.datetime.fromisoformat(t) for t in daily["sunrise"]]
+        sets = [datetime.datetime.fromisoformat(t) for t in daily["sunset"]]
+        lengths = daily["daylight_duration"]
+        clock = lambda t: t.strftime("%H:%M")
+        length = lambda s: f"{int(s // 3600)} h {int(s % 3600 // 60)} min"
+
+        now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+        there = now.replace(tzinfo=None) if not zone else now.astimezone(datetime.timezone(datetime.timedelta(seconds=d.get("utc_offset_seconds", 0)))).replace(tzinfo=None)
+        if there < rises[0]:
+            state = f"The sun isn't up yet in {name}: it rises at {clock(rises[0])}, in {length((rises[0] - there).total_seconds())}."
+        elif there < sets[0]:
+            state = f"The sun is up in {name}: it sets at {clock(sets[0])}, in {length((sets[0] - there).total_seconds())}."
+        else:
+            state = f"The sun has set in {name}: it rises again at {clock(rises[1])}, in {length((rises[1] - there).total_seconds())}."
+        print(state)
+        print(f"Today     sunrise {clock(rises[0])} · sunset {clock(sets[0])} · {length(lengths[0])} of daylight")
+        change = lengths[1] - lengths[0]
+        print(f"Tomorrow  sunrise {clock(rises[1])} · sunset {clock(sets[1])} · {length(lengths[1])} ({'+' if change >= 0 else '−'}{abs(int(round(change / 60)))} min)")
+        """# + "\n"),
+        ("utilities/holidays.py", #"""
+        #!/usr/bin/env python3
+        # The next public holidays: in the country this Mac is in, or one you name
+        #
+        # Input (optional): A country (its two letters: US, GB, DE, NG…; where you are unless set)
+        # Input (optional): How many to show (5 unless set)
+        #
+        #   holidays.py              the next ones where you are
+        #   holidays.py GB 3         the next three in the United Kingdom
+        #   holidays.py NG year      every holiday this year in Nigeria
+        # A line each: the date, the day, the holiday, and how far off it is. From Nager.Date (no account needed).
+        import datetime
+        import json
+        import os
+        import sys
+        import urllib.error
+        import urllib.request
+
+        args = [a for a in sys.argv[1:] if a.strip()]
+        country = args[0].upper() if args and args[0].isalpha() and len(args[0]) == 2 else ""
+        rest = args[1:] if country else args
+        whole_year = bool(rest) and rest[0].lower() == "year"
+        count = int(rest[0]) if rest and rest[0].isdigit() else 5
+        if args and not country and not (args[0].isdigit() or args[0].lower() == "year"):
+            sys.exit(f"Which country? Its two letters (US, GB, DE, NG…), not \"{args[0]}\".")
+
+
+        def fetch(url):
+            request = urllib.request.Request(url, headers={"User-Agent": "ToolMacToolRun holidays", "Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+
+
+        if not country:
+            # Where this Mac is: its internet address, else the language it's set to (en_GB), else the United States.
+            try:
+                country = fetch("https://ipinfo.io/json").get("country", "")
+            except (urllib.error.URLError, TimeoutError, ValueError):
+                pass
+            if not country:
+                lang = os.environ.get("LC_ALL") or os.environ.get("LANG") or ""
+                country = lang.split(".")[0].split("_")[-1] if "_" in lang else "US"
+
+        today = datetime.date.today()
+        try:
+            if whole_year:
+                found = fetch(f"https://date.nager.at/api/v3/PublicHolidays/{today.year}/{country}")
+            else:
+                found = fetch(f"https://date.nager.at/api/v3/NextPublicHolidays/{country}")[:count]
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 500):
+                sys.exit(f"Nager.Date doesn't know the holidays of {country}. A country's two letters: US, GB, DE, NG…")
+            sys.exit(f"Couldn't get the holidays ({e.code} from date.nager.at).")
+        except (urllib.error.URLError, TimeoutError) as e:
+            sys.exit(f"Couldn't reach date.nager.at ({getattr(e, 'reason', e)}). Is this Mac online?")
+
+        if not found:
+            print(f"No public holidays listed for {country}.")
+        for h in found:
+            day = datetime.date.fromisoformat(h["date"])
+            off = (day - today).days
+            when = "today" if off == 0 else "tomorrow" if off == 1 else f"in {off} days" if off > 0 else f"{-off} days ago"
+            name = h.get("localName") or h.get("name")
+            if h.get("name") and h["name"] != name:
+                name = f"{name} ({h['name']})"
+            print(f"{day.strftime('%a %d %b %Y')}  {name}  ({when})")
+        """# + "\n"),
+        ("utilities/open-app.sh", #"""
+        #!/bin/bash
+        # Opens an app by name and brings it to the front: on its own, or with a file or web address to open in it
+        #
+        # Input: The app's name (Safari, Mail, Visual Studio Code…)
+        # Input (optional): A file, folder or web address to open in it
+        #
+        #   open-app.sh Safari                       opens Safari (or brings it forward)
+        #   open-app.sh Preview ~/Desktop/photo.png  opens the file in Preview
+        #   open-app.sh Firefox https://example.com  a web address in that app
+        #   open-app.sh list                         every app installed, by name
+        set -euo pipefail
+
+        folders=(/Applications /System/Applications /System/Applications/Utilities "$HOME/Applications")
+        installed() {
+          for folder in "${folders[@]}"; do
+            [ -d "$folder" ] || continue
+            for app in "$folder"/*.app; do [ -e "$app" ] && basename "${app%.app}"; done
+          done | sort -fu
+        }
+
+        if ! command -v open >/dev/null 2>&1 || [ "$(uname)" != "Darwin" ]; then
+          echo "Opening an app needs macOS's open command." >&2
+          exit 1
+        fi
+
+        app="${1:-}"
+        case "$app" in
+          '') echo "Which app? (open-app.sh Safari; open-app.sh list names them all)" >&2; exit 1 ;;
+          list) installed; exit 0 ;;
+        esac
+        shift
+        what="${*:-}"
+
+        if [ -n "$what" ]; then
+          case "$what" in
+            http://*|https://*|mailto:*|file://*) open -a "$app" "$what" 2>/dev/null && { echo "Opened $what in $app"; exit 0; } ;;
+            *)
+              path="${what/#\~/$HOME}"
+              if [ ! -e "$path" ]; then echo "There's nothing at $what." >&2; exit 1; fi
+              open -a "$app" "$path" 2>/dev/null && { echo "Opened $(basename "$path") in $app"; exit 0; } ;;
+          esac
+        else
+          open -a "$app" 2>/dev/null && { echo "Opened $app"; exit 0; }
+        fi
+
+        # Not opened: no app by that name. Say which installed ones come close.
+        close=$(installed | grep -i -- "$(printf '%s' "$app" | cut -c 1-4)" | head -n 5 | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+        if [ -n "$close" ]; then
+          echo "There's no app called $app. Close: $close. (open-app.sh list names them all.)" >&2
+        else
+          echo "There's no app called $app in /Applications, the system's apps or ~/Applications (open-app.sh list names them all)." >&2
+        fi
+        exit 1
+        """# + "\n"),
+        ("utilities/quit-app.sh", #"""
+        #!/bin/bash
+        # Quits an app by name, the way ⌘Q does: it gets to save its work and ask about anything unsaved
+        #
+        # Input: The app's name (Safari, Mail, Music…)
+        # Why: It's asked to quit politely, so it can save first; it's never forced
+        #
+        #   quit-app.sh Safari
+        #   quit-app.sh Music
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "Quitting an app needs macOS (and osascript)." >&2
+          exit 1
+        fi
+        app="${*:-}"
+        if [ -z "$app" ]; then
+          echo "Which app? (quit-app.sh Safari; running-apps.sh names the ones running)" >&2
+          exit 1
+        fi
+
+        running=$(osascript -e 'tell application "System Events" to get name of every application process whose background only is false' | tr ',' '\n' | sed 's/^ *//')
+        if ! printf '%s\n' "$running" | grep -qix -- "$app"; then
+          echo "$app isn't running. Running now: $(printf '%s' "$running" | tr '\n' ',' | sed 's/,/, /g')." >&2
+          exit 1
+        fi
+
+        # quit is a command every app answers to (it isn't in any one app's dictionary), so the app can be
+        # named as it runs. An app that asks about unsaved work keeps the question on the screen: that's
+        # what this run reports, and the app is still running.
+        result=$(osascript - "$app" <<'APPLESCRIPT' 2>&1 || true
+        on run argv
+          set theApp to application (item 1 of argv)
+          with timeout of 20 seconds
+            tell theApp to quit
+          end timeout
+          return "quit"
+        end run
+        APPLESCRIPT
+        )
+        case "$result" in
+          quit) echo "Quit $app" ;;
+          *-1712*|*timed*out*) echo "$app is asking you something before it quits (unsaved work, most likely): answer it on the screen." ; exit 1 ;;
+          *) echo "Couldn't quit $app: $result" >&2; exit 1 ;;
+        esac
+        """# + "\n"),
+        ("utilities/front-app.sh", #"""
+        #!/bin/bash
+        # The app in front right now, and the title of its front window
+        #
+        #   front-app.sh      Safari — Example Domain
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "This needs macOS (and osascript)." >&2
+          exit 1
+        fi
+        osascript <<'APPLESCRIPT'
+        tell application "System Events"
+          set p to first application process whose frontmost is true
+          set found to name of p
+          try
+            set t to name of front window of p
+            if t is not "" then set found to found & " — " & t
+          end try
+          return found
+        end tell
+        APPLESCRIPT
+        """# + "\n"),
+        ("utilities/running-apps.sh", #"""
+        #!/bin/bash
+        # The apps running right now, a line each, the one in front first and marked
+        #
+        # Input (optional): count, to get just how many
+        #
+        #   running-apps.sh          ▶ Safari, then the rest
+        #   running-apps.sh count    7
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "This needs macOS (and osascript)." >&2
+          exit 1
+        fi
+        apps=$(osascript <<'APPLESCRIPT'
+        tell application "System Events"
+          set names to name of every application process whose background only is false
+          set front to name of first application process whose frontmost is true
+          set text item delimiters to linefeed
+          return front & linefeed & (names as text)
+        end tell
+        APPLESCRIPT
+        )
+        front=$(printf '%s\n' "$apps" | head -n 1)
+        rest=$(printf '%s\n' "$apps" | tail -n +2 | grep -vx -- "$front" | sort -f)
+        case "${1:-}" in
+          count) printf '%s\n' "$apps" | tail -n +2 | wc -l | tr -d ' ' ;;
+          '') echo "▶ $front"; [ -n "$rest" ] && printf '%s\n' "$rest" ;;
+          *) echo "running-apps.sh alone lists them; running-apps.sh count counts them; not \"$1\"." >&2; exit 1 ;;
+        esac
+        """# + "\n"),
+        ("utilities/notify.sh", #"""
+        #!/bin/bash
+        # Shows a notification on this Mac: the words, and a title if you give one
+        #
+        # Input: What it says
+        # Input (optional): Its title (Tool Mac Tool Run unless set)
+        #
+        #   notify.sh "The backup is done"
+        #   notify.sh "3 tests failed" "Nightly build"
+        #   echo "Done" | notify.sh                   its input, when no words are given
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "Notifications need macOS (and osascript)." >&2
+          exit 1
+        fi
+        text="${1:-}"
+        title="${2:-Tool Mac Tool Run}"
+        if [ -z "$text" ] && [ ! -t 0 ]; then text=$(cat); fi
+        if [ -z "${text//[[:space:]]/}" ]; then
+          echo "Nothing to show: give it the words (notify.sh \"The backup is done\")." >&2
+          exit 1
+        fi
+        # The words go in through the environment, never pasted into the script: they're anyone's text.
+        NOTIFY_TEXT="$text" NOTIFY_TITLE="$title" osascript -e 'display notification (system attribute "NOTIFY_TEXT") with title (system attribute "NOTIFY_TITLE")'
+        echo "Shown: $title: $text"
+        """# + "\n"),
+        ("utilities/screenshot.sh", #"""
+        #!/bin/bash
+        # Takes a screenshot: the whole screen, a part you drag out, or a window you click; saved on the Desktop (or the clipboard)
+        #
+        # Input (optional): screen, select or window (screen unless set); add clipboard to copy it instead of saving
+        #
+        #   screenshot.sh                    the whole screen → ~/Desktop/Screenshot 2026-10-23 at 14.05.32.png
+        #   screenshot.sh select             drag out the part you want (Esc cancels)
+        #   screenshot.sh window             click the window you want
+        #   screenshot.sh screen clipboard   onto the clipboard, ready to paste
+        set -euo pipefail
+
+        if ! command -v screencapture >/dev/null 2>&1; then
+          echo "Screenshots need screencapture, which comes with macOS." >&2
+          exit 1
+        fi
+        how=screen; where=file
+        for word in "$@"; do
+          case "$word" in
+            screen|full|all) how=screen ;;
+            select|selection|area|part) how=select ;;
+            window) how=window ;;
+            clipboard|copy) where=clipboard ;;
+            '') ;;
+            *) echo "screen, select or window, and clipboard to copy it; not \"$word\"." >&2; exit 1 ;;
+          esac
+        done
+        flags=-x   # no shutter sound
+        case "$how" in
+          select) flags="$flags -i" ;;
+          window) flags="$flags -i -W" ;;
+        esac
+        if [ "$where" = clipboard ]; then
+          # shellcheck disable=SC2086
+          screencapture $flags -c
+          echo "The screenshot is on the clipboard."
+          exit 0
+        fi
+        file="$HOME/Desktop/Screenshot $(date '+%Y-%m-%d at %H.%M.%S').png"
+        # shellcheck disable=SC2086
+        screencapture $flags "$file"
+        if [ -s "$file" ]; then
+          echo "$file"
+        else
+          echo "No screenshot was taken (cancelled?)." >&2
+          exit 1
+        fi
+        """# + "\n"),
+        ("utilities/volume.sh", #"""
+        #!/bin/bash
+        # The Mac's volume: see it, set it (0 to 100), turn it up or down a notch, mute or unmute
+        #
+        # Input (optional): A level (0–100), up, down, mute or unmute (just shows it unless set)
+        #
+        #   volume.sh         Volume 50% (sound on)
+        #   volume.sh 30      sets it to 30%
+        #   volume.sh up      10 louder (volume.sh down: 10 quieter)
+        #   volume.sh mute    volume.sh unmute brings the sound back
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "The volume needs macOS (and osascript)." >&2
+          exit 1
+        fi
+        level=$(osascript -e 'output volume of (get volume settings)')
+        muted=$(osascript -e 'output muted of (get volume settings)')
+        case "${1:-}" in
+          '') ;;
+          mute) osascript -e 'set volume output muted true'; muted=true ;;
+          unmute) osascript -e 'set volume output muted false'; muted=false ;;
+          up) level=$((level + 10 > 100 ? 100 : level + 10)); osascript -e "set volume output volume $level" ;;
+          down) level=$((level - 10 < 0 ? 0 : level - 10)); osascript -e "set volume output volume $level" ;;
+          *[!0-9]*) echo "A level from 0 to 100, up, down, mute or unmute; not \"$1\"." >&2; exit 1 ;;
+          *) level=$(( $1 > 100 ? 100 : $1 )); osascript -e "set volume output volume $level" ;;
+        esac
+        if [ "$muted" = true ]; then echo "Volume $level% (muted)"; else echo "Volume $level% (sound on)"; fi
+        """# + "\n"),
+        ("utilities/lock-screen.sh", #"""
+        #!/bin/bash
+        # Locks the screen (what ⌃⌘Q does), so a password is needed to get back in
+        #
+        # Why: Nothing is closed or ended; the screen just locks, as when you step away
+        set -euo pipefail
+
+        if ! command -v osascript >/dev/null 2>&1; then
+          echo "Locking the screen needs macOS (and osascript)." >&2
+          exit 1
+        fi
+        # The lock keys, pressed for you. That needs this app in System Settings > Privacy & Security >
+        # Accessibility; without it, the screen saver starts instead (which locks too, when the Lock
+        # Screen settings ask for a password after it).
+        if osascript -e 'tell application "System Events" to keystroke "q" using {command down, control down}' >/dev/null 2>&1; then
+          echo "Locked."
+        else
+          open -a ScreenSaverEngine 2>/dev/null || open -b com.apple.ScreenSaver.Engine
+          echo "The screen saver is on (locking the screen itself needs this app allowed under System Settings > Privacy & Security > Accessibility)."
+        fi
+        """# + "\n"),
+        ("utilities/pick.py", #"""
+        #!/usr/bin/env python3
+        # Picks at random: a number, one of some things, heads or tails, a dice roll, or shuffles a list
+        #
+        # Input (optional): What to pick: a top number (1 to it), two numbers (between them), pick a b c, coin, dice, shuffle a b c (1 to 100 unless set)
+        #
+        #   pick.py              a number from 1 to 100
+        #   pick.py 6            1 to 6               pick.py 10 20 → 10 to 20
+        #   pick.py pick tea coffee water             one of them
+        #   pick.py coin         heads or tails       pick.py dice → 1 to 6 (pick.py dice 2: two dice)
+        #   pick.py shuffle a b c                     all of them, in a random order
+        import secrets
+        import sys
+
+        args = [a for a in sys.argv[1:] if a.strip()]
+        words = [w for a in args for w in a.replace(",", " ").split()]
+        how = words[0].lower() if words else ""
+
+        if not words:
+            print(1 + secrets.randbelow(100))
+        elif how == "coin":
+            print(secrets.choice(["heads", "tails"]))
+        elif how == "dice":
+            dice = int(words[1]) if len(words) > 1 and words[1].isdigit() else 1
+            rolls = [1 + secrets.randbelow(6) for _ in range(max(1, min(dice, 100)))]
+            print(" ".join(str(r) for r in rolls) + (f"  (total {sum(rolls)})" if len(rolls) > 1 else ""))
+        elif how in ("pick", "one", "choose"):
+            if len(words) < 2:
+                sys.exit("Pick from what? (pick.py pick tea coffee water)")
+            print(secrets.choice(words[1:]))
+        elif how == "shuffle":
+            rest = words[1:]
+            if not rest:
+                sys.exit("Shuffle what? (pick.py shuffle a b c)")
+            out = []
+            while rest:
+                out.append(rest.pop(secrets.randbelow(len(rest))))
+            print("\n".join(out))
+        elif all(w.lstrip("-").isdigit() for w in words) and len(words) <= 2:
+            low, high = (1, int(words[0])) if len(words) == 1 else (int(words[0]), int(words[1]))
+            if low > high:
+                low, high = high, low
+            print(low + secrets.randbelow(high - low + 1))
+        else:
+            sys.exit("A number (pick.py 6), two (pick.py 10 20), pick a b c, coin, dice or shuffle a b c; not \"" + " ".join(words) + "\".")
+        """# + "\n"),
+        ("utilities/text-case.py", #"""
+        #!/usr/bin/env python3
+        # Rewrites text in a case: UPPER, lower, Title, Sentence, slug-for-urls, snake_case, kebab-case, camelCase, PascalCase
+        #
+        # Input: Which case: upper, lower, title, sentence, slug, snake, kebab, camel, pascal, or swap
+        # Input text (optional): The text (or give it after the case)
+        #
+        #   text-case.py slug "Hello, World! It's 2026"     hello-world-its-2026
+        #   text-case.py title "the quick brown fox"         The Quick Brown Fox
+        #   echo "Some Name" | text-case.py snake            some_name
+        import re
+        import sys
+        import unicodedata
+
+        args = sys.argv[1:]
+        if not args:
+            sys.exit("Which case? upper, lower, title, sentence, slug, snake, kebab, camel, pascal or swap (text-case.py slug \"Hello World\").")
+        how = args[0].lower()
+        text = " ".join(args[1:]) if len(args) > 1 else ("" if sys.stdin.isatty() else sys.stdin.read())
+        text = text.rstrip("\n")
+
+
+        def words(s):
+            s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s)       # camelCase → camel Case
+            s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+            return [w for w in re.split(r"[^A-Za-z0-9]+", s) if w]
+
+
+        ways = {
+            "upper": str.upper,
+            "lower": str.lower,
+            "title": lambda s: " ".join(w[:1].upper() + w[1:].lower() for w in s.split(" ")),
+            "sentence": lambda s: "\n".join(line[:1].upper() + line[1:].lower() for line in s.split("\n")),
+            "slug": lambda s: "-".join(w.lower() for w in words(s.replace("'", ""))),
+            "snake": lambda s: "_".join(w.lower() for w in words(s)),
+            "kebab": lambda s: "-".join(w.lower() for w in words(s)),
+            "camel": lambda s: "".join(w.lower() if i == 0 else w[:1].upper() + w[1:].lower() for i, w in enumerate(words(s))),
+            "pascal": lambda s: "".join(w[:1].upper() + w[1:].lower() for w in words(s)),
+            "swap": str.swapcase,
+        }
+        if how not in ways:
+            sys.exit(f"Which case? upper, lower, title, sentence, slug, snake, kebab, camel, pascal or swap; not \"{how}\".")
+        if not text.strip():
+            sys.exit("Which text? Give it after the case (text-case.py upper hello), or as the input.")
+        print(ways[how](text))
+        """# + "\n"),
+        ("utilities/encode.py", #"""
+        #!/usr/bin/env python3
+        # Encodes or decodes text: Base64, a web address's %20 escapes, hex, or HTML's &amp; entities
+        #
+        # Input: How: base64, base64-decode, url, url-decode, hex, hex-decode, html, html-decode
+        # Input text (optional): The text (or give it after the how)
+        #
+        #   encode.py base64 "hello world"       aGVsbG8gd29ybGQ=
+        #   encode.py url "a b&c"                a%20b%26c
+        #   echo "&lt;b&gt;" | encode.py html-decode     <b>
+        import base64
+        import binascii
+        import html
+        import sys
+        import urllib.parse
+
+        args = sys.argv[1:]
+        HOW = ["base64", "base64-decode", "url", "url-decode", "hex", "hex-decode", "html", "html-decode"]
+        if not args or args[0].lower().replace("_", "-") not in HOW:
+            sys.exit("How? " + ", ".join(HOW) + " (encode.py base64 \"hello world\").")
+        how = args[0].lower().replace("_", "-")
+        text = " ".join(args[1:]) if len(args) > 1 else ("" if sys.stdin.isatty() else sys.stdin.read())
+        if len(args) > 1 or how.endswith("-decode"):
+            text = text.rstrip("\n")
+        if not text:
+            sys.exit("Which text? Give it after the how (encode.py url \"a b\"), or as the input.")
+
+        try:
+            if how == "base64":
+                out = base64.b64encode(text.encode()).decode()
+            elif how == "base64-decode":
+                padded = text.strip() + "=" * (-len(text.strip()) % 4)
+                out = base64.b64decode(padded, validate=True).decode("utf-8", "replace")
+            elif how == "url":
+                out = urllib.parse.quote(text, safe="")
+            elif how == "url-decode":
+                out = urllib.parse.unquote_plus(text)
+            elif how == "hex":
+                out = text.encode().hex()
+            elif how == "hex-decode":
+                out = bytes.fromhex("".join(text.split())).decode("utf-8", "replace")
+            elif how == "html":
+                out = html.escape(text, quote=True)
+            else:
+                out = html.unescape(text)
+        except (binascii.Error, ValueError) as e:
+            sys.exit(f"That isn't {how.replace('-decode', '')}: {e}")
+        print(out)
+        """# + "\n"),
+        ("utilities/hash.sh", #"""
+        #!/bin/bash
+        # The SHA-256 (or SHA-1, or MD5) of some text or a file: to check a download, or make a fingerprint
+        #
+        # Input (optional): Which: sha256, sha1 or md5 (sha256 unless set)
+        # Input (optional): The text, or a file's path (its input unless set)
+        #
+        #   hash.sh "hello world"                 its SHA-256
+        #   hash.sh sha1 ~/Downloads/tool.zip     a file's SHA-1 (a path that exists is read as a file)
+        #   echo -n hello | hash.sh md5           its input
+        set -euo pipefail
+
+        which=sha256
+        case "${1:-}" in
+          sha256|sha1|md5|sha512) which="$1"; shift ;;
+          SHA256|SHA1|MD5|SHA512) which=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]'); shift ;;
+        esac
+        bits="${which#sha}"
+        digest() {
+          if [ "$which" = md5 ]; then
+            if command -v md5 >/dev/null 2>&1; then md5 -q "$@"; else md5sum "$@" | cut -d ' ' -f 1; fi
+          elif command -v shasum >/dev/null 2>&1; then shasum -a "$bits" "$@" | cut -d ' ' -f 1
+          else "sha${bits}sum" "$@" | cut -d ' ' -f 1; fi
+        }
+
+        if [ $# -gt 0 ]; then
+          given="$*"
+          path="${given/#\~/$HOME}"
+          if [ -f "$path" ]; then
+            echo "$(digest "$path")  $(basename "$path")"
+          else
+            printf '%s' "$given" | digest
+          fi
+        elif [ ! -t 0 ]; then
+          digest
+        else
+          echo "What should be hashed? Some text (hash.sh \"hello\"), a file (hash.sh ~/a.zip), or its input." >&2
+          exit 1
+        fi
+        """# + "\n"),
+        ("utilities/new-id.sh", #"""
+        #!/bin/bash
+        # A new unique id: a UUID (lowercase), or a short one of letters and digits
+        #
+        # Input (optional): short, or how many characters a short one has (a UUID unless set)
+        #
+        #   new-id.sh           6f1c2b1e-9a0d-4f3e-8c7a-2b5e9d1f0a3c
+        #   new-id.sh short     k3x9qz2m (8 characters)
+        #   new-id.sh 12        a short one, 12 long
+        set -euo pipefail
+
+        short() { # letters and digits from /dev/urandom (head closing the pipe early is fine)
+          id=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom 2>/dev/null | head -c "$1" || true)
+          echo "$id"
+        }
+
+        case "${1:-}" in
+          '')
+            if command -v uuidgen >/dev/null 2>&1; then uuidgen | tr '[:upper:]' '[:lower:]'
+            else python3 -c 'import uuid; print(uuid.uuid4())'; fi ;;
+          short) short 8 ;;
+          *[!0-9]*) echo "short, or a number of characters (new-id.sh 12); not \"$1\"." >&2; exit 1 ;;
+          *) short "$1" ;;
+        esac
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -2211,6 +3327,42 @@ extension Examples {
         addresses |> each print
 
         run "play-sound" ["Glass"] |> ignore
+        """# + "\n"),
+        ("today-briefing.flow", #"""
+        // What today is, said out loud and shown: the date every way, the sun, the next holidays and this month's calendar
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "today" [])
+                (fun () -> attempt "sunrise" [])
+                (fun () -> attempt "holidays" ["3"])
+                (fun () -> attempt "month" []) ]
+            |> map get
+        let part n = found |> skip n |> first
+
+        attempt "speak" [$"It's {part 0 |> split " · " |> first}. {part 1 |> lines |> first}"] |> ignore
+        showResult $"Today\n{part 0}\n\nThe sun\n{part 1}\n\nNext holidays\n{part 2}\n\n{part 3}"
+        """# + "\n"),
+        ("open-apps.flow", #"""
+        // Opens the apps you name, one after another (the cell's arguments, or typed when it runs), and says which opened
+        //
+        // Input: The apps, with commas between them (Mail, Calendar, Slack)
+        let named = if isEmpty args then ask "Which apps? (Mail, Calendar, Slack)" else join " " args
+        let apps = named |> split "," |> map trim |> filter (fun app -> not (app = ""))
+        let opened = apps |> map (fun app -> run "open-app" [app])
+
+        notify $"{length opened} apps open: {join ", " apps}"
+        opened |> each print
+        """# + "\n"),
+        ("countdown.flow", #"""
+        // How long until a date (the cell's arguments, or typed when it runs): the days left, as a notice
+        //
+        // Input: The date (Christmas, 2026-12-25, next friday…)
+        let date = if isEmpty args then ask "Until when?" else join " " args
+        let left = run "days-until" [date]
+
+        notify left
+        print left
         """# + "\n"),
     ]
 

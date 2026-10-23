@@ -93,7 +93,8 @@ final class GridGroupTests: XCTestCase {
         // The weather, news and cloud flows need only utilities: they come with them. The rest
         // wait for the browser scripts they run.
         let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow",
-                            "travel-check.flow", "site-watch.flow", "new-password.flow"]
+                            "travel-check.flow", "site-watch.flow", "new-password.flow", "today-briefing.flow", "open-apps.flow",
+                            "countdown.flow"]
         // mac-health also runs disk-space, from the Scripts grid's examples: it comes with them.
         let withScripts = ["mac-health.flow"]
         let utilities = try lib.addExamples(for: .utilities)
@@ -197,6 +198,80 @@ final class GridGroupTests: XCTestCase {
                                       workingDirectory: folder).runToEnd()
             XCTAssertEqual(r.code, 0, "\(id): \(r.err)")
         }
+    }
+
+    func testEveryExamplePythonScriptParses() throws {
+        try XCTSkipIf(ShellEnvironment.shared.find("python3") == nil, "needs python3")
+        try Library(root: folder).addExamples()
+        for (id, source) in Examples.allScripts where source.hasPrefix("#!/usr/bin/env python3") {
+            let r = try ScriptProcess(shell: "python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' \(ShellEnvironment.quote(folder.appendingPathComponent(id).path))",
+                                      workingDirectory: folder).runToEnd()
+            XCTAssertEqual(r.code, 0, "\(id): \(r.err)")
+        }
+    }
+
+    /// The date, time and text utilities need no Mac and no internet: what they write, exactly.
+    func testTheDateTimeAndTextUtilities() throws {
+        try XCTSkipIf(ShellEnvironment.shared.find("bash") == nil || ShellEnvironment.shared.find("python3") == nil, "needs bash and python3")
+        let lib = Library(root: folder)
+        try lib.addExamples(for: .utilities)
+
+        // Today and now: a piece each, in a fixed shape; a piece that isn't one is said.
+        XCTAssertNotNil(try run("today", ["iso"]).out.range(of: #"^\d{4}-\d{2}-\d{2}\n$"#, options: .regularExpression))
+        XCTAssertEqual(try run("today", []).out.components(separatedBy: " · ").count, 5)
+        XCTAssertNotNil(try run("now", ["unix"]).out.range(of: #"^\d{10}\n$"#, options: .regularExpression))
+        XCTAssertNotNil(try run("now", ["iso"]).out.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\n$"#, options: .regularExpression))
+        XCTAssertNotNil(try run("now", ["stamp"]).out.range(of: #"^\d{8}-\d{6}\n$"#, options: .regularExpression))
+        let piece = try run("today", ["nope"])
+        XCTAssertEqual(piece.code, 1)
+        XCTAssertTrue(piece.err.contains("Which piece?"), piece.err)
+
+        // A date written any way, written the way asked; days until one; a month's calendar.
+        XCTAssertEqual(try run("format-date", ["2026-10-23", "long"]).out, "Friday, 23 October 2026\n")
+        XCTAssertEqual(try run("format-date", ["23 Oct 2026", "%d.%m.%Y"]).out, "23.10.2026\n")
+        XCTAssertEqual(try run("format-date", ["23/10/2026", "us"]).out, "10/23/2026\n")
+        XCTAssertEqual(try run("format-date", ["2026-10-23 14:30", "full"]).out, "2026-10-23 14:30:00\n")
+        XCTAssertEqual(try run("format-date", ["tomorrow", "relative"]).out, "tomorrow\n")
+        XCTAssertNotNil(try run("format-date", ["next friday"]).out.range(of: #"^\d{4}-\d{2}-\d{2}\n$"#, options: .regularExpression))
+        let unread = try run("format-date", ["garbage"])
+        XCTAssertEqual(unread.code, 1)
+        XCTAssertTrue(unread.err.contains("I can't read \"garbage\" as a date"), unread.err)
+        XCTAssertEqual(try run("days-until", ["2026-12-25", "2026-12-01"]).out,
+                       "24 days after Tuesday, 1 December 2026 (3 weeks and 3 days): Friday, 25 December 2026\n")
+        XCTAssertEqual(try run("days-until", ["2026-12-01", "2026-12-01"]).out, "That's the day itself: Tuesday, 1 December 2026\n")
+        XCTAssertTrue(try run("days-until", []).err.contains("Until when?"))
+        let march = try run("month", ["2027-03"]).out.components(separatedBy: "\n")
+        XCTAssertEqual(march[0], "     March 2027")
+        XCTAssertEqual(march[1], "Mo Tu We Th Fr Sa Su")
+        XCTAssertEqual(march[2], " 1  2  3  4  5  6  7")
+        XCTAssertTrue(try run("month", []).out.contains("["), "today is marked")
+
+        // Text: cases, encodings, a hash, an id, chance.
+        XCTAssertEqual(try run("text-case", ["slug", "Hello, World! It's 2026"]).out, "hello-world-its-2026\n")
+        XCTAssertEqual(try run("text-case", ["camel", "hello big world"]).out, "helloBigWorld\n")
+        XCTAssertEqual(try run("text-case", ["snake"], stdin: "Some Name\n").out, "some_name\n")
+        XCTAssertEqual(try run("encode", ["base64", "hello world"]).out, "aGVsbG8gd29ybGQ=\n")
+        XCTAssertEqual(try run("encode", ["base64-decode", "aGVsbG8gd29ybGQ="]).out, "hello world\n")
+        XCTAssertEqual(try run("encode", ["url", "a b&c"]).out, "a%20b%26c\n")
+        XCTAssertEqual(try run("encode", ["html", "<b>"]).out, "&lt;b&gt;\n")
+        XCTAssertEqual(try run("hash", ["hello world"]).out, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\n")
+        XCTAssertEqual(try run("hash", ["md5"], stdin: "hello").out, "5d41402abc4b2a76b9719d911017c592\n")
+        XCTAssertNotNil(try run("new-id", []).out.range(of: #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\n$"#, options: .regularExpression))
+        XCTAssertNotNil(try run("new-id", ["12"]).out.range(of: #"^[a-z0-9]{12}\n$"#, options: .regularExpression))
+        XCTAssertEqual(try run("pick", ["7", "7"]).out, "7\n")
+        let coin = try run("pick", ["coin"]).out
+        XCTAssertTrue(["heads\n", "tails\n"].contains(coin), coin)
+        let shuffled = try run("pick", ["shuffle", "a", "b", "c"]).out
+        XCTAssertEqual(Set(shuffled.split(separator: "\n").map(String.init)), ["a", "b", "c"])
+
+        // And from a flow, by name, with the text as its input.
+        let said = Locked<[String]>([])
+        let host = LocalFlowHost(library: lib) { event in
+            if case let .say(t) = event { said.mutate { $0.append(t) } }
+        }
+        try Flow.run(#"print ("Hello World" |> pipe "text-case" ["slug"])"# + "\n" + #"print (run "format-date" ["2026-10-23"; "day"])"#,
+                     host: host, scripts: LocalFlowHost.names(in: lib))
+        XCTAssertEqual(said.value, ["hello-world", "Friday"])
     }
 
     func testTheDataUtilitiesWorkTogether() throws {
