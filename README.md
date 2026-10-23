@@ -32,13 +32,39 @@ up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`). The browser scrip
 each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
 `close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
 
+**The date and the time**, every way they're written: `today` (the day, ISO, the week and day of
+the year, the quarter, what's left of the year; `today iso`, `today long`, `today week` for one
+piece), `now` (this Mac's time, UTC, the zone, ISO 8601, Unix seconds; `now unix`, `now stamp`),
+`format-date`, which reads a date written any way (`tomorrow`, `next friday`, `in 3 weeks`, `23
+Oct`, `christmas`, `2026-10-23 14:30`, Unix seconds) and writes it the way you ask (`long`,
+`short`, `us`, `unix`, `relative`, or any strftime pattern), `days-until` (how long until a date,
+in days and weeks, and which day it falls on), `month` (a calendar with today marked, or any
+month or year), `stopwatch` (`start`, `lap`, `stop`, across runs), `sunrise` (sunrise, sunset and
+the day's length, where you are or anywhere) and `holidays` (the next public holidays in your
+country, or any).
+
+**The apps and this Mac**: `open-app` opens an app by name and brings it forward (`open-app
+Safari`, `open-app Preview ~/photo.png`, `open-app list`), `quit-app` quits one the way ⌘Q does
+(it gets to save first), `front-app` says which app is in front and its window's title,
+`running-apps` lists the ones running, `notify` shows a notification, `screenshot` takes one
+(the screen, a part you drag out, or a window; to the Desktop or the clipboard), `volume` sees
+or sets the volume (`volume 30`, `volume up`, `volume mute`), `lock-screen` locks the screen.
+
+**Text and chance**: `text-case` rewrites text in a case (upper, lower, title, sentence, slug,
+snake, kebab, camel, pascal), `encode` encodes or decodes Base64, web-address escapes, hex and
+HTML entities, `hash` gives the SHA-256 (or SHA-1, MD5) of text or a file, `new-id` makes a UUID
+or a short id, and `pick` picks at random: a number, one of some things, heads or tails, a dice
+roll, or a shuffle.
+
 The **Composer** examples put them together: `ask-google`, `weather-now`, `news-briefing`,
 `urgent-news`, `cloud-check`, `youtube-search` (pick a video from the top results),
 `play-music`, `morning-briefing` (the weather, urgent news, the top stories and any cloud
 service that's down, fetched at once, in one result), `research` (Wikipedia, Google and the
 news about a topic), `travel-check` (the weather, the time and the money where you're going),
 `focus-session` (music, a timer, then a break), `site-watch`, `mac-health`, `translate`,
-`tidy-chrome`, `inbox-check` and `new-password`.
+`tidy-chrome`, `inbox-check`, `new-password`, `today-briefing` (the date, the sun, the next
+holidays and this month's calendar, the date said out loud), `open-apps` (the apps you name,
+opened one after another) and `countdown` (a notice with how long until a date).
 
 **The API board** (⌘5) is everything the HTTP API can run, a tile each, filling the window: every
 script, utility, browser script and flow, EPA's commands and Flow's own functions, with a search
