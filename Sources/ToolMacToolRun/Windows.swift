@@ -255,7 +255,7 @@ enum Windows {
     }
 
     static func showGuide() {
-        show("guide", title: "Flow Guide", size: NSSize(width: 880, height: 760)) {
+        show("guide", title: "Guides", size: NSSize(width: 880, height: 760)) {
             GuideView()
         }
     }

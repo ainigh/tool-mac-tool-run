@@ -177,8 +177,10 @@ private struct PanelHeight: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-/// What drops down from the menu bar icon: what needs you, the grids and runs as tiles, the
-/// latest runs, EPA, the HTTP API with a switch for each endpoint, and the settings.
+/// What drops down from the menu bar icon: what needs you across the top; then two columns,
+/// where to go (the grids and runs as tiles, the latest runs) beside what's set up (EPA, the HTTP
+/// API with a switch for each endpoint and a copy of how to call it for each kind of app); the
+/// settings along the bottom. Two columns keep it short enough to take in at a glance.
 struct PanelView: View {
     @ObservedObject var app: AppModel
     @ObservedObject var runs: RunStore
@@ -189,6 +191,9 @@ struct PanelView: View {
     var close: () -> Void
     var fit: (CGFloat) -> Void
 
+    /// The panel's width: two columns of the old panel's.
+    static let width: CGFloat = 780
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
@@ -196,16 +201,27 @@ struct PanelView: View {
             if app.library == nil {
                 chooseFolder
             }
-            tiles
-            recent
-            if let lib = app.library { EPASection(app: app, library: lib, close: close) }
-            Divider().opacity(0.5)
-            APISection(api: api)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
+                    tiles
+                    recent
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                Divider().opacity(0.5)
+                VStack(alignment: .leading, spacing: 14) {
+                    if let lib = app.library {
+                        EPASection(app: app, library: lib, close: close)
+                        Divider().opacity(0.5)
+                    }
+                    APISection(api: api)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
             Divider().opacity(0.5)
             footer
         }
         .padding(16)
-        .frame(width: 400)
+        .frame(width: Self.width)
         .fixedSize(horizontal: false, vertical: true)
         .background(GeometryReader { g in Color.clear.preference(key: PanelHeight.self, value: g.size.height) })
         .onPreferenceChange(PanelHeight.self) { fit($0) }
@@ -315,7 +331,7 @@ struct PanelView: View {
             ToolTile(title: "Runs", detail: runs.runningCount > 0 ? "\(runs.runningCount) running now" : "Everything they printed",
                      symbol: "list.bullet.rectangle.fill", colors: [Color(red: 0.18, green: 0.70, blue: 0.72), Color(red: 0.20, green: 0.72, blue: 0.42)],
                      shortcut: "⌘R") { go { Windows.showRuns(nil) } }
-            ToolTile(title: "Flow Guide", detail: "The language, every function",
+            ToolTile(title: "Guides", detail: "Flow and Straw: every word",
                      symbol: "book.fill", colors: [Color(red: 0.98, green: 0.58, blue: 0.24), Color(red: 0.90, green: 0.30, blue: 0.26)],
                      shortcut: nil) { go { Windows.showGuide() } }
         }
@@ -336,7 +352,7 @@ struct PanelView: View {
         case .scripts: return "\(n) to click and run"
         case .composer: return "\(kind.count(n)) composing them"
         case .utilities: return n == 0 ? "Weather, news, cloud status, more" : "\(kind.count(n)) to reuse"
-        case .browser: return n == 0 ? "Google, YouTube, any page in Chrome" : "\(kind.count(n)) for Chrome"
+        case .browser: return n == 0 ? "Google, YouTube, Straw scripts" : "\(kind.count(n)) for Chrome"
         }
     }
 
@@ -376,15 +392,12 @@ struct PanelView: View {
                 } else {
                     Text("No folder yet").foregroundStyle(.secondary)
                 }
-                Spacer()
                 Button(app.library == nil ? "Choose…" : "Change…") { go { app.chooseFolder() } }
                     .buttonStyle(PillButton(tint: .secondary, filled: false))
                 Button("Check Setup") { go { Windows.showDoctor() } }
                     .buttonStyle(PillButton(tint: .secondary, filled: false))
                     .help("Looks at the folder, each language's program and each flow, changing nothing")
-            }
-            .font(.system(size: 12))
-            HStack(spacing: 10) {
+                Spacer()
                 Menu {
                     Picker("Notify me when a run takes over", selection: Binding(get: { app.slowAfter }, set: { app.slowAfter = $0 })) {
                         Text("30 seconds").tag(30)
@@ -401,11 +414,12 @@ struct PanelView: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .help("A run still going after this long gets a notice (with what it last printed)")
-                Spacer()
+                .font(.system(size: 11))
                 Toggle("Open at login", isOn: Binding(get: { app.openAtLogin }, set: { app.setOpenAtLogin($0) }))
                     .toggleStyle(.checkbox)
+                    .font(.system(size: 11))
             }
-            .font(.system(size: 11))
+            .font(.system(size: 12))
             HStack(spacing: 10) {
                 UpdateControl(updater: updater) { go { app.installUpdate() } }
                 Spacer()
@@ -635,6 +649,16 @@ private struct APISection: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("How another app calls it, ready to paste:")
+                    .font(.system(size: 11, weight: .medium))
+                FlowLayout(spacing: 6) {
+                    ForEach(APIClient.allCases, id: \.self) { client in
+                        CopyChip(title: client.title, symbol: client.symbol, help: client.help) { api.howTo(client) }
+                    }
+                    CopyChip(title: "Address", symbol: "link", help: "Copy the API's address (\(api.baseURL))") { api.baseURL }
+                }
+            }
             ForEach(APIEndpoint.allCases, id: \.self) { e in
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -693,6 +717,31 @@ private struct APISection: View {
         case .failed(let why): return why
         case .stopped: return "Not serving: other apps can't reach your scripts."
         }
+    }
+}
+
+/// A chip that copies something and says so for a moment (a check mark, "Copied").
+private struct CopyChip: View {
+    let title: String
+    let symbol: String
+    let help: String
+    let text: () -> String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text(), forType: .string)
+            copied = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                copied = false
+            }
+        } label: {
+            Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : symbol)
+        }
+        .buttonStyle(Chip(selected: copied, tint: .green))
+        .help(copied ? "Copied" : help)
     }
 }
 

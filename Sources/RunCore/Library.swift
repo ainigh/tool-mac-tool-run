@@ -36,7 +36,7 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
         var item = self
         let text = Caution.text(of: url)
         item.dangers = Caution.dangers(in: text)
-        item.asksForInput = Caution.asksForInput(text)
+        item.asksForInput = Caution.asksForInput(text, language: language)
         item.usesEPA = Examples.epaScripts.contains { $0.0 == id }
         return item
     }
@@ -465,6 +465,49 @@ public enum Examples {
         fi
         find "$dir" -maxdepth 1 -type f -exec du -h {} + 2>/dev/null | sort -rh | head -5
         """ + "\n"),
+        ("backup-folder.sh", #"""
+        #!/bin/bash
+        # Zips a folder (your Documents unless one is named) into ~/Backups, dated, and says how big it came out
+        #
+        # Input (optional): A folder to back up (your Documents unless set)
+        set -euo pipefail
+
+        src="${1:-$HOME/Documents}"
+        src="${src%/}"
+        if [ ! -d "$src" ]; then echo "There's no folder $src" >&2; exit 1; fi
+        mkdir -p "$HOME/Backups"
+        name="$(basename "$src") $(date '+%Y-%m-%d %H.%M').zip"
+        dest="$HOME/Backups/$name"
+        echo "Zipping ${src}…" >&2
+        (cd "$(dirname "$src")" && zip -qr -y "$dest" "$(basename "$src")" -x '*.DS_Store')
+        size=$(du -h "$dest" | cut -f1)
+        echo "Backed up to ~/Backups/$name ($size)."
+        """# + "\n"),
+        ("top-processes.sh", #"""
+        #!/bin/bash
+        # What's working this Mac hardest right now: the five programs using the most CPU, and the five using the most memory
+        set -euo pipefail
+
+        echo "Most CPU:"
+        ps -Ao pcpu=,comm= | sort -rn | head -5 | awk '{ cpu=$1; $1=""; sub(/^ +/, ""); n=split($0, p, "/"); printf "  %5.1f%%  %s\n", cpu, p[n] }'
+        echo "Most memory:"
+        ps -Ao rss=,comm= | sort -rn | head -5 | awk '{ mb=$1/1024; $1=""; sub(/^ +/, ""); n=split($0, p, "/"); printf "  %6.0f MB  %s\n", mb, p[n] }'
+        """# + "\n"),
+        ("recent-files.sh", #"""
+        #!/bin/bash
+        # The files you changed most recently (the last day unless you say how many days), newest first, in your home folder
+        #
+        # Input (optional): How many days back (1 unless set)
+        set -euo pipefail
+
+        days="${1:-1}"
+        case "$days" in *[!0-9]*|"") echo "Give a number of days: recent-files 3" >&2; exit 1 ;; esac
+        # Library, hidden folders and node_modules are skipped (what apps keep for themselves, not what you changed).
+        find "$HOME" \( -path "$HOME/Library" -o -name '.*' -o -name node_modules \) -prune -o -type f -mtime "-$days" -print 2>/dev/null \
+          | head -2000 \
+          | tr '\n' '\0' | xargs -0 stat -f '%m %N' 2>/dev/null \
+          | sort -rn | head -20 | cut -d' ' -f2- | sed "s|^$HOME|~|"
+        """# + "\n"),
     ]
 
     public static let flows: [(String, String)] = [

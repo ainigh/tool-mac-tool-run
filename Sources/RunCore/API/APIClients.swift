@@ -1,0 +1,319 @@
+import Foundation
+
+/// How another app calls the API, ready to paste: a snippet for each kind of client (a terminal,
+/// Python, JavaScript, Swift, Apple's Shortcuts, an AI agent), with this Mac's address (and the
+/// token, when sharing on the network is on) filled in. What the panel's **Copy for…** buttons
+/// copy. Each one lists the scripts, runs one with `client` and `why`, keeps the request id, and
+/// handles Don't Run: the things every caller has to get right.
+public enum APIClient: String, CaseIterable, Sendable {
+    case curl, python, javascript, swift, shortcuts, agent
+
+    /// The button's word.
+    public var title: String {
+        switch self {
+        case .curl: "curl"
+        case .python: "Python"
+        case .javascript: "JavaScript"
+        case .swift: "Swift"
+        case .shortcuts: "Shortcuts"
+        case .agent: "AI Agent"
+        }
+    }
+
+    /// The button's symbol (SF Symbols).
+    public var symbol: String {
+        switch self {
+        case .curl: "terminal"
+        case .python: "chevron.left.forwardslash.chevron.right"
+        case .javascript: "curlybraces"
+        case .swift: "swift"
+        case .shortcuts: "square.stack.3d.up"
+        case .agent: "sparkles"
+        }
+    }
+
+    /// What the button copies, in a line (its tooltip).
+    public var help: String {
+        switch self {
+        case .curl: "Copy curl commands: list the scripts, run one, follow a request by its id"
+        case .python: "Copy a Python helper (no packages needed): run a script or a flow, wait or not, Don't Run handled"
+        case .javascript: "Copy a JavaScript helper (fetch: Node 18+, Deno, Bun or a page on this Mac)"
+        case .swift: "Copy a Swift helper (URLSession, async): for a Mac app or a command-line tool"
+        case .shortcuts: "Copy the steps for a shortcut in Apple's Shortcuts that runs a script here"
+        case .agent: "Copy instructions for an AI agent (Claude, ChatGPT, a local model): the rules, the endpoints, the request id"
+        }
+    }
+
+    /// The snippet, for a server at `baseURL`; with `token`, every request sends it.
+    public func text(baseURL: String, token: String? = nil) -> String {
+        let token = token.flatMap { $0.isEmpty ? nil : $0 }
+        switch self {
+        case .curl: return Self.curl(baseURL, token)
+        case .python: return Self.python(baseURL, token)
+        case .javascript: return Self.javascript(baseURL, token)
+        case .swift: return Self.swift(baseURL, token)
+        case .shortcuts: return Self.shortcuts(baseURL, token)
+        case .agent: return Self.agent(baseURL, token)
+        }
+    }
+
+    // MARK: the snippets
+
+    private static func curl(_ base: String, _ token: String?) -> String {
+        let auth = token.map { " -H 'Authorization: Bearer \($0)'" } ?? ""
+        return """
+        # Tool Mac Tool Run, from a terminal (or any script that can run curl).
+        # Every run waits for the person at the Mac to click Run; send "client" and "why" so the card says who and why.
+
+        # Is it up, and what's on?
+        curl -s\(auth) \(base)/api/health
+
+        # The scripts and flows there are (name, title, what each asks for)
+        curl -s\(auth) \(base)/api/scripts
+        curl -s\(auth) \(base)/api/flows
+
+        # Run a script and wait for it to end: the answer has "ok", "code" and "output"
+        curl -s\(auth) \(base)/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My Terminal", "why": "Trying the API"}'
+
+        # The same, as it prints (one JSON object a line)
+        curl -sN\(auth) \(base)/api/run -d '{"script": "hello.sh", "stream": true, "client": "My Terminal", "why": "Trying the API"}'
+
+        # Don't wait at all: keep the request id, ask about it any time later
+        curl -si\(auth) \(base)/api/run -d '{"script": "hello.sh", "async": true, "client": "My Terminal", "why": "Trying the API"}'
+        curl -s\(auth) \(base)/api/requests/<the X-Request-Id>
+
+        # A flow from the folder, or Flow code you send
+        curl -s\(auth) \(base)/api/compose -d '{"flow": "morning.flow", "client": "My Terminal", "why": "Morning check"}'
+        curl -s\(auth) \(base)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My Terminal"}'
+
+        # The whole API in one page
+        curl -s\(auth) \(base)/api/doc
+        """
+    }
+
+    private static func python(_ base: String, _ token: String?) -> String {
+        let auth = token.map { #"    "Authorization": "Bearer \#($0)","# + "\n" } ?? ""
+        return #"""
+        # Tool Mac Tool Run from Python: the standard library only (no packages to install).
+        # Every run waits for the person at the Mac to click Run; send "why" so the card says why.
+        import json
+        import time
+        import urllib.error
+        import urllib.request
+
+        BASE = "\#(base)"
+        HEADERS = {
+            "Content-Type": "application/json",
+        \#(auth)}
+        CLIENT = "My Python App"  # shown on the card on the Mac
+
+
+        def call(method, path, body=None):
+            """One request: its JSON, and its HTTP status (403 is Don't Run, not an exception)."""
+            data = json.dumps(body).encode() if body is not None else None
+            req = urllib.request.Request(BASE + path, data=data, method=method, headers=HEADERS)
+            try:
+                with urllib.request.urlopen(req, timeout=None) as r:
+                    return json.loads(r.read() or b"{}"), r.status
+            except urllib.error.HTTPError as e:
+                return json.loads(e.read() or b"{}"), e.code
+
+
+        def run(script, args=(), why="", stdin=None):
+            """Runs a script (waits for the click, then for it to end). Returns its result: ok, code, output."""
+            body = {"script": script, "args": list(args), "client": CLIENT, "why": why}
+            if stdin is not None:
+                body["stdin"] = stdin
+            result, status = call("POST", "/api/run", body)
+            if status == 403:
+                raise RuntimeError(result["error"])  # Don't Run, or no click in two minutes
+            return result
+
+
+        def compose(flow=None, source=None, why=""):
+            """Runs a flow from the folder (by name), or Flow code you send."""
+            body = {"client": CLIENT, "why": why}
+            body.update({"flow": flow} if flow else {"source": source})
+            result, status = call("POST", "/api/compose", body)
+            if status in (400, 403):
+                raise RuntimeError(result.get("error"))
+            return result
+
+
+        def run_later(script, args=(), why=""):
+            """Asks now, returns at once with the request id; follow it with wait_for(id)."""
+            result, _ = call("POST", "/api/run", {"script": script, "args": list(args), "client": CLIENT, "why": why, "async": True})
+            return result["request"]
+
+
+        def wait_for(request_id, every=1.0):
+            """Where the request is, once it's over: succeeded, failed, denied, not_answered…"""
+            while True:
+                r, _ = call("GET", "/api/requests/" + request_id)
+                if r.get("state") not in ("waiting", "running"):
+                    return r
+                time.sleep(every)
+
+
+        if __name__ == "__main__":
+            scripts, _ = call("GET", "/api/scripts")
+            print("Scripts:", ", ".join(s["name"] for s in scripts["scripts"]))
+            r = run("hello.sh", ["world"], why="Trying the API from Python")
+            print("ok" if r["ok"] else f"failed ({r['code']})", r["output"])
+        """#
+    }
+
+    private static func javascript(_ base: String, _ token: String?) -> String {
+        let auth = token.map { "\n  Authorization: \"Bearer \($0)\"," } ?? ""
+        return """
+        // Tool Mac Tool Run from JavaScript: fetch only (Node 18+, Deno, Bun, or a page on this Mac).
+        // Every run waits for the person at the Mac to click Run; send `why` so the card says why.
+        const BASE = "\(base)";
+        const HEADERS = {
+          "Content-Type": "application/json",\(auth)
+        };
+        const CLIENT = "My JS App"; // shown on the card on the Mac
+
+        async function call(method, path, body) {
+          const r = await fetch(BASE + path, { method, headers: HEADERS, body: body ? JSON.stringify(body) : undefined });
+          return { status: r.status, requestId: r.headers.get("X-Request-Id"), json: await r.json().catch(() => ({})) };
+        }
+
+        // Runs a script: waits for the click, then for it to end. Resolves with { ok, code, output, … }.
+        export async function run(script, args = [], why = "") {
+          const { status, json } = await call("POST", "/api/run", { script, args, why, client: CLIENT });
+          if (status === 403) throw new Error(json.error); // Don't Run, or no click in two minutes
+          return json;
+        }
+
+        // Runs a flow from the folder, or Flow code you send ({ source: "print \\"hi\\"" }).
+        export async function compose({ flow, source }, why = "") {
+          const { status, json } = await call("POST", "/api/compose", { flow, source, why, client: CLIENT });
+          if (status === 400 || status === 403) throw new Error(json.error);
+          return json;
+        }
+
+        // Asks now and comes straight back with the request id; follow it with waitFor(id).
+        export async function runLater(script, args = [], why = "") {
+          const { json } = await call("POST", "/api/run", { script, args, why, client: CLIENT, async: true });
+          return json.request;
+        }
+
+        export async function waitFor(requestId, everyMs = 1000) {
+          for (;;) {
+            const { json } = await call("GET", `/api/requests/${requestId}`);
+            if (json.state !== "waiting" && json.state !== "running") return json;
+            await new Promise((done) => setTimeout(done, everyMs));
+          }
+        }
+
+        // Try it:
+        // const r = await run("hello.sh", ["world"], "Trying the API from JavaScript");
+        // console.log(r.ok ? "ok" : `failed (${r.code})`, r.output);
+        """
+    }
+
+    private static func swift(_ base: String, _ token: String?) -> String {
+        let auth = token.map { "\n        request.setValue(\"Bearer \($0)\", forHTTPHeaderField: \"Authorization\")" } ?? ""
+        return """
+        // Tool Mac Tool Run from Swift: URLSession, async/await, Foundation only.
+        // Every run waits for the person at the Mac to click Run; send `why` so the card says why.
+        import Foundation
+
+        struct ToolMacToolRun {
+            var base = URL(string: "\(base)")!
+            var client = "My Swift App" // shown on the card on the Mac
+
+            struct Refused: Error { let message: String }
+
+            /// One request: its JSON and its HTTP status (403 is Don't Run).
+            func call(_ method: String, _ path: String, _ body: [String: Any]? = nil) async throws -> ([String: Any], Int) {
+                var request = URLRequest(url: base.appendingPathComponent(path))
+                request.httpMethod = method
+                request.timeoutInterval = 24 * 3600 // a waited-for run answers when it ends
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")\(auth)
+                if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+                return (json, (response as? HTTPURLResponse)?.statusCode ?? 0)
+            }
+
+            /// Runs a script: waits for the click, then for it to end. Its result has "ok", "code", "output".
+            func run(_ script: String, _ args: [String] = [], why: String) async throws -> [String: Any] {
+                let (json, status) = try await call("POST", "api/run", ["script": script, "args": args, "client": client, "why": why])
+                if status == 403 { throw Refused(message: json["error"] as? String ?? "it didn't run") }
+                return json
+            }
+
+            /// Asks now, answers at once: the request id, for `state(of:)`.
+            func runLater(_ script: String, _ args: [String] = [], why: String) async throws -> String {
+                let (json, _) = try await call("POST", "api/run", ["script": script, "args": args, "client": client, "why": why, "async": true])
+                return json["request"] as? String ?? ""
+            }
+
+            /// Where a request is: waiting, running, succeeded, failed, denied, not_answered…
+            func state(of requestID: String) async throws -> [String: Any] {
+                try await call("GET", "api/requests/\\(requestID)").0
+            }
+        }
+
+        // Try it:
+        // let r = try await ToolMacToolRun().run("hello.sh", ["world"], why: "Trying the API from Swift")
+        // print(r["output"] ?? "")
+        """
+    }
+
+    private static func shortcuts(_ base: String, _ token: String?) -> String {
+        let auth = token.map { "\n     Headers: Authorization = Bearer \($0)" } ?? ""
+        let curlAuth = token.map { " -H 'Authorization: Bearer \($0)'" } ?? ""
+        return """
+        A shortcut (Apple's Shortcuts app) that runs one of your scripts through Tool Mac Tool Run.
+        The Mac shows its card first: the shortcut gets the result once Run is clicked.
+
+        The quickest way: one action.
+          1. Add "Run Shell Script" (Scripting). Shell: bash. Paste:
+             curl -s\(curlAuth) \(base)/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "Shortcuts", "why": "From my shortcut"}' | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("output") or r.get("error",""))'
+          2. Add "Show Result" (or "Speak Text") with the Shell Script Result.
+
+        Without the shell, in three actions:
+          1. "Dictionary": script = hello.sh, client = Shortcuts, why = From my shortcut
+             (and args: a List of Text, when the script takes some).
+          2. "Get Contents of URL": \(base)/api/run
+             Method: POST.  Request Body: JSON, the Dictionary.\(auth)
+          3. "Get Dictionary Value": output, from the Contents of URL. Then Show Result.
+
+        Ask Siri: name the shortcut ("Say hello"), and say its name.
+        Other scripts: change "hello.sh" ( \(base)/api/scripts lists every name ).
+        Don't Run (or no click in two minutes) answers {"error": "…", "code": "denied"}: the steps show the error.
+        """
+    }
+
+    private static func agent(_ base: String, _ token: String?) -> String {
+        let auth = token.map { "\nSend this header with every request: Authorization: Bearer \($0)" } ?? ""
+        return """
+        You can run the user's scripts and flows on their Mac through Tool Mac Tool Run's HTTP API at \(base) (JSON in, JSON out).\(auth)
+
+        Rules:
+        1. Nothing runs without the user's click. Every run request shows a card on their Mac; they click Run or Don't Run, and no click in two minutes is Don't Run. You can't click for them: say "it's waiting for you to click Run on your Mac".
+        2. Send "client" (your name, shown on the card) and "why" (why you want it, in the user's terms, a sentence they read before clicking) with every run.
+        3. Keep the request id: it's in every answer (the X-Request-Id header, and "request" in the JSON). GET \(base)/api/requests/{id} says where it is any time later: waiting, running, succeeded, failed, denied, not_answered.
+        4. Find names before running: GET /api/scripts and GET /api/flows list what there is, with what each asks for ("inputs"). Never guess a name.
+        5. A run that fails is still HTTP 200: read "ok" and "code". 403 means it didn't run (the user said no, or didn't answer); don't ask again unless the user wants you to.
+
+        Endpoints:
+        GET  /api/scripts                 the scripts: name, title, summary, inputs (what each asks for), dangers
+        GET  /api/flows                   the flows (scripts composed in the Flow language)
+        POST /api/run                     {"script": "<name>", "args": [...], "client": "<you>", "why": "<why>"} → waits for the click, then for it to end: {"ok", "code", "output", "request", …}
+                                          add "async": true to get {"request": id} at once, then poll /api/requests/{id}
+        POST /api/compose                 {"flow": "<name>"} or {"source": "<Flow code>"}, the same fields: runs a flow
+        POST /api/check                   {"source": "<Flow code>"} → checks it, runs nothing
+        GET  /api/requests/{id}           where a request is, with its run's output once it has one
+        POST /api/runs/{id}/stop          stops a run you asked for (one the user started asks them first)
+        GET  /api/doc                     every endpoint, field and error, in one page: read it when unsure
+
+        Example:
+        POST \(base)/api/run
+        {"script": "utilities/weather.py", "args": ["Lagos"], "client": "Assistant", "why": "You asked what the weather is in Lagos"}
+        """
+    }
+}

@@ -71,6 +71,7 @@ public enum Doctor {
                                   fix: need.program.hasPrefix("/") ? Remedy.interpreter(need.program) : Remedy.install(need.program)))
             }
         }
+        lines += straw(scripts.filter { $0.language == .straw }, library: library, path: path)
         lines += epa(library, flows: flows, path: path)
         for flow in flows {
             guard let source = try? String(contentsOf: flow.url, encoding: .utf8) else { continue }
@@ -79,6 +80,30 @@ public enum Doctor {
             } catch let e as FlowError {
                 lines.append(Line(status: .warning, title: "\(flow.id) has a mistake", detail: e.description, fix: "Open it with the pencil on its cell."))
             } catch {}
+        }
+        return lines
+    }
+
+    /// Straw scripts: straw.py is there to run them, and each reads without a mistake (checked
+    /// by straw.py itself, as a run would, so the two can't disagree).
+    static func straw(_ items: [ScriptItem], library: Library, path: String) -> [Line] {
+        guard !items.isEmpty else { return [] }
+        let missing = items.filter { Straw.runner(for: $0.url) == nil }
+        if !missing.isEmpty {
+            let n = missing.count
+            return [Line(status: .problem, title: "Straw (\(n)): \(Straw.runnerName) not found",
+                         detail: "\(n) Straw script\(n == 1 ? "" : "s") can't run without it (\(missing.prefix(3).map(\.id).joined(separator: ", "))).",
+                         fix: Straw.fixMissingRunner)]
+        }
+        guard ShellEnvironment.find("python3", path: path) != nil else { return [] }  // the python3 line says so
+        var lines: [Line] = []
+        for item in items {
+            guard let runner = Straw.runner(for: item.url) else { continue }
+            let p = ScriptProcess(shell: "exec python3 \(ShellEnvironment.quote(runner.path)) --check \(ShellEnvironment.quote(item.url.path))",
+                                  workingDirectory: library.root)
+            guard let r = try? p.runToEnd(), !r.ok else { continue }
+            let said = r.err.split(whereSeparator: \.isNewline).filter { $0 != "Nothing ran." }.joined(separator: "\n")
+            lines.append(Line(status: .warning, title: "\(item.id) has a mistake", detail: said, fix: "Open it with the pencil on its cell."))
         }
         return lines
     }

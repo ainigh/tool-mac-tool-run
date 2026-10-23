@@ -9,6 +9,8 @@ public struct RunRequest: Identifiable, Sendable {
         case flow(ScriptItem)
         /// Flow code the app sent (checked already).
         case source(String)
+        /// Stopping a run the person started (at the Mac, or by itself): it's theirs, so they're asked.
+        case stop(UUID)
     }
 
     public let id = UUID()
@@ -54,7 +56,7 @@ public struct RunRequest: Identifiable, Sendable {
     public var itemID: String? {
         switch what {
         case let .script(item), let .flow(item): item.id
-        case .source: nil
+        case .source, .stop: nil
         }
     }
 
@@ -67,6 +69,22 @@ public struct RunRequest: Identifiable, Sendable {
     public var isScript: Bool {
         if case .script = what { return true }
         return false
+    }
+
+    /// It asks to stop a run, not to start one.
+    public var isStop: Bool {
+        if case .stop = what { return true }
+        return false
+    }
+
+    /// What it's called in the ledger and on the card: automation, stop, script or flow.
+    public var kindName: String {
+        if automation != nil { return "automation" }
+        switch what {
+        case .script: return "script"
+        case .flow, .source: return "flow"
+        case .stop: return "stop"
+        }
     }
 }
 
@@ -243,8 +261,26 @@ public final class RunAPI: @unchecked Sendable {
         if parts.count == 2 {
             guard parts[1] == "stop" else { throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path)") }
             try allow(req, "POST", path)
-            guard await host.record(id) != nil else { throw unknownRun(id) }
-            return JSON.response(["ok": true, "stopping": await host.stop(id)])
+            guard let record = await host.record(id) else { throw unknownRun(id) }
+            // A run another app asked for (and the person allowed) stops at once. One the person
+            // started (its cell, a flow, a schedule) is theirs: they're asked first, on the card.
+            guard record.state == .running, await requests.request(forRun: id) == nil else {
+                return JSON.response(["ok": true, "stopping": await host.stop(id)])
+            }
+            let fields = try body(req)
+            let started = record.requestedBy.map { "started by \($0)" } ?? "started on the Mac"
+            let request = RunRequest(what: .stop(id), name: record.name, client: Self.client(req, fields), from: Self.from(req),
+                                     command: "stop \(record.name) (\(started), running \(RunRecord.duration(Date().timeIntervalSince(record.started))))",
+                                     why: Self.why(fields))
+            await requests.add(request, via: "stop")
+            do {
+                try await approve(request)
+            } catch let e as HTTPError {
+                return refused(e, request)
+            }
+            await requests.set(request.id, .stopped(id))
+            return JSON.response(["ok": true, "stopping": await host.stop(id), "request": request.id.uuidString],
+                                 headers: [("X-Request-Id", request.id.uuidString)])
         }
         try allow(req, "GET", path)
         guard let r = await host.record(id) else { throw unknownRun(id) }
@@ -273,7 +309,7 @@ public final class RunAPI: @unchecked Sendable {
     func requestJSON(_ e: RequestLedger.Entry, run: Bool = true) async -> [String: Any] {
         let r = e.request
         var out: [String: Any] = [
-            "request": e.id.uuidString, "name": r.name, "kind": r.automation != nil ? "automation" : (r.isScript ? "script" : "flow"),
+            "request": e.id.uuidString, "name": r.name, "kind": r.kindName,
             "via": e.via, "client": r.client, "from": r.from, "asked": JSON.date(e.asked), "url": "/api/requests/\(e.id.uuidString)",
         ]
         if let why = r.why { out["why"] = why }
@@ -281,7 +317,7 @@ public final class RunAPI: @unchecked Sendable {
         switch e.outcome {
         case .waiting:
             out["state"] = "waiting"
-            out["message"] = r.automation == nil ? "On the Mac, waiting for Run" : "On the Mac, waiting for Allow"
+            out["message"] = r.isStop ? "On the Mac, waiting for Stop It" : r.automation == nil ? "On the Mac, waiting for Run" : "On the Mac, waiting for Allow"
         case .denied:
             let err = Self.denied(r)
             out["state"] = "denied"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
@@ -290,6 +326,10 @@ public final class RunAPI: @unchecked Sendable {
             out["state"] = "not_answered"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
         case .automated:
             out["state"] = "automated"; out["ok"] = true
+        case let .stopped(id):
+            out["state"] = "stopped"; out["ok"] = true
+            out["run_id"] = id.uuidString
+            out["run_url"] = "/api/runs/\(id.uuidString)"
         case let .failed(err):
             out["state"] = "could_not_start"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
         case let .running(id):
@@ -440,7 +480,8 @@ public final class RunAPI: @unchecked Sendable {
             throw HTTPError(status: 400, code: "bad_request", message: "only a flow from the folder can be automated: send {\"flow\": \"<its name>\", \"automation\": […]}")
         }
         let request = RunRequest(what: what, name: name, arguments: args, client: Self.client(req, fields),
-                                 from: Self.from(req), command: command, why: Self.why(fields), automation: automation)
+                                 from: Self.from(req), command: command, dangers: Self.flowDangers(source, scripts: c.scripts),
+                                 why: Self.why(fields), automation: automation)
         return try await execute(request, fields, via: given == nil ? "compose" : "automation")
     }
 
@@ -457,6 +498,23 @@ public final class RunAPI: @unchecked Sendable {
         } catch let e as FlowError {
             return Self.flowMistake(e, status: 200)
         }
+    }
+
+    /// What a flow looks like it does that can't be undone: in its own code (a `shell` line), and
+    /// in each script it runs, by name ("runs cleanup.sh, which deletes files for good"). The
+    /// card shows them in red, as it does a script's.
+    static func flowDangers(_ source: String, scripts: [ScriptItem]) -> [String] {
+        var found = Caution.dangers(in: source)
+        let ids = scripts.map(\.id)
+        let pattern = #"\b(run|attempt|pipe|attemptPipe)\s+"([^"\n]+)""#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return found }
+        var seen: Set<String> = []
+        for m in re.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+            guard let r = Range(m.range(at: 2), in: source), let id = ScriptNames.match(String(source[r]), in: ids),
+                  seen.insert(id).inserted, let item = scripts.first(where: { $0.id == id }) else { continue }
+            found += item.dangers.map { "runs \(item.id), which \($0)" }
+        }
+        return found
     }
 
     private static func flowMistake(_ e: FlowError, status: Int = 400) -> HTTPResponse {
@@ -558,13 +616,17 @@ public final class RunAPI: @unchecked Sendable {
     }
 
     static func denied(_ r: RunRequest) -> HTTPError {
-        HTTPError(status: 403, code: "denied", message: r.automation == nil
+        HTTPError(status: 403, code: "denied", message: r.isStop
+                  ? "\(r.name) wasn't stopped: the person at the Mac chose Keep Running"
+                  : r.automation == nil
                   ? "\(r.name) didn't run: the person at the Mac chose Don't Run"
                   : "\(r.name) wasn't automated: the person at the Mac chose Don't Allow")
     }
 
     static func unanswered(_ r: RunRequest) -> HTTPError {
-        HTTPError(status: 403, code: "not_answered", message: r.automation == nil
+        HTTPError(status: 403, code: "not_answered", message: r.isStop
+                  ? "\(r.name) wasn't stopped: no one clicked Stop It on the Mac in time"
+                  : r.automation == nil
                   ? "\(r.name) didn't run: no one clicked Run on the Mac in time"
                   : "\(r.name) wasn't automated: no one clicked Allow on the Mac in time")
     }

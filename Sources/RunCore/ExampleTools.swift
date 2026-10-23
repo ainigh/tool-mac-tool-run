@@ -2287,6 +2287,345 @@ extension Examples {
           *) short "$1" ;;
         esac
         """# + "\n"),
+        ("utilities/calc.py", #"""
+        #!/usr/bin/env python3
+        # Works out arithmetic: calc 12*7+3, calc "2^10", calc 15% of 80, calc sqrt(2), with pi, round, min, max
+        #
+        # Input: The sum to work out (12*7+3, 15% of 80, sqrt 2)
+        # Why: It's worked out on this Mac, never run as code
+        import ast
+        import math
+        import operator
+        import re
+        import sys
+
+        OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+               ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.Pow: operator.pow,
+               ast.USub: operator.neg, ast.UAdd: operator.pos}
+        NAMES = {"pi": math.pi, "e": math.e, "tau": math.tau}
+        FUNCS = {"sqrt": math.sqrt, "round": round, "abs": abs, "min": min, "max": max, "floor": math.floor,
+                 "ceil": math.ceil, "log": math.log10, "ln": math.log, "sin": math.sin, "cos": math.cos, "tan": math.tan}
+
+
+        def value(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return node.value
+            if isinstance(node, ast.BinOp) and type(node.op) in OPS:
+                left, right = value(node.left), value(node.right)
+                if isinstance(node.op, ast.Pow) and abs(right) > 10000:
+                    raise ValueError("that power is too big to work out")
+                return OPS[type(node.op)](left, right)
+            if isinstance(node, ast.UnaryOp) and type(node.op) in OPS:
+                return OPS[type(node.op)](value(node.operand))
+            if isinstance(node, ast.Name) and node.id in NAMES:
+                return NAMES[node.id]
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in FUNCS:
+                return FUNCS[node.func.id](*[value(a) for a in node.args])
+            raise ValueError("only numbers, + - * / ^ %, brackets and " + ", ".join(sorted(FUNCS)) + " work here")
+
+
+        def tidy(text):
+            t = text.lower().replace("×", "*").replace("÷", "/").replace("^", "**").replace(",", "")
+            # 15% of 80 → 15/100*80; 20% → 0.2
+            t = re.sub(r"(\d+(?:\.\d+)?)\s*%\s*of\s*", r"(\1/100)*", t)
+            t = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"(\1/100)", t)
+            t = re.sub(r"\b(" + "|".join(FUNCS) + r")\s+(\d+(?:\.\d+)?)", r"\1(\2)", t)  # sqrt 2 → sqrt(2)
+            t = re.sub(r"\bx\b", "*", t)
+            return t
+
+
+        def show(n):
+            if isinstance(n, float):
+                if n.is_integer() and abs(n) < 1e15:
+                    return f"{int(n):,}"
+                return f"{n:,.10g}"
+            return f"{n:,}"
+
+
+        sum_ = " ".join(sys.argv[1:]).strip() or sys.stdin.read().strip()
+        if not sum_:
+            print("What should be worked out? calc 12*7+3, calc 15% of 80, calc sqrt 2", file=sys.stderr)
+            sys.exit(1)
+        try:
+            answer = value(ast.parse(tidy(sum_), mode="eval").body)
+        except ZeroDivisionError:
+            print("That divides by zero.", file=sys.stderr)
+            sys.exit(1)
+        except (SyntaxError, ValueError, TypeError, OverflowError) as e:
+            print(f"Couldn't work out {sum_}: {e if not isinstance(e, SyntaxError) else 'it is not a sum I can read'}.", file=sys.stderr)
+            sys.exit(1)
+        print(show(answer))
+        """# + "\n"),
+        ("utilities/convert.py", #"""
+        #!/usr/bin/env python3
+        # Converts units: convert 5 km to miles, convert 72 f to c, convert 3 GB to MB, convert 2 cups to ml, convert 90 min to h
+        #
+        # Input: What to convert (5 km to miles)
+        import re
+        import sys
+
+        # Each unit: its kind, and how many of the kind's base unit it is (temperatures are worked out apart).
+        UNITS = {}
+
+
+        def units(kind, table):
+            for names, size in table:
+                for n in names.split():
+                    UNITS[n] = (kind, size)
+
+
+        units("length", [("mm millimeter millimeters millimetre millimetres", 0.001), ("cm centimeter centimeters centimetre centimetres", 0.01),
+                         ("m meter meters metre metres", 1), ("km kilometer kilometers kilometre kilometres", 1000),
+                         ("in inch inches", 0.0254), ("ft foot feet", 0.3048), ("yd yard yards", 0.9144), ("mi mile miles", 1609.344),
+                         ("nmi nauticalmile nauticalmiles", 1852)])
+        units("weight", [("mg milligram milligrams", 0.001), ("g gram grams", 1), ("kg kilo kilos kilogram kilograms", 1000),
+                         ("t tonne tonnes", 1e6), ("oz ounce ounces", 28.349523125), ("lb lbs pound pounds", 453.59237), ("st stone stones", 6350.29318)])
+        units("volume", [("ml milliliter milliliters millilitre millilitres", 0.001), ("l liter liters litre litres", 1),
+                         ("tsp teaspoon teaspoons", 0.00492892), ("tbsp tablespoon tablespoons", 0.0147868), ("floz", 0.0295735),
+                         ("cup cups", 0.24), ("pt pint pints", 0.473176), ("qt quart quarts", 0.946353), ("gal gallon gallons", 3.78541)])
+        units("speed", [("kmh kph km/h", 1 / 3.6), ("mph", 0.44704), ("m/s mps", 1), ("knot knots kn", 0.514444)])
+        units("data", [("b byte bytes", 1), ("kb kilobyte kilobytes", 1e3), ("mb megabyte megabytes", 1e6), ("gb gigabyte gigabytes", 1e9),
+                       ("tb terabyte terabytes", 1e12), ("kib", 1024), ("mib", 1024 ** 2), ("gib", 1024 ** 3), ("tib", 1024 ** 4)])
+        units("time", [("ms millisecond milliseconds", 0.001), ("s sec secs second seconds", 1), ("min mins minute minutes", 60),
+                       ("h hr hrs hour hours", 3600), ("d day days", 86400), ("wk week weeks", 604800), ("yr year years", 31557600)])
+        units("area", [("m2 sqm", 1), ("km2", 1e6), ("ha hectare hectares", 1e4), ("acre acres", 4046.8564224), ("ft2 sqft", 0.09290304)])
+        TEMPS = {"c": "c", "celsius": "c", "°c": "c", "f": "f", "fahrenheit": "f", "°f": "f", "k": "k", "kelvin": "k"}
+
+
+        def to_celsius(v, u):
+            return v if u == "c" else (v - 32) * 5 / 9 if u == "f" else v - 273.15
+
+
+        def from_celsius(v, u):
+            return v if u == "c" else v * 9 / 5 + 32 if u == "f" else v + 273.15
+
+
+        def show(n):
+            return f"{n:,.6g}" if abs(n) < 1e15 else f"{n:.4e}"
+
+
+        text = " ".join(sys.argv[1:]).strip().replace("square ", "").replace("sq ", "sq")
+        m = re.match(r"^\s*(-?[\d.,]+)\s*([^\s\d][^\s]*)\s+(?:to|in|into|as)\s+(.+?)\s*$", text, re.I)
+        if not m:
+            print("What should be converted? convert 5 km to miles, convert 72 f to c, convert 3 GB to MB", file=sys.stderr)
+            sys.exit(1)
+        amount = float(m.group(1).replace(",", ""))
+        src, dst = m.group(2).lower(), m.group(3).replace(" ", "").lower()
+        if src in TEMPS and dst in TEMPS:
+            out = from_celsius(to_celsius(amount, TEMPS[src]), TEMPS[dst])
+            print(f"{show(amount)} °{TEMPS[src].upper()} = {show(out)} °{TEMPS[dst].upper()}")
+            sys.exit(0)
+        for u in (src, dst):
+            if u not in UNITS and u not in TEMPS:
+                kinds = sorted({k for k, _ in UNITS.values()} | {"temperature"})
+                print(f"I don't know the unit \"{u}\". I know {', '.join(kinds)}: km, mi, kg, lb, l, cup, GB, MiB, mph, h, °C, °F…", file=sys.stderr)
+                sys.exit(1)
+        if src in TEMPS or dst in TEMPS or UNITS[src][0] != UNITS[dst][0]:
+            a = "temperature" if src in TEMPS else UNITS[src][0]
+            b = "temperature" if dst in TEMPS else UNITS[dst][0]
+            print(f"{src} is a {a} and {dst} is a {b}: they don't convert.", file=sys.stderr)
+            sys.exit(1)
+        out = amount * UNITS[src][1] / UNITS[dst][1]
+        print(f"{show(amount)} {m.group(2)} = {show(out)} {m.group(3)}")
+        """# + "\n"),
+        ("utilities/json-format.py", #"""
+        #!/usr/bin/env python3
+        # Tidies JSON (indented, keys in order) and says where it's broken if it is: json-format < file.json, or JSON as words
+        #
+        # Input text: The JSON to tidy
+        import json
+        import sys
+
+        text = " ".join(sys.argv[1:]) if sys.argv[1:] and sys.argv[1] != "--compact" else ""
+        compact = "--compact" in sys.argv[1:]
+        text = text or sys.stdin.read()
+        if not text.strip():
+            print("Give it JSON: as words, or as what it reads (json-format < data.json).", file=sys.stderr)
+            sys.exit(1)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            line = text.splitlines()[e.lineno - 1] if e.lineno - 1 < len(text.splitlines()) else ""
+            print(f"It isn't valid JSON: {e.msg}, at line {e.lineno}, column {e.colno}:", file=sys.stderr)
+            print("  " + line.strip()[:120], file=sys.stderr)
+            sys.exit(1)
+        if compact:
+            print(json.dumps(data, separators=(",", ":"), ensure_ascii=False))
+        else:
+            print(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
+        """# + "\n"),
+        ("utilities/speed-test.sh", #"""
+        #!/bin/bash
+        # How fast this Mac's internet is: download, upload and responsiveness (macOS's own networkQuality, about 20 seconds)
+        set -uo pipefail
+
+        if ! command -v networkQuality >/dev/null 2>&1; then
+          echo "Measuring needs macOS 12 or later (its networkQuality command)." >&2
+          exit 1
+        fi
+        echo "Measuring (about 20 seconds)…" >&2
+        out=$(networkQuality -s 2>&1) || { echo "Couldn't measure: $out" >&2; exit 1; }
+        down=$(printf '%s\n' "$out" | awk -F': ' '/[Dd]ownlink capacity/ {print $2; exit}')
+        up=$(printf '%s\n' "$out" | awk -F': ' '/[Uu]plink capacity/ {print $2; exit}')
+        resp=$(printf '%s\n' "$out" | awk -F': ' '/[Rr]esponsiveness/ {print $2; exit}')
+        echo "⬇️  Download: ${down:-unknown}"
+        echo "⬆️  Upload: ${up:-unknown}"
+        echo "⏱  Responsiveness: ${resp:-unknown}"
+        """# + "\n"),
+        ("utilities/network.sh", #"""
+        #!/bin/bash
+        # This Mac on its network: its address, the router, the DNS servers, and whether the internet answers
+        set -uo pipefail
+
+        iface=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+        router=$(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+        if [ -z "$iface" ]; then
+          echo "❌ Not connected to a network (no route to the internet)."
+          exit 1
+        fi
+        address=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+        dns=$(scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/ {print $3}' | sort -u | head -3 | paste -sd ' ' -)
+        echo "Connected through $iface"
+        echo "This Mac: ${address:-unknown}"
+        echo "Router: ${router:-unknown}"
+        echo "DNS: ${dns:-unknown}"
+        if ping -c 1 -t 3 1.1.1.1 >/dev/null 2>&1; then
+          if host -W 3 apple.com >/dev/null 2>&1 || nslookup apple.com >/dev/null 2>&1; then
+            echo "✅ The internet answers, and names are found."
+          else
+            echo "⚠️  The internet answers, but names aren't found: DNS is the trouble."
+          fi
+        else
+          echo "❌ The internet doesn't answer (1.1.1.1 didn't reply): the router, or beyond it."
+        fi
+        """# + "\n"),
+        ("utilities/keep-awake.sh", #"""
+        #!/bin/bash
+        # Keeps this Mac awake (no sleep, no screen saver) for a while: keep-awake 90 (minutes), keep-awake status, keep-awake stop
+        #
+        # Input (optional): How many minutes (60 unless set), or status, or stop
+        set -uo pipefail
+
+        state="${TMPDIR:-/tmp}/toolmactoolrun-keep-awake.pid"
+        running() { [ -f "$state" ] && kill -0 "$(cat "$state")" 2>/dev/null; }
+
+        case "${1:-60}" in
+          status)
+            if running; then echo "☕ Keeping awake (caffeinate, pid $(cat "$state"))."; else echo "Not keeping awake: the Mac sleeps as usual."; fi ;;
+          stop)
+            if running; then kill "$(cat "$state")" && rm "$state"; echo "Stopped: the Mac sleeps as usual again."
+            else echo "It wasn't keeping awake."; fi ;;
+          *[!0-9]*)
+            echo "Give a number of minutes (keep-awake 90), or status, or stop." >&2; exit 1 ;;
+          *)
+            minutes="${1:-60}"
+            if running; then kill "$(cat "$state")" 2>/dev/null; fi
+            nohup caffeinate -dimsu -t $((minutes * 60)) >/dev/null 2>&1 &
+            echo $! > "$state"
+            until=$(date -v+"${minutes}"M '+%H:%M' 2>/dev/null || date -d "+${minutes} minutes" '+%H:%M')
+            echo "☕ Keeping awake for $minutes minutes, until $until (keep-awake stop ends it sooner)." ;;
+        esac
+        """# + "\n"),
+        ("utilities/port-check.sh", #"""
+        #!/bin/bash
+        # What's listening on a port (port-check 3000), or every port that's listening on this Mac, and which program has it
+        #
+        # Input (optional): A port number (every one unless set)
+        set -uo pipefail
+
+        if [ -n "${1:-}" ]; then
+          case "$1" in *[!0-9]*) echo "A port is a number: port-check 3000" >&2; exit 1 ;; esac
+          out=$(lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $1" (pid "$2")"}' | sort -u)
+          if [ -z "$out" ]; then echo "Nothing is listening on port $1: it's free."; else echo "Port $1 is taken by: $out"; fi
+          exit 0
+        fi
+        out=$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {n = split($9, a, ":"); print a[n]"\t"$1" (pid "$2")"}' | sort -n -u)
+        if [ -z "$out" ]; then echo "No program is listening on a port."; exit 0; fi
+        printf 'Port\tProgram\n%s\n' "$out"
+        """# + "\n"),
+        ("utilities/git-status-all.sh", #"""
+        #!/bin/bash
+        # Which of your git repositories have changes or commits not pushed yet (in ~/Code, ~/Developer, ~/Projects and ~/src, or a folder you name)
+        #
+        # Input (optional): A folder of repositories (your usual ones unless set)
+        set -uo pipefail
+
+        if ! command -v git >/dev/null 2>&1; then
+          echo "This needs git: xcode-select --install" >&2; exit 1
+        fi
+        if [ $# -gt 0 ]; then roots=("$@"); else roots=("$HOME/Code" "$HOME/Developer" "$HOME/Projects" "$HOME/src"); fi
+        # A path with your home folder as ~.
+        pretty() { case "$1" in "$HOME"*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
+        found=0; busy=0
+        IFS=$'\n'  # a folder's name may have spaces
+        for root in "${roots[@]}"; do
+          [ -d "$root" ] || continue
+          for git_dir in $(find "$root" -maxdepth 3 -name .git -type d -prune 2>/dev/null | sort); do
+            repo="${git_dir%/.git}"
+            found=$((found + 1))
+            branch=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || echo "detached")
+            changed=$(git -C "$repo" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+            ahead=$(git -C "$repo" rev-list --count '@{u}..HEAD' 2>/dev/null || echo "")
+            notes=""
+            [ "$changed" != "0" ] && notes="$changed changed"
+            [ -n "$ahead" ] && [ "$ahead" != "0" ] && notes="${notes:+$notes, }$ahead to push"
+            if [ -n "$notes" ]; then
+              busy=$((busy + 1))
+              echo "✏️  $(pretty "$repo") ($branch): $notes"
+            fi
+          done
+        done
+        if [ "$found" = 0 ]; then
+          where=""
+          for r in "${roots[@]}"; do where="${where:+$where, }$(pretty "$r")"; done
+          echo "No git repositories in $where: name the folder they're in (git-status-all ~/work)." >&2
+          exit 1
+        fi
+        [ "$found" = 1 ] && noun="repository" || noun="repositories"
+        echo "$found $noun, $busy with something to commit or push."
+        """# + "\n"),
+        ("utilities/qr-code.sh", #"""
+        #!/bin/bash
+        # Makes a QR code of a link or some text, saves it on your Desktop and opens it (to scan with a phone)
+        #
+        # Input: The link or text for the QR code
+        set -euo pipefail
+
+        text="$*"
+        if [ -z "$text" ]; then echo "What should the QR code say? qr-code https://example.com" >&2; exit 1; fi
+        encoded=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$text")
+        file="$HOME/Desktop/QR $(date '+%Y-%m-%d %H.%M.%S').png"
+        if ! curl -fsS --max-time 20 "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=12&data=$encoded" -o "$file"; then
+          echo "Couldn't make it (api.qrserver.com didn't answer): are you online?" >&2; exit 1
+        fi
+        command -v open >/dev/null 2>&1 && open "$file"
+        echo "Saved: ~${file#"$HOME"}"
+        """# + "\n"),
+        ("utilities/dark-mode.sh", #"""
+        #!/bin/bash
+        # Turns Dark Mode on or off, or switches it: dark-mode, dark-mode on, dark-mode off, dark-mode status
+        #
+        # Input (optional): on, off or status (switches it unless set)
+        set -uo pipefail
+
+        ask() { osascript -e 'tell application "System Events" to tell appearance preferences to '"$1" 2>&1; }
+        case "${1:-toggle}" in
+          on) set_to="true" ;;
+          off) set_to="false" ;;
+          toggle|switch) set_to="not dark mode" ;;
+          status)
+            now=$(ask "get dark mode") || { echo "Couldn't ask: $now" >&2; exit 1; }
+            [ "$now" = "true" ] && echo "🌙 Dark Mode is on." || echo "☀️ Dark Mode is off."; exit 0 ;;
+          *) echo "dark-mode on, off, status, or nothing to switch it." >&2; exit 1 ;;
+        esac
+        if ! out=$(ask "set dark mode to $set_to"); then
+          echo "Couldn't change it: $out" >&2
+          echo "Fix: System Settings > Privacy & Security > Automation > Tool Mac Tool Run > turn on System Events." >&2
+          exit 1
+        fi
+        now=$(ask "get dark mode")
+        [ "$now" = "true" ] && echo "🌙 Dark Mode is on." || echo "☀️ Dark Mode is off."
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -3097,6 +3436,1058 @@ extension Examples {
           .map(a => (a.innerText.trim().replace(/\s+/g, " ") || "(no words)") + "\t" + a.href)
           .join("\n")'
         """# + "\n"),
+        ("browser/straw.py", #"""
+        #!/usr/bin/env python3
+        # Runs Straw scripts (.straw): Chrome driven by what's on the page, one plain line at a time
+        #
+        # Input (optional): A .straw file to run (with nothing, the words Straw knows)
+        #
+        #   straw.py hacker-news.straw              runs it, in the tab in front (browser.sh does the driving)
+        #   straw.py hacker-news.straw word…        what comes after is {1}, {2}… (and {args}, all of it)
+        #   straw.py --check hacker-news.straw      reads it and says what it would do; runs nothing
+        #   straw.py                                every word Straw knows, with an example of each
+        #
+        # A line is a word and what it works on: open news.ycombinator.com, click "More", type "Search" "cats",
+        # see "Results", read all css ".titleline > a". Things are named the way a person names them: by the words
+        # on them (their label, their placeholder, what's written on the button). The whole file is checked before
+        # anything runs; a mistake says its line and the fix. What it reads goes to the output (a flow's value);
+        # what it's doing goes beside it, a line a step. The Straw guide (in the app, and docs/STRAW-GUIDE.md) says more.
+        import difflib
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+        import time
+        import urllib.parse
+
+        WAIT_SECONDS = 15
+
+        # Every word, what it takes, and what it does: the checker, the help and the guide read this one table.
+        WORDS = {
+            "open":    ("URL", "opens the page in a new tab, in front, and waits for it ({values} after the ? are made safe for an address)", 'open "en.wikipedia.org/w/index.php?search={1}"'),
+            "go":      ("URL", "the tab in front goes to the page, and waits for it", 'go https://example.com/next'),
+            "tab":     ("TEXT", "brings to the front the first tab whose address has TEXT in it", 'tab "music.youtube.com"'),
+            "back":    ("", "goes back a page", 'back'),
+            "forward": ("", "goes forward a page", 'forward'),
+            "reload":  ("", "loads the page again", 'reload'),
+            "wait":    ("[gone] [THING] [SECONDS]", "waits for the page to load; for THING to show (15 s unless SECONDS); with gone, for it to go", 'wait "Results"'),
+            "click":   ("THING", "clicks it", 'click "Sign in"'),
+            "hover":   ("THING", "puts the pointer over it (menus that open on hover)", 'hover "Products"'),
+            "type":    ("THING TEXT", "puts TEXT in the field (what was in it is replaced)", 'type "Search" "{1}"'),
+            "press":   ("KEY", "presses a key in the field in front: Enter, Tab, Escape, Space, Backspace, ArrowDown…", 'press Enter'),
+            "select":  ("THING OPTION", "picks OPTION in a menu (a <select>)", 'select "Country" "Nigeria"'),
+            "check":   ("THING", "ticks a checkbox (or turns a switch on); already ticked stays ticked", 'check "Remember me"'),
+            "uncheck": ("THING", "unticks it", 'uncheck "Send me news"'),
+            "scroll":  ("THING | down | up | top | bottom", "scrolls it into view, or the page", 'scroll down'),
+            "see":     ("[no] THING", "stops the script unless THING is on the page (with no: unless it isn't)", 'see "Welcome back"'),
+            "read":    ("[all | after] THING | title | url | page | links  [into NAME]", "gives back its words (a field: what's in it); all: every match, a line each; after: what's beside it", 'read all css ".titleline > a"'),
+            "js":      ("CODE [into NAME]", "runs JavaScript in the page and gives back what it gives", 'js "document.title" into t'),
+            "set":     ("NAME TEXT", "remembers TEXT as {NAME}", 'set city "{1|Lagos}"'),
+            "print":   ("TEXT", "gives TEXT back (the script's output)", 'print "Top story: {top}"'),
+            "ask":     ("NAME QUESTION", "asks on the Mac, and remembers the answer as {NAME}", 'ask query "Search for what?"'),
+            "confirm": ("MESSAGE", "asks on the Mac before going on: Stop ends the script here", 'confirm "Post the comment?"'),
+            "stop":    ("MESSAGE", "ends the script here, as a failure, saying MESSAGE", 'stop "Not signed in"'),
+            "if":      ("see THING | no THING", "does the indented lines under it only if THING is (or isn't) on the page", 'if see "Accept all"'),
+            "else":    ("", "the indented lines under it, when the if above didn't", 'else'),
+        }
+
+        KEYS = {
+            "enter": ("Enter", 13), "return": ("Enter", 13), "tab": ("Tab", 9), "escape": ("Escape", 27), "esc": ("Escape", 27),
+            "space": (" ", 32), "backspace": ("Backspace", 8), "delete": ("Delete", 46), "arrowup": ("ArrowUp", 38),
+            "arrowdown": ("ArrowDown", 40), "arrowleft": ("ArrowLeft", 37), "arrowright": ("ArrowRight", 39),
+            "up": ("ArrowUp", 38), "down": ("ArrowDown", 40), "left": ("ArrowLeft", 37), "right": ("ArrowRight", 39),
+            "home": ("Home", 36), "end": ("End", 35), "pageup": ("PageUp", 33), "pagedown": ("PageDown", 34),
+        }
+
+
+        class Mistake(Exception):
+            """Something wrong with a line: where, what, and the fix."""
+
+            def __init__(self, line, message, fix=None):
+                super().__init__(message)
+                self.line, self.message, self.fix = line, message, fix
+
+
+        class Stop(Exception):
+            """The script ends here (stop, confirm's Stop, or something on the page that isn't as it said)."""
+
+
+        # ─── reading a line ──────────────────────────────────────────────────────────
+
+        def tokens(text, number):
+            """The words and "quoted texts" of a line, without its # comment. Each is (kind, value): word or text."""
+            out, i, n = [], 0, len(text)
+            while i < n:
+                c = text[i]
+                if c in " \t":
+                    i += 1
+                elif c == "#":
+                    break
+                elif c in "\"'":
+                    j, buf = i + 1, []
+                    while j < n and text[j] != c:
+                        if text[j] == "\\" and j + 1 < n:
+                            j += 1
+                        buf.append(text[j])
+                        j += 1
+                    if j >= n:
+                        raise Mistake(number, f"A text starts with {c} and doesn't end.", f"Put a {c} at its end.")
+                    out.append(("text", "".join(buf)))
+                    i = j + 1
+                else:
+                    j = i
+                    while j < n and text[j] not in " \t\"'":
+                        j += 1
+                    out.append(("word", text[i:j]))
+                    i = j
+            return out
+
+
+        class Step:
+            def __init__(self, number, source, word, **parts):
+                self.number, self.source, self.word = number, source, word
+                self.parts = parts
+                self.body, self.otherwise = [], []
+
+            def __getattr__(self, name):
+                parts = self.__dict__.get("parts", {})
+                if name in parts:
+                    return parts[name]
+                raise AttributeError(name)
+
+
+        def target(toks, number, word):
+            """THING: "Name", css "selector", either with in "Container" after it. Returns it and what's left."""
+            if not toks:
+                raise Mistake(number, f"{word} needs something to work on.", "Name it as it's written on the page: " + WORDS[word][2])
+            kind = "name"
+            if toks[0] == ("word", "css"):
+                kind = "css"
+                toks = toks[1:]
+                if not toks or toks[0][0] != "text":
+                    raise Mistake(number, "css needs a selector, in quotes.", f'{word} css ".price"')
+            if toks[0][0] != "text":
+                raise Mistake(number, f'{word} needs the thing\'s name in quotes: {toks[0][1]} isn\'t.', f'{word} "{toks[0][1]}"')
+            thing = {"kind": kind, "name": toks[0][1]}
+            toks = toks[1:]
+            if toks and toks[0] == ("word", "in"):
+                if len(toks) < 2 or toks[1][0] != "text":
+                    raise Mistake(number, "in needs the name of what it's in, in quotes.", f'{word} "Delete" in "my-old-key"')
+                thing["within"] = toks[1][1]
+                toks = toks[2:]
+            return thing, toks
+
+
+        def into(toks, number):
+            """The [into NAME] at the end of a line: the name, and what's left."""
+            if len(toks) >= 2 and toks[-2] == ("word", "into"):
+                name = toks[-1][1]
+                if toks[-1][0] != "word" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                    raise Mistake(number, f"into needs a name made of letters: {name} isn't one.", "read title into heading")
+                return name, toks[:-2]
+            return None, toks
+
+
+        def nothing_after(toks, number, word):
+            if toks:
+                raise Mistake(number, f"{word} doesn't take {' '.join(v for _, v in toks)}.", f"{word} takes {WORDS[word][0] or 'nothing'}: {WORDS[word][2]}")
+
+
+        def one_text(toks, number, word, what):
+            if len(toks) != 1:
+                raise Mistake(number, f"{word} takes {what}, as one text in quotes.", WORDS[word][2])
+            return toks[0][1]
+
+
+        def parse_line(number, source):
+            toks = tokens(source, number)
+            if not toks:
+                return None
+            kind, word = toks[0]
+            rest = toks[1:]
+            if kind != "word" or word.lower() not in WORDS:
+                near = difflib.get_close_matches(word.lower(), WORDS, n=1)
+                fix = f"Did you mean {near[0]}? " if near else ""
+                raise Mistake(number, f'Straw doesn\'t know "{word}".', fix + "The words: " + ", ".join(WORDS))
+            word = word.lower()
+            if word in ("open", "go"):
+                return Step(number, source, word, url=one_text(rest, number, word, "an address"))
+            if word == "tab":
+                return Step(number, source, word, text=one_text(rest, number, word, "part of the tab's address"))
+            if word in ("back", "forward", "reload", "else"):
+                nothing_after(rest, number, word)
+                return Step(number, source, word)
+            if word == "wait":
+                gone = bool(rest) and rest[0] == ("word", "gone")
+                if gone:
+                    rest = rest[1:]
+                if not rest:
+                    if gone:
+                        raise Mistake(number, "wait gone needs what's to go.", 'wait gone "Loading…"')
+                    return Step(number, source, word, thing=None, gone=False, seconds=WAIT_SECONDS)
+                thing, rest = target(rest, number, word)
+                seconds = WAIT_SECONDS
+                if rest:
+                    if len(rest) != 1 or not re.fullmatch(r"\d+(\.\d+)?", rest[0][1]):
+                        raise Mistake(number, f"wait takes a number of seconds after the thing, not {' '.join(v for _, v in rest)}.", 'wait "Results" 30')
+                    seconds = float(rest[0][1])
+                return Step(number, source, word, thing=thing, gone=gone, seconds=seconds)
+            if word in ("click", "hover", "check", "uncheck"):
+                thing, rest = target(rest, number, word)
+                nothing_after(rest, number, word)
+                return Step(number, source, word, thing=thing)
+            if word in ("type", "select"):
+                thing, rest = target(rest, number, word)
+                return Step(number, source, word, thing=thing, text=one_text(rest, number, word, "what to put in it" if word == "type" else "the option"))
+            if word == "press":
+                key = one_text(rest, number, word, "a key")
+                if key.lower() not in KEYS and len(key) != 1:
+                    raise Mistake(number, f"press doesn't know the key {key}.", "Keys: Enter, Tab, Escape, Space, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, or one character")
+                return Step(number, source, word, key=key)
+            if word == "scroll":
+                if len(rest) == 1 and rest[0][0] == "word" and rest[0][1].lower() in ("down", "up", "top", "bottom"):
+                    return Step(number, source, word, where=rest[0][1].lower(), thing=None)
+                thing, rest = target(rest, number, word)
+                nothing_after(rest, number, word)
+                return Step(number, source, word, where=None, thing=thing)
+            if word == "see":
+                no = bool(rest) and rest[0] == ("word", "no")
+                thing, rest = target(rest[1:] if no else rest, number, word)
+                nothing_after(rest, number, word)
+                return Step(number, source, word, thing=thing, no=no)
+            if word == "if":
+                if rest and rest[0] == ("word", "see"):
+                    rest = rest[1:]
+                no = bool(rest) and rest[0] == ("word", "no")
+                if no:
+                    rest = rest[1:]
+                thing, rest = target(rest, number, word)
+                nothing_after(rest, number, word)
+                return Step(number, source, word, thing=thing, no=no)
+            if word == "read":
+                name, rest = into(rest, number)
+                mode = "one"
+                if rest and rest[0][0] == "word" and rest[0][1] in ("all", "after"):
+                    mode, rest = rest[0][1], rest[1:]
+                if mode == "one" and len(rest) == 1 and rest[0][0] == "word" and rest[0][1] in ("title", "url", "page", "links"):
+                    return Step(number, source, word, mode=rest[0][1], thing=None, name=name)
+                thing, rest = target(rest, number, word)
+                nothing_after(rest, number, word)
+                return Step(number, source, word, mode=mode, thing=thing, name=name)
+            if word == "js":
+                name, rest = into(rest, number)
+                return Step(number, source, word, code=one_text(rest, number, word, "the JavaScript"), name=name)
+            if word in ("set", "ask"):
+                if len(rest) != 2 or rest[0][0] != "word" or rest[1][0] != "text" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", rest[0][1]):
+                    raise Mistake(number, f"{word} takes a name, then a text in quotes.", WORDS[word][2])
+                return Step(number, source, word, name=rest[0][1], text=rest[1][1])
+            if word in ("print", "confirm", "stop"):
+                if not rest or any(k != "text" for k, _ in rest):
+                    raise Mistake(number, f"{word} takes text in quotes.", WORDS[word][2])
+                return Step(number, source, word, text=" ".join(v for _, v in rest))
+            raise Mistake(number, f"{word} isn't finished.")  # every word above returns
+
+
+        def parse(text):
+            """The steps, with the lines under an if (and its else) inside it. Every mistake in the file is found here, before anything runs."""
+            lines = []
+            for number, raw in enumerate(text.splitlines(), 1):
+                if not raw.strip() or raw.lstrip().startswith("#"):
+                    continue
+                lead = raw[: len(raw) - len(raw.lstrip())]
+                if "\t" in lead:
+                    raise Mistake(number, "This line is indented with a tab.", "Indent with spaces (two a level).")
+                step = parse_line(number, raw.strip())
+                if step is not None:
+                    lines.append((len(lead), step))
+            steps, _ = block(lines, 0, 0)
+            return steps
+
+
+        def block(lines, i, indent):
+            """The steps at this indent, from line i on: them, and where the block ends."""
+            steps = []
+            while i < len(lines):
+                at, s = lines[i]
+                if at < indent:
+                    break
+                if at > indent:
+                    raise Mistake(s.number, "This line is indented more than the one above it, which isn't an if or an else.",
+                                  "Line it up with the line above (only the lines under an if or an else are indented).")
+                i += 1
+                if s.word == "else" and (not steps or steps[-1].word != "if" or steps[-1].has_else):
+                    raise Mistake(s.number, "This else has no if just above it, at the same indent.", "Put it right after the if's indented lines.")
+                if s.word in ("if", "else"):
+                    if i >= len(lines) or lines[i][0] <= at:
+                        raise Mistake(s.number, f"Nothing is indented under this {s.word}.", "Indent the lines it does by two spaces.")
+                    body, i = block(lines, i, lines[i][0])
+                    if s.word == "if":
+                        s.body, s.has_else = body, False
+                        steps.append(s)
+                    else:
+                        steps[-1].otherwise, steps[-1].has_else = body, True
+                    continue
+                steps.append(s)
+            return steps, i
+
+
+        def walk(steps):
+            for s in steps:
+                yield s
+                yield from walk(s.body)
+                yield from walk(s.otherwise)
+
+
+        NAMES = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*|\d+)(\|[^}]*)?\}")
+
+
+        def texts_of(step):
+            for key in ("url", "text", "code", "key"):
+                if key in step.parts:
+                    yield step.parts[key]
+            thing = step.parts.get("thing")
+            if thing:
+                yield thing["name"]
+                if "within" in thing:
+                    yield thing["within"]
+
+
+        def check(steps, inputs):
+            """Names used before anything gives them a value, and arguments no Input: line asks for, are mistakes too."""
+            known = set()
+
+            def go(steps):
+                for s in steps:
+                    for t in texts_of(s):
+                        for m in NAMES.finditer(t):
+                            name, default = m.group(1), m.group(2)
+                            if name.isdigit() or name == "args" or default is not None:
+                                continue
+                            if name not in known:
+                                raise Mistake(s.number, f"{{{name}}} has no value yet here.",
+                                              f'Give it one first (set {name} "…", ask {name} "…", read … into {name}), or a default: {{{name}|something}}')
+                    if s.word in ("set", "ask") or s.parts.get("name"):
+                        known.add(s.parts["name"])
+                    go(s.body)
+                    go(s.otherwise)
+
+            go(steps)
+            return steps
+
+
+        def declared_inputs(text):
+            """The # Input: lines at the top (what the app asks for before it runs): (prompt, optional)."""
+            found = []
+            for raw in text.splitlines()[:60]:
+                line = raw.strip()
+                if not line:
+                    continue
+                if not line.startswith("#"):
+                    break
+                m = re.match(r"#\s*Input( text)?\s*(\(optional\))?\s*:\s*(.+)", line, re.I)
+                if m and not m.group(1):
+                    found.append((m.group(3).strip(), bool(m.group(2))))
+            return found
+
+
+        # ─── the page side: one small library, sent with each step ──────────────────
+
+        PAGE = r"""
+        const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s:.…*⌘↩︎]+$/u, '').trim();
+        const ACTIVE = 'a[href],button,input,select,textarea,summary,label,[role=button],[role=link],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],[role=checkbox],[role=radio],[role=switch],[role=combobox],[role=textbox],[role=searchbox],[contenteditable=""],[contenteditable=true],[onclick],[tabindex]:not([tabindex="-1"])';
+        const FIELD = 'input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=reset]):not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable=""],[contenteditable=true],[role=textbox],[role=searchbox],[role=combobox]';
+        function shown(el) {
+          if (!(el instanceof Element) || !el.getClientRects().length) return false;
+          const b = el.getBoundingClientRect();
+          if (b.width === 0 && b.height === 0) return false;
+          const cs = getComputedStyle(el);
+          if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+          return !el.closest('[aria-hidden="true"]');
+        }
+        function textOf(el) { return (el.innerText || el.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim(); }
+        function namesOf(el) {
+          const out = [];
+          const push = (v) => { if (v) out.push(v); };
+          push(el.getAttribute('aria-label'));
+          const by = el.getAttribute('aria-labelledby');
+          if (by) push(by.split(/\s+/).map((id) => { const e = document.getElementById(id); return e ? textOf(e) : ''; }).join(' '));
+          if (el.labels) for (const l of el.labels) push(textOf(l));
+          for (const a of ['placeholder', 'title', 'alt']) push(el.getAttribute(a));
+          if (el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes(el.type)) push(el.value);
+          const t = textOf(el);
+          if (t && t.length <= 300) push(t);
+          return out.map((v) => v.replace(/\s+/g, ' ').trim()).filter(Boolean);
+        }
+        function rung(names, want) {
+          let best = 0;
+          for (const raw of names) {
+            const n = norm(raw);
+            if (!n) continue;
+            if (n === want) return 3;
+            if (n.startsWith(want)) best = Math.max(best, 2);
+            else if (want.length >= 3 && n.includes(want)) best = Math.max(best, 1);
+          }
+          return best;
+        }
+        // What a click on it reaches: the button or link it's in; a label is its field.
+        function active(el) {
+          const a = el.closest(ACTIVE) || el;
+          return a.tagName === 'LABEL' && a.control ? a.control : a;
+        }
+        // Everything on the page called `name` (or matching the selector), the best-named first: exact, then
+        // starting with it, then having it in it. Buttons, links and fields before the words around them.
+        function candidates(thing, root) {
+          root = root || document;
+          if (thing.kind === 'css') {
+            let list;
+            try { list = [...root.querySelectorAll(thing.name)]; } catch (e) { throw new Error('the selector ' + thing.name + " isn't one: " + e.message); }
+            return list.filter(shown);
+          }
+          const want = norm(thing.name);
+          const scored = new Map();
+          const add = (el, r) => { if (r > 0 && shown(el) && (scored.get(el) || 0) < r) scored.set(el, r); };
+          for (const el of root.querySelectorAll(ACTIVE)) add(el, rung(namesOf(el), want));
+          const walker = document.createTreeWalker(root === document ? document.body || document.documentElement : root, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            if (!norm(n.nodeValue).includes(want.slice(0, 12)) && !norm(n.parentElement && n.parentElement.textContent).includes(want.slice(0, 12))) continue;
+            const el = n.parentElement;
+            if (el) add(el, rung(namesOf(el), want));
+          }
+          for (const el of root.querySelectorAll('[placeholder],[aria-label],[title],img[alt]')) add(el, rung(namesOf(el), want));
+          if (!scored.size) return [];
+          const top = Math.max(...scored.values());
+          let found = [...scored.entries()].filter(([, r]) => r === top).map(([el]) => el);
+          // The deepest of nested matches (a <span> in a <button> both called Save is one thing).
+          found = found.filter((el) => !found.some((o) => o !== el && el.contains(o) && active(o) === active(el)));
+          const actives = found.filter((el) => el.matches(ACTIVE) || el.closest(ACTIVE));
+          return actives.length ? actives : found;
+        }
+        function find(thing) {
+          let found;
+          if (thing.within) {
+            const holders = candidates({ kind: 'name', name: thing.within });
+            found = [];
+            for (const h of holders) {
+              for (let box = h; box && box !== document.documentElement; box = box.parentElement) {
+                const inside = candidates(thing, box).filter((el) => box.contains(el));
+                if (inside.length) { found.push(...inside); break; }
+              }
+            }
+          } else {
+            found = candidates(thing);
+          }
+          return [...new Set(found)];
+        }
+        function where(el) {
+          const box = el.closest('tr,li,[role=row],[role=listitem],article,section,form,fieldset,[role=dialog],dialog,nav,header,footer');
+          const own = textOf(el);
+          let t = box ? textOf(box).replace(own, '').replace(/\s+/g, ' ').trim() : '';
+          return t.slice(0, 60);
+        }
+        function nearby() {
+          const seen = new Set();
+          for (const el of document.querySelectorAll(ACTIVE + ',h1,h2,h3,h4,th,dt,legend')) {
+            if (!shown(el)) continue;
+            const n = namesOf(el)[0];
+            if (n && n.length <= 80) seen.add(n);
+            if (seen.size >= 400) break;
+          }
+          return [...seen];
+        }
+        function missing(thing) { return { ok: false, why: 'not_found', near: thing.kind === 'css' ? [] : nearby() }; }
+        function one(thing) {
+          const found = find(thing);
+          if (!found.length) return [null, missing(thing)];
+          const distinct = [...new Set(found.map(active))];
+          if (distinct.length > 1) return [null, { ok: false, why: 'many', count: distinct.length, where: distinct.slice(0, 5).map(where) }];
+          return [distinct[0], null];
+        }
+        function fieldOf(el) {
+          if (el.matches(FIELD)) return el;
+          if (el.tagName === 'LABEL' && el.control) return el.control;
+          const inside = [...el.querySelectorAll(FIELD)].find(shown);
+          if (inside) return inside;
+          // The field beside its words (<div><span>Email</span><input></div>): in the box around them, when
+          // that box has just the one field.
+          for (let box = el.parentElement, k = 0; box && k < 3; box = box.parentElement, k++) {
+            const fields = [...box.querySelectorAll(FIELD)].filter(shown);
+            if (fields.length > 1) break;
+            if (fields.length === 1) return fields[0];
+          }
+          return null;
+        }
+        function pointer(el, types) {
+          const b = el.getBoundingClientRect();
+          const at = { bubbles: true, cancelable: true, view: window, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2 };
+          for (const t of types) {
+            const E = t.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+            el.dispatchEvent(new E(t, Object.assign({ pointerType: 'mouse', isPrimary: true }, at)));
+          }
+        }
+        function put(el, text) {
+          el.focus();
+          if (el.isContentEditable) {
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, text);
+            return;
+          }
+          const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, text);
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        function valueOf(el) {
+          if (el.tagName === 'SELECT') return el.selectedOptions[0] ? textOf(el.selectedOptions[0]) : '';
+          if (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)) return el.checked ? 'checked' : 'unchecked';
+          if ('value' in el && el.matches('input,textarea')) return el.value;
+          return textOf(el);
+        }
+        function besideOf(el) {
+          if (el.tagName === 'LABEL' && el.control) return valueOf(el.control);
+          const dd = el.closest('dt');
+          if (dd && dd.nextElementSibling) return textOf(dd.nextElementSibling);
+          const cell = el.closest('th,td');
+          if (cell && cell.nextElementSibling) return textOf(cell.nextElementSibling);
+          for (let e = el; e && e !== document.body; e = e.parentElement) {
+            if (e.nextElementSibling && textOf(e.nextElementSibling)) return textOf(e.nextElementSibling);
+          }
+          return '';
+        }
+        const STATE = 'input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch],[role=menuitemcheckbox]';
+        function isOn(el) { return el.matches('input') ? el.checked : el.getAttribute('aria-checked') === 'true'; }
+        const DO = {
+          count(p) { return { ok: true, count: find(p.thing).length }; },
+          click(p) {
+            const [el, no] = one(p.thing); if (no) return no;
+            el.scrollIntoView({ block: 'center', inline: 'center' });
+            pointer(el, ['pointerover', 'pointerenter', 'mouseover', 'pointerdown', 'mousedown']);
+            if (el.focus) el.focus();
+            pointer(el, ['pointerup', 'mouseup']);
+            el.click();
+            return { ok: true, what: namesOf(el)[0] || el.tagName.toLowerCase() };
+          },
+          hover(p) {
+            const [el, no] = one(p.thing); if (no) return no;
+            el.scrollIntoView({ block: 'center' });
+            pointer(el, ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']);
+            return { ok: true };
+          },
+          type(p) {
+            const [el, no] = one(p.thing); if (no) return no;
+            const f = fieldOf(el);
+            if (!f) return { ok: false, why: 'not_field' };
+            f.scrollIntoView({ block: 'center' });
+            put(f, p.text);
+            return { ok: true, now: valueOf(f) };
+          },
+          select(p) {
+            const [el, no] = one(p.thing); if (no) return no;
+            const s = el.tagName === 'SELECT' ? el : fieldOf(el);
+            if (!s || s.tagName !== 'SELECT') return { ok: false, why: 'not_select' };
+            const want = norm(p.text);
+            const opts = [...s.options];
+            const o = opts.find((x) => norm(x.text) === want) || opts.find((x) => norm(x.text).startsWith(want)) || opts.find((x) => norm(x.value) === want);
+            if (!o) return { ok: false, why: 'no_option', options: opts.map((x) => textOf(x)).slice(0, 30) };
+            s.value = o.value;
+            s.dispatchEvent(new Event('input', { bubbles: true }));
+            s.dispatchEvent(new Event('change', { bubbles: true }));
+            return { ok: true, now: textOf(o) };
+          },
+          check(p) {
+            const [el, no] = one(p.thing); if (no) return no;
+            const box = el.matches(STATE) ? el : (el.tagName === 'LABEL' && el.control) || el.querySelector(STATE) || el;
+            if (isOn(box) !== p.on) { box.click(); }
+            return { ok: true, now: isOn(box) ? 'on' : 'off' };
+          },
+          scroll(p) {
+            if (p.where) {
+              const h = innerHeight * 0.8;
+              if (p.where === 'down') scrollBy(0, h); else if (p.where === 'up') scrollBy(0, -h);
+              else if (p.where === 'top') scrollTo(0, 0); else scrollTo(0, document.documentElement.scrollHeight);
+              return { ok: true };
+            }
+            const found = find(p.thing);
+            if (!found.length) return missing(p.thing);
+            found[0].scrollIntoView({ block: 'center' });
+            return { ok: true };
+          },
+          key(p) {
+            const el = document.activeElement || document.body;
+            const opts = { key: p.key, code: p.code, keyCode: p.keyCode, which: p.keyCode, bubbles: true, cancelable: true };
+            const down = el.dispatchEvent(new KeyboardEvent('keydown', opts));
+            el.dispatchEvent(new KeyboardEvent('keypress', opts));
+            if (down && p.key.length === 1 && el.matches && el.matches('input,textarea')) put(el, el.value + p.key);
+            if (down && p.key === 'Backspace' && el.matches && el.matches('input,textarea')) put(el, el.value.slice(0, -1));
+            el.dispatchEvent(new KeyboardEvent('keyup', opts));
+            if (down && p.key === 'Enter' && el.form && el.tagName === 'INPUT') {
+              if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit();
+            }
+            if (down && p.key === 'Tab') {
+              const all = [...document.querySelectorAll(ACTIVE)].filter((e) => shown(e) && !e.disabled);
+              const next = all[all.indexOf(el) + 1];
+              if (next) next.focus();
+            }
+            return { ok: true, on: el.tagName ? el.tagName.toLowerCase() : 'page' };
+          },
+          read(p) {
+            if (p.mode === 'title') return { ok: true, text: document.title };
+            if (p.mode === 'url') return { ok: true, text: location.href };
+            if (p.mode === 'page') return { ok: true, text: textOf(document.body) };
+            if (p.mode === 'links') {
+              const rows = [...document.querySelectorAll('a[href]')].filter(shown).map((a) => (textOf(a).replace(/\s+/g, ' ') || a.href) + '\t' + a.href);
+              return { ok: true, text: [...new Set(rows)].join('\n') };
+            }
+            const found = find(p.thing);
+            if (!found.length) return missing(p.thing);
+            if (p.mode === 'all') return { ok: true, text: found.map(valueOf).filter((t) => t !== '').join('\n'), count: found.length };
+            if (p.mode === 'after') return { ok: true, text: besideOf(found[0]) };
+            const el = found[0];
+            return { ok: true, text: valueOf(el.tagName === 'LABEL' && el.control ? el.control : el) };
+          },
+          history(p) {
+            if (p.go === 'to') location.assign(p.url);
+            else if (p.go === 'back') history.back(); else if (p.go === 'forward') history.forward(); else location.reload();
+            return { ok: true };
+          },
+        };
+        """
+
+
+        class Browser:
+            """The tab in front of Chrome, through browser.sh (which says what to switch on when Chrome won't be driven)."""
+
+            def __init__(self, helper):
+                self.helper = helper
+
+            def sh(self, *args):
+                r = subprocess.run([self.helper, *args], capture_output=True, text=True)
+                if r.returncode != 0:
+                    raise Stop((r.stderr or r.stdout).strip() or f"browser.sh {args[0]} failed ({r.returncode})")
+                return r.stdout.rstrip("\n")
+
+            def do(self, op, **p):
+                code = PAGE + "\nconst P = " + json.dumps(p) + ";\nreturn JSON.stringify(DO." + op + "(P));"
+                out = self.sh("js", code)
+                try:
+                    return json.loads(out)
+                except ValueError:
+                    raise Stop("The page gave back something that isn't an answer: " + out[:200])
+
+            def settle(self):
+                """After something that may load a page: a moment for it to start, then until it's loaded."""
+                time.sleep(0.4)
+                self.sh("wait")
+
+
+        class Run:
+            def __init__(self, steps, args, browser, inputs, path):
+                self.steps, self.args, self.browser, self.inputs, self.path = steps, args, browser, inputs, path
+                self.values = {}
+
+            def say(self, text):
+                print(text, file=sys.stderr, flush=True)
+
+            def out(self, text):
+                print(text, flush=True)
+
+            def address(self, url, number):
+                """An address with its {values} in: after the ?, each made safe for it (spaces, &, #…)."""
+                head, mark, query = url.partition("?")
+                return self.fill(head, number) + mark + self.fill(query, number, urllib.parse.quote_plus)
+
+            def fill(self, text, number, safe=lambda v: v):
+                def one(m):
+                    return safe(value(m))
+
+                def value(m):
+                    name, default = m.group(1), m.group(2)
+                    if name == "args":
+                        return " ".join(self.args)
+                    if name.isdigit():
+                        k = int(name)
+                        if 1 <= k <= len(self.args) and self.args[k - 1] != "":
+                            return self.args[k - 1]
+                        if default is not None:
+                            return default[1:]
+                        prompt, optional = self.inputs[k - 1] if 0 < k <= len(self.inputs) else (None, False)
+                        if optional:
+                            return ""
+                        raise Stop(f"Line {number} needs {{{k}}}" + (f" ({prompt})" if prompt else "") + ": run it with " +
+                                   ("an argument" if k == 1 else f"{k} arguments") + ".")
+                    if name in self.values and self.values[name] != "":
+                        return self.values[name]
+                    if default is not None:
+                        return default[1:]
+                    return self.values.get(name, "")
+                return NAMES.sub(one, text)
+
+            def thing(self, step):
+                t = dict(step.thing)
+                t["name"] = self.fill(t["name"], step.number)
+                if "within" in t:
+                    t["within"] = self.fill(t["within"], step.number)
+                return t
+
+            def shown(self, thing):
+                return f'css "{thing["name"]}"' if thing["kind"] == "css" else f'"{thing["name"]}"' + (f' in "{thing["within"]}"' if "within" in thing else "")
+
+            def refuse(self, step, answer, thing=None):
+                why = answer.get("why")
+                name = self.shown(thing) if thing else ""
+                if why == "not_found":
+                    names = {n.lower(): n for n in answer.get("near", [])}
+                    near = [names[n] for n in difflib.get_close_matches((thing or {}).get("name", "").lower(), list(names), n=4, cutoff=0.45)]
+                    fix = ("Near it on the page: " + ", ".join(f'"{n}"' for n in near) + ".") if near else \
+                        "Nothing like it is on the page either: is it the page you think? (read title, read url)"
+                    called = "matches" if thing and thing["kind"] == "css" else "is called"
+                    raise Stop(f"Nothing on the page {called} {name}. {fix}")
+                if why == "many":
+                    where = [w for w in answer.get("where", []) if w]
+                    hint = (f' Say which, by what\'s beside it: {step.word} {name} in "{where[0]}"' if where else
+                            f' Say which, by what it\'s in: {step.word} {name} in "…"')
+                    raise Stop(f"{answer.get('count')} things on the page are called {name}.{hint}")
+                if why == "not_field":
+                    raise Stop(f"{name} isn't a field to type in, and there's no field beside it.")
+                if why == "not_select":
+                    raise Stop(f"{name} isn't a menu to pick from (a <select>): click it, then click the option.")
+                if why == "no_option":
+                    raise Stop(f"{name} has no option \"{self.fill(step.text, step.number)}\". Its options: " + ", ".join(answer.get("options", [])))
+                raise Stop(answer.get("error") or f"It didn't work ({answer})")
+
+            def find_count(self, thing):
+                return self.browser.do("count", thing=thing).get("count", 0)
+
+            def wait_for(self, thing, gone, seconds):
+                end = time.time() + seconds
+                while True:
+                    try:
+                        n = self.find_count(thing)
+                    except Stop:
+                        n = None  # between two pages: the next look will see the new one
+                    if n is not None and (n == 0) == gone:
+                        return True
+                    if time.time() >= end:
+                        return False
+                    time.sleep(0.5)
+
+            def dialog(self, script):
+                # In front of everything, so it's seen: the question is what the run waits on.
+                r = subprocess.run(["osascript", "-e", "activate", "-e", script], capture_output=True, text=True)
+                return r.returncode, r.stdout.strip()
+
+            def keep(self, step, text):
+                if step.parts.get("name"):
+                    self.values[step.name] = text
+                else:
+                    self.out(text)
+
+            def go(self, steps):
+                for s in steps:
+                    self.step(s)
+
+            def step(self, s):
+                w, b = s.word, self.browser
+                self.say(f"→ {self.fill(s.source, s.number)}")
+                if w in ("open", "go"):
+                    url = self.address(s.url, s.number)
+                    if w == "open":
+                        self.say("  " + b.sh("open", url))
+                    else:
+                        b.do("history", go="to", url=url if "://" in url or url.startswith("about:") else "https://" + url)
+                        b.settle()
+                        self.say("  " + b.do("read", mode="title").get("text", ""))
+                elif w == "tab":
+                    self.say("  " + b.sh("focus", self.fill(s.text, s.number)))
+                elif w in ("back", "forward", "reload"):
+                    b.do("history", go=w)
+                    b.settle()
+                elif w == "wait":
+                    if s.thing is None:
+                        b.sh("wait")
+                    else:
+                        thing = self.thing(s)
+                        took = f"{s.seconds:g} second" + ("" if s.seconds == 1 else "s")
+                        if not self.wait_for(thing, s.gone, s.seconds):
+                            raise Stop(f"{self.shown(thing)} was still there after {took}." if s.gone
+                                       else f"{self.shown(thing)} didn't show in {took}. " + self.near_hint(thing))
+                elif w in ("click", "hover"):
+                    thing = self.thing(s)
+                    a = b.do(w, thing=thing)
+                    if not a.get("ok"):
+                        self.refuse(s, a, thing)
+                    if w == "click":
+                        b.settle()
+                elif w in ("type", "select"):
+                    thing = self.thing(s)
+                    a = b.do(w, thing=thing, text=self.fill(s.text, s.number))
+                    if not a.get("ok"):
+                        self.refuse(s, a, thing)
+                elif w == "press":
+                    key, code = KEYS.get(s.key.lower(), (s.key, ord(s.key[0].upper())))
+                    b.do("key", key=key, code=key if len(key) > 1 else "Key" + key.upper(), keyCode=code)
+                    if key == "Enter":
+                        b.settle()
+                elif w in ("check", "uncheck"):
+                    thing = self.thing(s)
+                    a = b.do("check", thing=thing, on=w == "check")
+                    if not a.get("ok"):
+                        self.refuse(s, a, thing)
+                elif w == "scroll":
+                    a = b.do("scroll", where=s.where, thing=self.thing(s) if s.thing else None)
+                    if not a.get("ok"):
+                        self.refuse(s, a, self.thing(s))
+                elif w == "see":
+                    thing = self.thing(s)
+                    n = self.find_count(thing)
+                    if s.no and n:
+                        raise Stop(f"{self.shown(thing)} is on the page, and the script says it shouldn't be.")
+                    if not s.no and not n:
+                        raise Stop(f"{self.shown(thing)} isn't on the page. " + self.near_hint(thing))
+                elif w == "if":
+                    thing = self.thing(s)
+                    there = self.find_count(thing) > 0
+                    if there != s.no:
+                        self.say("  yes")
+                        self.go(s.body)
+                    else:
+                        self.say("  no")
+                        self.go(s.otherwise)
+                elif w == "read":
+                    thing = self.thing(s) if s.thing else None
+                    a = b.do("read", mode=s.mode, thing=thing)
+                    if not a.get("ok"):
+                        self.refuse(s, a, thing)
+                    self.keep(s, a.get("text", ""))
+                elif w == "js":
+                    self.keep(s, b.sh("js", self.fill(s.code, s.number)))
+                elif w == "set":
+                    self.values[s.name] = self.fill(s.text, s.number)
+                elif w == "print":
+                    self.out(self.fill(s.text, s.number))
+                elif w == "ask":
+                    q = self.fill(s.text, s.number)
+                    code, answer = self.dialog(f'text returned of (display dialog {applescript(q)} default answer "" '
+                                               f'with title {applescript(self.title())} buttons {{"Stop", "Go On"}} default button "Go On" cancel button "Stop")')
+                    if code != 0:
+                        raise Stop(f"Stopped: you chose Stop when asked {q}")
+                    self.values[s.name] = answer
+                elif w == "confirm":
+                    q = self.fill(s.text, s.number)
+                    # Stop is the default: Return can't say yes for you.
+                    code, _ = self.dialog(f'display dialog {applescript(q)} with title {applescript(self.title())} '
+                                          f'buttons {{"Stop", "Go On"}} default button "Stop" cancel button "Stop" with icon caution')
+                    if code != 0:
+                        raise Stop(f"Stopped: you chose Stop at {q}")
+                elif w == "stop":
+                    raise Stop(self.fill(s.text, s.number))
+
+            def near_hint(self, thing):
+                if thing["kind"] == "css":
+                    return "Is it the page you think? (read url)"
+                a = self.browser.do("read", mode="title")
+                return f"The page in front is “{a.get('text', '')}”."
+
+            def title(self):
+                return os.path.splitext(os.path.basename(self.path))[0] + " (Straw)"
+
+
+        def applescript(text):
+            return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+        def plan(steps, depth=0):
+            """What it would do, a line a step (--check)."""
+            for s in steps:
+                print("  " * depth + f"{s.number:>3}  {s.source}")
+                plan(s.body, depth + 1)
+                if s.otherwise:
+                    print("  " * depth + "     else")
+                    plan(s.otherwise, depth + 1)
+
+
+        def words():
+            print("Straw: Chrome driven by what's on the page, one plain line at a time.")
+            print("Run a .straw file: straw.py FILE [words…]  (they're {1}, {2}…; {args} is all of them)")
+            print("A THING is its name in quotes, as written on the page (\"Sign in\"), or css \"selector\";")
+            print("either can be narrowed down with in \"what it's in\".\n")
+            for word, (takes, does, example) in WORDS.items():
+                print(f"  {word} {takes}".rstrip())
+                print(f"      {does}")
+                print(f"      e.g. {example}")
+
+
+        def main(argv):
+            check_only = bool(argv) and argv[0] == "--check"
+            if check_only:
+                argv = argv[1:]
+            if not argv:
+                words()
+                return 0
+            path, args = argv[0], argv[1:]
+            try:
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+            except OSError as e:
+                print(f"Couldn't read {path}: {e.strerror}.", file=sys.stderr)
+                return 1
+            name = os.path.basename(path)
+            inputs = declared_inputs(text)
+            try:
+                steps = check(parse(text), inputs)
+            except Mistake as m:
+                lines = text.splitlines()
+                print(f"{name}, line {m.line}: {m.message}", file=sys.stderr)
+                if 0 < m.line <= len(lines):
+                    print(f"  {lines[m.line - 1].strip()}", file=sys.stderr)
+                if m.fix:
+                    print(f"Fix: {m.fix}", file=sys.stderr)
+                print("Nothing ran.", file=sys.stderr)
+                return 2
+            if check_only:
+                count = sum(1 for _ in walk(steps))
+                print(f"✅ {name}: {count} step{'s' if count != 1 else ''}, no mistakes. It would:")
+                plan(steps)
+                return 0
+            helper = os.environ.get("STRAW_BROWSER") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser.sh")
+            if not os.path.exists(helper):
+                print("Straw drives Chrome through browser.sh, and it isn't beside straw.py.", file=sys.stderr)
+                print("Fix: the Browser grid → Add the Examples puts it back.", file=sys.stderr)
+                return 1
+            run = Run(steps, args, Browser(helper), inputs, path)
+            try:
+                run.go(steps)
+            except Stop as e:
+                print(f"❌ {e}", file=sys.stderr)
+                return 1
+            except KeyboardInterrupt:
+                return 130
+            run.say("✅ Done.")
+            return 0
+
+
+        if __name__ == "__main__":
+            sys.exit(main(sys.argv[1:]))
+        """# + "\n"),
+        ("browser/hacker-news.straw", #"""
+        # The top stories on Hacker News right now, a line each
+        #
+        # Straw: a line is a word and what it works on (open, wait, read…); see the Straw guide.
+        open news.ycombinator.com
+        wait css ".titleline"
+        read all css ".titleline > a"
+        """# + "\n"),
+        ("browser/wikipedia-article.straw", #"""
+        # Looks something up on Wikipedia in Chrome: the article's title and its first paragraph
+        #
+        # Input: What to look up
+        # Why: It's searched for on Wikipedia as typed; the best match is read
+        open "en.wikipedia.org/w/index.php?search={1}&go=Go"
+        wait css "#firstHeading"
+        # No article by that exact name: Wikipedia lists what it found, the best match first.
+        if see css ".mw-search-results-container"
+          click css ".mw-search-result-heading a[data-serp-pos='0']"
+          wait gone css ".mw-search-results-container"
+        read css "#firstHeading"
+        read css ".mw-parser-output > p:not(.mw-empty-elt), .mw-parser-output > section > p:not(.mw-empty-elt)"
+        """# + "\n"),
+        ("browser/page-outline.straw", #"""
+        # The page in front of Chrome, in outline: its title, its address and its headings
+        read title
+        read url
+        read all css "h1, h2, h3"
+        """# + "\n"),
+        ("browser/dismiss-cookies.straw", #"""
+        # Clicks away the cookie banner on the page in front, if it has one (Reject all first, else Accept all, Got it, OK)
+        set clicked "nothing: no cookie banner found"
+        if see "Reject all"
+          click "Reject all"
+          set clicked "Reject all"
+        if see "Accept all"
+          click "Accept all"
+          set clicked "Accept all"
+        if see "Got it"
+          click "Got it"
+          set clicked "Got it"
+        print "Cookie banner: clicked {clicked}"
+        """# + "\n"),
+        ("browser/fill-search.straw", #"""
+        # Searches the page in front with its own search box: types the words, presses Enter, gives back the new page's title
+        #
+        # Input: What to search for
+        # Why: It's typed into the search box of the page in front of Chrome, as is
+        # Input (optional): The search box's name, as written on the page (Search unless set)
+        type "{2|Search}" "{1}"
+        press Enter
+        wait
+        read title
+        """# + "\n"),
+        ("browser/copy-link.sh", #"""
+        #!/bin/bash
+        # Copies the page in front of Chrome as a link: Markdown [title](address) unless you ask for plain, html or the address alone
+        #
+        # Input (optional): markdown, plain, html or url (markdown unless set)
+        set -uo pipefail
+
+        here="$(cd "$(dirname "$0")" && pwd)"
+        title=$("$here/browser.sh" title) || exit 1
+        url=$("$here/browser.sh" url) || exit 1
+        case "${1:-markdown}" in
+          markdown|md) link="[$title]($url)" ;;
+          plain|text) link="$title — $url" ;;
+          html) link="<a href=\"$url\">$title</a>" ;;
+          url|address) link="$url" ;;
+          *) echo "copy-link markdown, plain, html or url" >&2; exit 1 ;;
+        esac
+        printf '%s' "$link" | pbcopy
+        echo "Copied: $link"
+        """# + "\n"),
+        ("browser/archive-page.sh", #"""
+        #!/bin/bash
+        # Opens the page in front of Chrome (or an address you give) in the Wayback Machine: its saved copies, or --save to keep one now
+        #
+        # Input (optional): An address (the page in front unless set)
+        set -uo pipefail
+
+        here="$(cd "$(dirname "$0")" && pwd)"
+        save=0
+        if [ "${1:-}" = "--save" ]; then save=1; shift; fi
+        url="${1:-}"
+        if [ -z "$url" ]; then url=$("$here/browser.sh" url) || exit 1; fi
+        if [ "$save" = 1 ]; then
+          "$here/browser.sh" open "https://web.archive.org/save/$url" >/dev/null || exit 1
+          echo "Asked the Wayback Machine to save $url (its page in Chrome says when it's done)."
+        else
+          "$here/browser.sh" open "https://web.archive.org/web/*/$url" >/dev/null || exit 1
+          echo "The Wayback Machine's copies of $url are open in Chrome."
+        fi
+        """# + "\n"),
+        ("browser/find-tab.sh", #"""
+        #!/bin/bash
+        # Finds the Chrome tab whose title or address has your words in it, and brings it to the front (the others that match are listed)
+        #
+        # Input: Words in the tab's title or address
+        set -uo pipefail
+
+        here="$(cd "$(dirname "$0")" && pwd)"
+        want="$*"
+        if [ -z "$want" ]; then echo "Which tab? find-tab github, find-tab inbox" >&2; exit 1; fi
+        tabs=$("$here/browser.sh" tabs --all) || exit 1
+        matches=$(printf '%s\n' "$tabs" | grep -iF -- "$want" || true)
+        if [ -z "$matches" ]; then
+          echo "No tab has \"$want\" in its title or address ($(printf '%s\n' "$tabs" | grep -c . ) tabs open)." >&2
+          exit 1
+        fi
+        first_url=$(printf '%s\n' "$matches" | head -1 | cut -f2)
+        title=$("$here/browser.sh" focus "$first_url") || exit 1
+        echo "In front: $title"
+        others=$(printf '%s\n' "$matches" | tail -n +2 | cut -f1)
+        if [ -n "$others" ]; then
+          echo "Also matching:"
+          printf '%s\n' "$others" | sed 's/^/  /'
+        fi
+        """# + "\n"),
     ]
 
     /// Flows that use the utilities and the browser scripts (Google, the weather, the news, cloud
@@ -3363,6 +4754,61 @@ extension Examples {
 
         notify left
         print left
+        """# + "\n"),
+        ("hn-briefing.flow", #"""
+        // The top five stories on Hacker News, read in Chrome by a Straw script, with the first said out loud
+        let stories = run "hacker-news" [] |> lines |> filter (fun s -> trim s <> "") |> take 5
+
+        if isEmpty stories then
+            fail "Hacker News gave no stories: is Chrome open and allowed to run JavaScript? (run browser.sh to check)"
+        attempt "speak" [$"Top of Hacker News: {first stories}"] |> ignore
+        showResult (join "\n" stories)
+        """# + "\n"),
+        ("network-check.flow", #"""
+        // Is the internet all right? This Mac on its network, its address on the internet, and how fast it is, in one go
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "network" [])
+                (fun () -> attempt "public-ip" [])
+                (fun () -> attempt "speed-test" []) ]
+            |> map get
+        let part n = found |> skip n |> first
+
+        if contains "❌" (part 0) then
+            notify $"Network trouble: {part 0 |> lines |> last}"
+        showResult $"On the network\n{part 0}\n\nOn the internet\n{part 1}\n\nSpeed\n{part 2}"
+        """# + "\n"),
+        ("dev-check.flow", #"""
+        // Before you stop for the day: your git repositories with work not committed or pushed, and what's still listening on a port
+        let get r = if r.ok then r.out else $"(couldn't get it: {r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "git-status-all" args)
+                (fun () -> attempt "port-check" []) ]
+            |> map get
+        let part n = found |> skip n |> first
+
+        showResult $"Git\n{part 0}\n\nListening\n{part 1}"
+        """# + "\n"),
+        ("presentation-mode.flow", #"""
+        // Getting ready to present: keeps the Mac awake for an hour (or as long as you say), mutes it, and says when it's set
+        //
+        // Input (optional): How many minutes (60 unless set)
+        let minutes = if isEmpty args then "60" else first args
+
+        confirmBecause $"Keep the Mac awake for {minutes} minutes and mute it?" "So it doesn't sleep or ping while you present; keep-awake stop and volume 50 undo it"
+        let awake = run "keep-awake" [minutes]
+        run "volume" ["mute"] |> ignore
+        notify $"Ready to present: {awake}"
+        print awake
+        """# + "\n"),
+        ("clean-read.flow", #"""
+        // Gets the page in front of Chrome ready to read: clicks away its cookie banner, then gives back its outline (Straw scripts, both)
+        let cookies = run "dismiss-cookies" []
+        let outline = run "page-outline" []
+
+        showResult $"{cookies}\n\n{outline}"
         """# + "\n"),
     ]
 

@@ -341,6 +341,10 @@ final class CautionTests: XCTestCase {
         // Comments, and things that only look alike, don't count.
         XCTAssertEqual(Caution.dangers(in: "# rm -rf / would be bad\necho firmware\nls -rf\nterraform plan"), [])
         XCTAssertEqual(Caution.dangers(in: "git push origin main\nrm file.txt"), [])
+        // A Straw script's click on a button that can't be taken back; one that can is fine.
+        XCTAssertEqual(Caution.dangers(in: "open mail.example.com\nclick \"Send\""), ["clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"])
+        XCTAssertEqual(Caution.dangers(in: "  click \"Delete\" in \"old-key\""), ["clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"])
+        XCTAssertEqual(Caution.dangers(in: "click \"More\"\nclick \"Sender settings\"\nread \"Delete\""), [])
         for (_, source) in Examples.allScripts + Examples.flows + Examples.toolFlows { XCTAssertEqual(Caution.dangers(in: source), [], source) }
     }
 
@@ -352,7 +356,13 @@ final class CautionTests: XCTestCase {
         XCTAssertTrue(Caution.asksForInput("answer = gets.chomp"))
         XCTAssertFalse(Caution.asksForInput("text = sys.stdin.read()\nprint(open(p).read())"))
         XCTAssertFalse(Caution.asksForInput("# read -p in a comment\necho hi"))
-        for (_, source) in Examples.allScripts { XCTAssertFalse(Caution.asksForInput(source), source) }
+        XCTAssertFalse(Caution.asksForInput("print('Is it the page? (read url)')", language: .python), "read is the shell's only")
+        XCTAssertTrue(Caution.asksForInput("read -r reply", language: .bash))
+        XCTAssertFalse(Caution.asksForInput("read title\nread all css \"h2\"", language: .straw))
+        for (id, source) in Examples.allScripts {
+            let language = ScriptLanguage.detect(fileName: id, contents: source)
+            XCTAssertFalse(Caution.asksForInput(source, language: language), source)
+        }
     }
 
     func testAskSettingIsKeptAndOptional() throws {

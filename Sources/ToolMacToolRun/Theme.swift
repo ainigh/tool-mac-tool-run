@@ -80,6 +80,7 @@ enum Theme {
         case .swift: Color(red: 0.90, green: 0.40, blue: 0.20)
         case .go: Color(red: 0.10, green: 0.55, blue: 0.65)
         case .applescript: Color(red: 0.45, green: 0.45, blue: 0.50)
+        case .straw: Color(red: 0.62, green: 0.48, blue: 0.12)
         default: Color(red: 0.40, green: 0.35, blue: 0.55)
         }
     }

@@ -33,8 +33,10 @@ rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINDIR/$NAME" "$APP/Contents/MacOS/$NAME"
 # The flow command rides along, for the terminal (install.sh links it into ~/.local/bin).
 cp "$BINDIR/flow" "$APP/Contents/MacOS/flow"
-# The guide the app shows (one file: the same docs/FLOW-GUIDE.md as in the repository).
+# The guides the app shows (each one file: the same docs/FLOW-GUIDE.md and docs/STRAW-GUIDE.md as in
+# the repository).
 cp docs/FLOW-GUIDE.md "$APP/Contents/Resources/FLOW-GUIDE.md"
+cp docs/STRAW-GUIDE.md "$APP/Contents/Resources/STRAW-GUIDE.md"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

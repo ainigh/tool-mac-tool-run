@@ -37,6 +37,13 @@ endpoint, field, event and error, with the address you reached it at and, from a
 the token to send), as does **Copy API Doc** in the app's panel. Paste it into your app's code, its
 README, or a chat with an assistant writing the client for you.
 
+**Ready to paste, for your kind of app:** the panel's HTTP API section has a chip for each —
+**curl**, **Python** (the standard library only), **JavaScript** (`fetch`), **Swift**
+(`URLSession`), **Shortcuts** (the actions, step by step) and **AI Agent** (the rules and the
+endpoints, worded for an assistant's instructions) — and one for the **Address**. Each copies
+working code with this Mac's address (and the token, when sharing on the network is on) that lists
+the scripts, runs one with `client` and `why`, keeps the request id, and handles Don't Run.
+
 ## In one minute
 
 ```bash
@@ -392,9 +399,9 @@ curl -s localhost:8768/api/requests/2A7C4B19-…
 
 | field | |
 |---|---|
-| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `automated` for an automation request; `gone` when the run was cleared from the app's history |
+| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `automated` for an automation request; `stopped` for a stop request that was allowed; `gone` when the run was cleared from the app's history |
 | `ok` | once it's over: `true` for `succeeded` and `automated`, `false` otherwise (absent while `waiting` or `running`) |
-| `kind`, `name`, `via` | what was asked for (`script`, `flow` or `automation`), its name, and the endpoint it came through (`run`, `compose`, `automation`) |
+| `kind`, `name`, `via` | what was asked for (`script`, `flow`, `automation` or `stop`), its name, and the endpoint it came through (`run`, `compose`, `automation`, `stop`) |
 | `client`, `from`, `why` | who asked, from where, and why (as the card showed them) |
 | `asked`, `answered` | when it arrived, and when the person clicked (or the two minutes ran out) |
 | `run_id`, `run_url`, `run` | once started: the run's id, its address, and the run itself with everything it printed (as `/api/runs/{id}` gives it) |
@@ -413,6 +420,13 @@ of the request it came from, when it came over the API). `…/stop` stops it (a
 flow's step stops its flow) and answers `{"ok": true, "stopping": true}` (`false`: it had already
 ended). An id the app doesn't have (runs are kept until **Clear Finished**, the latest 300) is
 `404 unknown_run`.
+
+**A run the person started is theirs.** A run that came over the API (any app's, once the person
+allowed it) stops at once. One the person started (its cell, a flow, a schedule) puts a card on
+the Mac first, *"My App wants to stop a run you started"*, with **Stop It** and **Keep Running**:
+send `client` and `why` in the body as for a run. It answers like a run request: `403 denied` or
+`not_answered` when it's left running, else `{"ok": true, "stopping": true, "request": "…"}`, and
+`GET /api/requests/{id}` has it (`"kind": "stop"`, `"state": "stopped"`).
 
 ---
 

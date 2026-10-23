@@ -7,6 +7,9 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
     case bash, zsh, sh, fish
     case python, node, typescript, deno, ruby, perl, php, lua
     case swift, go, r, applescript, powershell
+    /// A Straw script (`.straw`): Chrome driven by what's on the page, a plain line a step. Run by
+    /// `straw.py`, which lives in the browser folder (see `Straw`).
+    case straw
     /// A file that's run as it is (a compiled program, or one marked executable we can't place).
     case executable
     /// Not something we know how to run.
@@ -32,6 +35,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         case .r: "R"
         case .applescript: "AppleScript"
         case .powershell: "PowerShell"
+        case .straw: "Straw"
         case .executable: "Program"
         case .unknown: "Unknown"
         }
@@ -54,6 +58,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         case .r: "R"
         case .applescript: "scpt"
         case .powershell: "ps1"
+        case .straw: "straw"
         case .executable: "bin"
         case .unknown: "?"
         }
@@ -77,6 +82,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         case .r: "R"
         case .applescript: "applescript"
         case .powershell: "ps1"
+        case .straw: "straw"
         case .executable, .unknown: ""
         }
     }
@@ -103,6 +109,8 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         case .r: ("Rscript", [])
         case .applescript: ("osascript", [])
         case .powershell: ("pwsh", ["-File"])
+        // straw.py goes between these and the script (ScriptProcess finds it beside the script).
+        case .straw: ("python3", ["-u"])
         case .executable: nil
         case .unknown: nil
         }
@@ -110,7 +118,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
 
     /// The languages offered for a new script, most used first.
     public static let offered: [ScriptLanguage] = [.bash, .zsh, .python, .node, .typescript, .ruby, .perl, .php,
-                                                   .lua, .swift, .go, .r, .applescript, .powershell, .fish]
+                                                   .lua, .swift, .go, .r, .applescript, .powershell, .fish, .straw]
 
     /// What a new script in this language starts as.
     public var template: String {
@@ -132,6 +140,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         case .r: "#!/usr/bin/env Rscript\n\ncat(\"Hello from R\", commandArgs(trailingOnly = TRUE), \"\\n\")\n"
         case .applescript: "display notification \"Hello from AppleScript\" with title \"Tool Mac Tool Run\"\nreturn \"Hello from AppleScript\"\n"
         case .powershell: "#!/usr/bin/env pwsh\n\nWrite-Output \"Hello from PowerShell $args\"\n"
+        case .straw: "# What this does in Chrome, in one line (it's shown on its cell)\n#\n# A line is a word and what it works on, named as it's written on the page.\n# The Straw guide has every word: open, click, type, press, see, read, if…\nopen example.com\nsee \"Example Domain\"\nread title\n"
         case .executable, .unknown: ""
         }
     }
@@ -157,6 +166,7 @@ public enum ScriptLanguage: String, Codable, CaseIterable, Sendable {
         "swift": .swift, "go": .go, "r": .r,
         "applescript": .applescript, "scpt": .applescript,
         "ps1": .powershell,
+        "straw": .straw,
     ]
 
     /// The language a `#!` line names (`#!/bin/bash`, `#!/usr/bin/env python3`, `#!/usr/bin/env -S deno run`).

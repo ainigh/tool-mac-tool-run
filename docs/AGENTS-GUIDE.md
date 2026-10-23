@@ -289,7 +289,7 @@ curl -s localhost:8768/api/requests?limit=20
 
 # the run itself, and stopping it
 curl -s localhost:8768/api/runs/<run_id>
-curl -s -X POST localhost:8768/api/runs/<run_id>/stop
+curl -s -X POST localhost:8768/api/runs/<run_id>/stop   # one the person started asks them first (Stop It / Keep Running)
 
 # before running
 curl -s localhost:8768/api/scripts
