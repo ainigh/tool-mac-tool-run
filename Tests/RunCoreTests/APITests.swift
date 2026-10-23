@@ -354,6 +354,56 @@ final class APITests: XCTestCase {
         XCTAssertEqual(g.status, 404)
     }
 
+    /// A run the person started (its cell, a schedule) is theirs: another app asking to stop it
+    /// gets the card first, and Keep Running leaves it going. One that has ended isn't asked about.
+    func testStoppingARunThePersonStartedAsksFirst() async {
+        var mine = RunRecord(kind: .script, name: "backup.sh", file: "backup.sh", arguments: [], command: "bash backup.sh")
+        mine.append(.out, "copying\n")
+        host.runs[mine.id] = mine
+        host.answer = .denied
+        let (r, d) = await api.post("/api/runs/\(mine.id.uuidString)/stop", #"{"client": "Stopper", "why": "It's taking too long"}"#)
+        XCTAssertEqual(r.status, 403)
+        XCTAssertEqual(json(d)["code"] as? String, "denied")
+        XCTAssertEqual(json(d)["error"] as? String, "backup.sh wasn't stopped: the person at the Mac chose Keep Running")
+        XCTAssertTrue(host.stopped.isEmpty, "Keep Running leaves it going")
+        XCTAssertEqual(host.asked.last?.isStop, true)
+        XCTAssertEqual(host.asked.last?.client, "Stopper")
+        XCTAssertEqual(host.asked.last?.why, "It's taking too long")
+        XCTAssertTrue(host.asked.last?.command.hasPrefix("stop backup.sh (started on the Mac") == true, host.asked.last?.command ?? "")
+
+        host.answer = .allowed
+        let (r2, d2) = await api.post("/api/runs/\(mine.id.uuidString)/stop", "{}")
+        XCTAssertEqual(r2.status, 200)
+        XCTAssertEqual(json(d2)["stopping"] as? Bool, true)
+        XCTAssertEqual(host.stopped, [mine.id])
+        let request = json(d2)["request"] as? String ?? ""
+        let (_, q) = await api.send("GET", "/api/requests/\(request)")
+        XCTAssertEqual(json(q)["state"] as? String, "stopped")
+        XCTAssertEqual(json(q)["kind"] as? String, "stop")
+        XCTAssertEqual(json(q)["run_id"] as? String, mine.id.uuidString)
+
+        // Ended already: nothing to ask about.
+        let asked = host.asked.count
+        host.update(mine.id) { $0.finish(code: 0, state: .succeeded) }
+        let (r3, d3) = await api.post("/api/runs/\(mine.id.uuidString)/stop", "{}")
+        XCTAssertEqual(r3.status, 200)
+        XCTAssertEqual(json(d3)["stopping"] as? Bool, false)
+        XCTAssertEqual(host.asked.count, asked)
+    }
+
+    /// A flow that runs a script that can't be undone says so on the card, as the script would.
+    func testAFlowsCardCarriesTheDangersOfWhatItRuns() async throws {
+        let lib = Library(root: folder)
+        try "// Tidies\nlet x = run \"wipe\" []\nprint x\n".write(to: lib.composerFolder.appendingPathComponent("tidy.flow"), atomically: true, encoding: .utf8)
+        host.catalogValue = Catalog(folder: folder, scripts: lib.scripts(), flows: lib.flows())
+        _ = await api.post("/api/compose", #"{"flow": "tidy"}"#)
+        XCTAssertEqual(host.asked.last?.dangers, ["runs wipe.sh, which deletes files for good (rm -r / rm -f)"])
+        _ = await api.post("/api/compose", #"{"source": "sh \"sudo true\" |> print"}"#)
+        XCTAssertEqual(host.asked.last?.dangers, ["runs commands as the administrator (sudo)"])
+        _ = await api.post("/api/compose", #"{"flow": "greet"}"#)
+        XCTAssertEqual(host.asked.last?.dangers, [])
+    }
+
     /// Every request has an id from the moment it arrives, in the header and the JSON, on
     /// success and refusal alike; /api/requests/{id} answers for it afterwards.
     func testEveryRequestHasAnIdToAskAboutLater() async {
@@ -751,5 +801,43 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(s.off, [.run])
         XCTAssertEqual(s.port, 9000)
         XCTAssertFalse(s.allowNetwork)
+    }
+}
+
+/// The snippets the panel's Copy for… buttons copy: each has this Mac's address, the token only
+/// when there is one, and code that's code (Python and JavaScript parse).
+final class APIClientTests: XCTestCase {
+    func testEverySnippetHasTheAddressAndTheRules() {
+        for client in APIClient.allCases {
+            let text = client.text(baseURL: "http://127.0.0.1:8768")
+            XCTAssertTrue(text.contains("http://127.0.0.1:8768"), client.title)
+            XCTAssertTrue(text.contains("why"), "\(client.title) says to send why")
+            XCTAssertTrue(text.contains("client") || text.contains("CLIENT"), "\(client.title) names the caller")
+            XCTAssertFalse(text.contains("Bearer"), "\(client.title): no token unless sharing is on")
+            XCTAssertTrue(client.text(baseURL: "http://127.0.0.1:8768", token: "tok3n").contains("Bearer tok3n"), client.title)
+            XCTAssertFalse(client.help.isEmpty)
+        }
+        XCTAssertEqual(APIClient.allCases.map(\.title), ["curl", "Python", "JavaScript", "Swift", "Shortcuts", "AI Agent"])
+    }
+
+    func testThePythonAndJavaScriptParse() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("clients-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for token in [nil, "tok3n"] {
+            if ShellEnvironment.shared.find("python3") != nil {
+                let py = dir.appendingPathComponent("client.py")
+                try APIClient.python.text(baseURL: "http://127.0.0.1:8768", token: token).write(to: py, atomically: true, encoding: .utf8)
+                let r = try ScriptProcess(shell: "python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' \(ShellEnvironment.quote(py.path))",
+                                          workingDirectory: dir).runToEnd()
+                XCTAssertEqual(r.code, 0, r.err)
+            }
+            if ShellEnvironment.shared.find("node") != nil {
+                let js = dir.appendingPathComponent("client.mjs")
+                try APIClient.javascript.text(baseURL: "http://127.0.0.1:8768", token: token).write(to: js, atomically: true, encoding: .utf8)
+                let r = try ScriptProcess(shell: "node --check \(ShellEnvironment.quote(js.path))", workingDirectory: dir).runToEnd()
+                XCTAssertEqual(r.code, 0, r.err)
+            }
+        }
     }
 }

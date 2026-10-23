@@ -51,7 +51,7 @@ public enum APIDoc {
         GET  /api/requests?limit=20   the latest requests, newest first, without their runs' output
         GET  /api/runs?limit=20       the latest runs, newest first, without their output
         GET  /api/runs/{id}           one run, with output, stdout, stderr (and a flow's steps)
-        POST /api/runs/{id}/stop      stop it → {"ok": true, "stopping": true|false}
+        POST /api/runs/{id}/stop      stop it → {"ok": true, "stopping": true|false}; a run the person started (not one an app asked for) waits for Stop It on the Mac (send "client", "why")
         GET  /api/doc                 this page (text/markdown)
         GET  /                        a status page in a browser, with a place to try a script or Flow code
 
@@ -83,8 +83,8 @@ public enum APIDoc {
         ## Request ids
 
         Every request that reaches the card (/api/run, /api/compose, /api/automation) gets an id the moment it arrives: the X-Request-Id header of the answer, "request" in its JSON (the run's JSON, the 202, the 403 for Don't Run), and "request" on every line of a stream. Keep it: whether you waited, streamed, hung up, or sent "async": true, GET /api/requests/{id} answers for it while the app runs (the latest 500):
-        {"request", "state", "ok"?, "kind": "script"|"flow"|"automation", "name", "via": "run"|"compose"|"automation", "client", "from", "why"?, "asked", "answered"?, "run_id"?, "run_url"?, "run"?, "code"?, "error"?, "url"}
-        - state: waiting (on the Mac, no click yet) | denied | not_answered | running | succeeded | failed | stopped | could_not_start | automated | gone (the run was cleared from the app's history).
+        {"request", "state", "ok"?, "kind": "script"|"flow"|"automation"|"stop", "name", "via": "run"|"compose"|"automation"|"stop", "client", "from", "why"?, "asked", "answered"?, "run_id"?, "run_url"?, "run"?, "code"?, "error"?, "url"}
+        - state: waiting (on the Mac, no click yet) | denied | not_answered | running | succeeded | failed | stopped | could_not_start | automated | gone (the run was cleared from the app's history). A stop request ("kind": "stop") that was allowed is stopped.
         - ok: once it's over (true for succeeded and automated); absent while waiting or running.
         - run: once started, the run itself with everything it printed, as /api/runs/{id} gives it. code, error: when it didn't run.
         Poll it as often as you like (nothing runs for the asking). GET /api/requests?limit=20 lists the latest, without "run". An unknown id is 404 unknown_request. Runs carry "request" too.

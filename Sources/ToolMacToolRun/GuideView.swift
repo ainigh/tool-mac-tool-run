@@ -2,44 +2,86 @@ import AppKit
 import RunCore
 import SwiftUI
 
-/// The Flow guide (docs/FLOW-GUIDE.md, carried inside the app), then every builtin function as
-/// the language itself lists them (so the two can't disagree).
+/// The guides, one at a time, with a switch between them: the Flow guide (docs/FLOW-GUIDE.md,
+/// carried inside the app), then every builtin function as the language itself lists them (so the
+/// two can't disagree); and the Straw guide (docs/STRAW-GUIDE.md), for scripts that drive Chrome.
 struct GuideView: View {
-    private let blocks = MarkdownBlocks.parse(GuideView.loadGuide())
+    enum Page: String, CaseIterable {
+        case flow, straw
+
+        var title: String { self == .flow ? "Flow: composing scripts" : "Straw: driving Chrome" }
+    }
+
+    @State private var page: Page = .flow
+    private let flowBlocks = MarkdownBlocks.parse(GuideView.loadGuide())
+    private let strawBlocks = MarkdownBlocks.parse(GuideView.loadGuide(
+        "STRAW-GUIDE", missing: "# The Straw guide\n\nThe full guide is docs/STRAW-GUIDE.md in the app's repository (this copy of the app was built without it). Run browser/straw.py with nothing to see every word."))
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(blocks.indices), id: \.self) { i in
-                    BlockView(block: blocks[i])
-                }
-                Divider().padding(.vertical, 8)
-                Text("Every function, as the language has them").font(.title.weight(.semibold))
-                Text("Read from the language itself, so this list is always the one your flows get.")
-                    .foregroundStyle(.secondary)
-                ForEach(Array(groups.indices), id: \.self) { g in
-                    Text(groups[g].0).font(.title2.weight(.semibold)).padding(.top, 8)
-                    ForEach(groups[g].1, id: \.name) { b in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(b.name).font(.body.monospaced().weight(.bold))
-                                Text(": \(b.signature)").font(.body.monospaced()).foregroundStyle(.secondary)
-                            }
-                            Text(b.summary)
-                            CodeBlock(text: b.example)
-                        }
-                        .padding(.vertical, 4)
-                    }
+        VStack(spacing: 0) {
+            Picker("Guide", selection: $page) {
+                ForEach(Page.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 440)
+            .padding(.top, 34)
+            .padding(.bottom, 6)
+            ScrollView {
+                switch page {
+                case .flow: flowGuide
+                case .straw: strawGuide
                 }
             }
-            .textSelection(.enabled)
-            .padding(.horizontal, 32)
-            .padding(.top, 40)
-            .padding(.bottom, 32)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .id(page)
         }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var strawGuide: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(strawBlocks.indices), id: \.self) { i in
+                BlockView(block: strawBlocks[i])
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, 32)
+        .padding(.top, 16)
+        .padding(.bottom, 32)
+        .frame(maxWidth: 820, alignment: .leading)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var flowGuide: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(flowBlocks.indices), id: \.self) { i in
+                BlockView(block: flowBlocks[i])
+            }
+            Divider().padding(.vertical, 8)
+            Text("Every function, as the language has them").font(.title.weight(.semibold))
+            Text("Read from the language itself, so this list is always the one your flows get.")
+                .foregroundStyle(.secondary)
+            ForEach(Array(groups.indices), id: \.self) { g in
+                Text(groups[g].0).font(.title2.weight(.semibold)).padding(.top, 8)
+                ForEach(groups[g].1, id: \.name) { b in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(b.name).font(.body.monospaced().weight(.bold))
+                            Text(": \(b.signature)").font(.body.monospaced()).foregroundStyle(.secondary)
+                        }
+                        Text(b.summary)
+                        CodeBlock(text: b.example)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, 32)
+        .padding(.top, 16)
+        .padding(.bottom, 32)
+        .frame(maxWidth: 820, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     private var groups: [(String, [Builtin])] {
@@ -52,12 +94,15 @@ struct GuideView: View {
         return order.map { ($0, by[$0] ?? []) }
     }
 
-    nonisolated static func loadGuide() -> String {
-        if let url = Bundle.main.url(forResource: "FLOW-GUIDE", withExtension: "md"),
+    nonisolated static func loadGuide(
+        _ name: String = "FLOW-GUIDE",
+        missing: String = "# The Flow guide\n\nThe full guide is docs/FLOW-GUIDE.md in the app's repository (this copy of the app was built without it). Every function is listed below."
+    ) -> String {
+        if let url = Bundle.main.url(forResource: name, withExtension: "md"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
             return text
         }
-        return "# The Flow guide\n\nThe full guide is docs/FLOW-GUIDE.md in the app's repository (this copy of the app was built without it). Every function is listed below."
+        return missing
     }
 }
 

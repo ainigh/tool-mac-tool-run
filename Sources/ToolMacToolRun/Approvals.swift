@@ -54,8 +54,10 @@ final class ApprovalCenter: ObservableObject {
             MainActor.assumeIsolated {
                 guard let still = ApprovalCenter.shared.pending.first(where: { $0.id == id }) else { return }
                 ApprovalCenter.shared.answer(id, .unanswered)
-                Notifier.post(title: "\(still.request.name) didn't run",
-                              body: "\(still.request.client) asked to run it, and it wasn't allowed in time. It can ask again.",
+                let r = still.request
+                Notifier.post(title: r.isStop ? "\(r.name) kept running" : "\(r.name) didn't run",
+                              body: r.isStop ? "\(r.client) asked to stop it, and it wasn't allowed in time. It can ask again."
+                                  : "\(r.client) asked to run it, and it wasn't allowed in time. It can ask again.",
                               tone: .stopped)
             }
         }
@@ -227,6 +229,7 @@ struct ApprovalCard: View {
         case .script: "wants to run a script"
         case .flow: "wants to run a flow"
         case .source: "wants to run Flow code it sent"
+        case .stop: "wants to stop a run you started"
         }
     }
 
@@ -235,7 +238,7 @@ struct ApprovalCard: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: r.why == nil ? "questionmark.bubble" : "text.quote")
                 .foregroundStyle(r.why == nil ? Color.orange : .secondary)
-            Text(r.why.map { "Why, in \(r.client)'s words: \($0)" } ?? "\(r.client) gave no reason for this. Run it only if you expected it.")
+            Text(r.why.map { "Why, in \(r.client)'s words: \($0)" } ?? "\(r.client) gave no reason for this. \(r.isStop ? "Stop it" : "Run it") only if you expected it.")
                 .font(.system(size: 13.5, weight: r.why == nil ? .semibold : .regular))
                 .foregroundStyle(r.why == nil ? Color.orange : .primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -306,7 +309,9 @@ struct ApprovalCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 0)
-            Text(r.automation == nil
+            Text(r.isStop
+                 ? "It's still running. Stop It stops it, as ⌘. would; Keep Running tells \(r.client) no and leaves it be."
+                 : r.automation == nil
                  ? "Nothing has run yet. Run lets it run this once, as if you'd clicked its cell; Don't Run tells \(r.client) no."
                  : "Nothing runs now. Allow tags it as asked; Don't Allow tells \(r.client) no and changes nothing.")
                 .font(.system(size: 13))
@@ -314,14 +319,17 @@ struct ApprovalCard: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
-                Button(r.automation == nil ? "Don't Run" : "Don't Allow") { center.answer(pending.id, .denied) }
+                Button(noWord) { center.answer(pending.id, .denied) }
                     .buttonStyle(SoftButtonStyle(large: true))
-                    .help("Nothing runs; \(r.client) hears that you said no")
+                    .help(r.isStop ? "It keeps running; \(r.client) hears that you said no" : "Nothing runs; \(r.client) hears that you said no")
                 Button { center.answer(pending.id, .allowed) } label: {
-                    Label(r.automation == nil ? "Run" : "Allow", systemImage: r.automation == nil ? "play.fill" : "clock.badge.checkmark")
+                    Label(r.isStop ? "Stop It" : r.automation == nil ? "Run" : "Allow",
+                          systemImage: r.isStop ? "stop.fill" : r.automation == nil ? "play.fill" : "clock.badge.checkmark")
                 }
                     .buttonStyle(ProminentButtonStyle(color: risky ? .red : .accentColor, large: true))
-                    .help(r.automation == nil
+                    .help(r.isStop
+                          ? "Stop the run now (Runs keeps what it printed)"
+                          : r.automation == nil
                           ? "Run it now, this once (it shows on its cell and in Runs, and \(r.client) gets what it prints)"
                           : "Tag it as asked (the Automation board shows it; nothing runs now)")
             }
@@ -344,6 +352,9 @@ struct ApprovalCard: View {
         .scaleEffect(appeared ? 1 : 0.94)
         .onAppear { withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) { appeared = true } }
     }
+
+    /// The answer that says no, in the words of what was asked.
+    private var noWord: String { r.isStop ? "Keep Running" : r.automation == nil ? "Don't Run" : "Don't Allow" }
 
     /// What would run: the command, or the Flow code itself (all of it: it's what you're allowing).
     @ViewBuilder
@@ -434,7 +445,7 @@ struct ApprovalCard: View {
                     }
                 }
                 .frame(height: 5)
-                Text("Answers Don't Run by itself in \(RunRecord.duration(left))")
+                Text("Answers \(noWord) by itself in \(RunRecord.duration(left))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()

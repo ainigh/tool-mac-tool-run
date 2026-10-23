@@ -18,7 +18,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .run: return "POST /api/run"
         case .compose: return "POST /api/compose · /api/check"
         case .catalog: return "GET /api/scripts · /api/flows"
-        case .runs: return "GET /api/runs · /api/runs/{id}"
+        case .runs: return "GET /api/runs · /api/requests"
         }
     }
 
@@ -28,7 +28,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .run: return "Other apps can ask to run a script from your folder. Each run waits for you to click Run on this Mac."
         case .compose: return "Other apps can ask to run a flow, or send Flow code to run. Each run waits for you to click Run on this Mac."
         case .catalog: return "Other apps can see the names, languages and descriptions of your scripts and flows (not what's in them)."
-        case .runs: return "Other apps can read the runs (how they went and what they printed) and stop one."
+        case .runs: return "Other apps can read the runs and their requests (how they went and what they printed) and stop one (a run you started asks you first)."
         }
     }
 }

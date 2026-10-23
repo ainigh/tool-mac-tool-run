@@ -22,12 +22,20 @@ public enum Caution {
         (#"kubectl\s+delete|terraform\s+destroy|aws\s+\S+\s+(rm|delete|terminate)\S*|gcloud\s+.*\bdelete\b"#, "deletes cloud resources"),
         (#"(npm|yarn|pnpm)\s+publish|gem\s+push|twine\s+upload|cargo\s+publish"#, "publishes a package for everyone"),
         (#"osascript\s+.*empty\s+(the\s+)?trash|empty\s+the\s+trash"#, "empties the Trash"),
+        // A Straw script's click on a button whose name says it can't be taken back.
+        (#"(?i)^\s*click\s+"[^"]*\b(delete|remove|send|buy|pay|purchase|place order|order now|checkout|publish|post|submit|transfer|unsubscribe|cancel subscription|close account)\b"#,
+         "clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"),
     ]
 
-    /// How a script asks for a typed answer while it runs.
-    static let prompts: [String] = [
+    /// How a script asks for a typed answer while it runs. The shell's `read` and `select` count in
+    /// a shell script only (in Python, "read the page" is just words).
+    static let shellPrompts: [String] = [
         #"(^|[\s;&|(!])read\s+(-[a-zA-Z]+\s+)*(-p\s+|[A-Za-z_])"#,  // bash, zsh: read -p "…" answer
         #"(^|[\s;&|("'`])select\s+\w+\s+in\b"#,                        // bash select menus
+    ]
+    static let shells: Set<ScriptLanguage> = [.bash, .zsh, .sh, .fish, .executable, .unknown]
+
+    static let prompts: [String] = [
         #"\binput\s*\("#, #"getpass"#,                                // Python
         #"\bgets\b"#,                                                 // Ruby
         #"\.question\s*\(|readline-sync|prompts?\s*\(\s*\{"#,         // Node
@@ -57,10 +65,14 @@ public enum Caution {
         return dangers.filter { d in lines.contains { matches(d.pattern, $0) } }.map(\.what)
     }
 
-    /// Whether it looks like it asks for a typed answer while it runs.
-    public static func asksForInput(_ contents: String) -> Bool {
+    /// Whether it looks like it asks for a typed answer while it runs. `language`: what it's
+    /// written in (nil: anything). A Straw script never does: its `ask` is a question on the Mac.
+    public static func asksForInput(_ contents: String, language: ScriptLanguage? = nil) -> Bool {
+        if language == .straw { return false }
         let lines = code(contents)
-        return prompts.contains { p in lines.contains { matches(p, $0) } }
+        let shell = language.map { shells.contains($0) } ?? true
+        let rows = shell ? shellPrompts + prompts : prompts
+        return rows.contains { p in lines.contains { matches(p, $0) } }
     }
 
     /// The script's text (its first 64 KB), for these.

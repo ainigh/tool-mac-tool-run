@@ -52,6 +52,12 @@ final class APIService: ObservableObject {
     /// and, when sharing on the network is on, the token.
     var doc: String { APIDoc.text(baseURL: baseURL, token: settings.allowNetwork ? settings.token : nil, version: AppModel.version) }
 
+    /// How a kind of app calls the API, ready to paste (the panel's copy chips): this Mac's
+    /// address, and the token when sharing on the network is on.
+    func howTo(_ client: APIClient) -> String {
+        client.text(baseURL: baseURL, token: settings.allowNetwork ? settings.token : nil)
+    }
+
     func startServing() {
         wantsServing = true
         UserDefaults.standard.set(true, forKey: Self.servingKey)
@@ -142,6 +148,8 @@ final class AppRunHost: RunHost, @unchecked Sendable {
             case let .source(code):
                 return runs.run(flowSource: code, name: request.name, arguments: request.arguments, library: lib,
                                 requestedBy: request.requestedBy, why: request.why)
+            case .stop:
+                throw HTTPError(status: 400, code: "bad_request", message: "a stop isn't something to start")
             }
         }
     }
@@ -156,7 +164,7 @@ final class AppRunHost: RunHost, @unchecked Sendable {
             let item: ScriptItem
             switch request.what {
             case let .script(s), let .flow(s): item = s
-            case .source: throw HTTPError(status: 400, code: "bad_request", message: "only a script or a flow from the folder can be automated")
+            case .source, .stop: throw HTTPError(status: 400, code: "bad_request", message: "only a script or a flow from the folder can be automated")
             }
             let center = AutomationCenter.shared
             center.set(a, for: item)

@@ -15,6 +15,8 @@ public actor RequestLedger {
         case running(UUID)
         /// Tagged to run by itself (an automation request).
         case automated
+        /// Allowed to stop this run (a stop request), and told to stop.
+        case stopped(UUID)
         /// Allowed, but it couldn't be started (or tagged): why.
         case failed(HTTPError)
     }
@@ -26,7 +28,7 @@ public actor RequestLedger {
         public var outcome: Outcome = .waiting
         /// When the person answered (or the two minutes ran out).
         public var answered: Date?
-        /// How it was asked for: `run`, `compose` or `automation` (which endpoint).
+        /// How it was asked for: `run`, `compose`, `automation` or `stop` (which endpoint).
         public let via: String
 
         public var runID: UUID? {

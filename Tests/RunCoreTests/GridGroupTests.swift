@@ -94,7 +94,7 @@ final class GridGroupTests: XCTestCase {
         // wait for the browser scripts they run.
         let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow",
                             "travel-check.flow", "site-watch.flow", "new-password.flow", "today-briefing.flow", "open-apps.flow",
-                            "countdown.flow"]
+                            "countdown.flow", "network-check.flow", "dev-check.flow", "presentation-mode.flow"]
         // mac-health also runs disk-space, from the Scripts grid's examples: it comes with them.
         let withScripts = ["mac-health.flow"]
         let utilities = try lib.addExamples(for: .utilities)
@@ -119,7 +119,7 @@ final class GridGroupTests: XCTestCase {
         }
         XCTAssertEqual(Library.examplesSummary(for: .utilities), "\(Examples.utilities.count) utilities")
         XCTAssertEqual(Library.examplesSummary(for: .browser), "\(Examples.browser.count) browser scripts")
-        XCTAssertEqual(Library.examplesSummary(for: .composer), "5 scripts and 4 flows")
+        XCTAssertEqual(Library.examplesSummary(for: .composer), "8 scripts and 4 flows")
     }
 
     /// An example still exactly as an earlier version wrote it is brought up to date; one someone

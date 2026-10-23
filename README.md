@@ -1,11 +1,12 @@
 # Tool Mac Tool Run
 
-A terminal icon in the macOS menu bar. Click it, and a panel drops down: what's waiting for you,
-a tile for each grid (each fills 90% of the screen), the latest runs, EPA, and the HTTP API other
-apps use. The four grids:
+A terminal icon in the macOS menu bar. Click it, and a panel drops down, in two columns so it's
+short enough to take in at a glance: what's waiting for you across the top; on the left a tile for
+each grid (each fills 90% of the screen) and the latest runs; on the right EPA and the HTTP API
+other apps use; the settings along the bottom. The four grids:
 
 - **Scripts** — a cell for every script in your scripts folder: bash, zsh, PowerShell, Python, JavaScript,
-  TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, or any
+  TypeScript, Ruby, Perl, PHP, Lua, Swift, Go, R, AppleScript, fish, Straw, or any
   executable. The language is told by itself: from the script's `#!` line, else its extension,
   else a look at what's in it. **Click a cell to run it. Click its pencil to edit it.**
 - **Composer** — a cell for every **flow**: your scripts put together, built like a shortcut in
@@ -21,7 +22,9 @@ apps use. The four grids:
   to JSON, every web address in some text).
 - **Browser** — scripts that drive Google Chrome, kept in its `browser` folder: ask Google and
   get just the answer (`google`), search YouTube or play a video (`youtube`), play music on
-  YouTube Music (`youtube-music`), read any page. `browser.sh` does the driving.
+  YouTube Music (`youtube-music`), read any page. `browser.sh` does the driving. And **Straw**
+  scripts (`.straw`): a few plain words for driving a page by what's on it (`open`, `click "Sign
+  in"`, `type "Search" "cats"`, `see "Results"`, `read all css "h2"`). → [The Straw guide](docs/STRAW-GUIDE.md)
 
 The utilities also look things up (`wikipedia`, `define`, `currency`, `world-clock`,
 `public-ip`), check things (`site-check`, `battery`, `system-info`) and help (`password`,
@@ -31,6 +34,15 @@ sound, the words out loud and a notification at a time you give it: `alarm "20 m
 up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`). The browser scripts build on
 each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
 `close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
+
+**Working things out, and this Mac's network**: `calc` (arithmetic, written as you'd say it:
+`calc 15% of 80`, `calc sqrt 2`; worked out, never run as code), `convert` (units: `convert 5 km to
+miles`, `convert 72 f to c`, `convert 3 GB to MB`, cups, mph, hours…), `json-format` (tidies JSON,
+or says where it's broken), `network` (this Mac's address, the router, DNS, and whether the
+internet answers), `speed-test` (macOS's own `networkQuality`), `keep-awake` (no sleep for a
+while: `keep-awake 90`, `keep-awake stop`), `dark-mode` (on, off, or switch), `qr-code` (a QR code
+of a link, on your Desktop), `port-check` (what's listening on a port, or on every one) and
+`git-status-all` (which of your repositories have work not committed or pushed).
 
 **The date and the time**, every way they're written: `today` (the day, ISO, the week and day of
 the year, the quarter, what's left of the year; `today iso`, `today long`, `today week` for one
@@ -64,7 +76,18 @@ news about a topic), `travel-check` (the weather, the time and the money where y
 `focus-session` (music, a timer, then a break), `site-watch`, `mac-health`, `translate`,
 `tidy-chrome`, `inbox-check`, `new-password`, `today-briefing` (the date, the sun, the next
 holidays and this month's calendar, the date said out loud), `open-apps` (the apps you name,
-opened one after another) and `countdown` (a notice with how long until a date).
+opened one after another), `countdown` (a notice with how long until a date), `hn-briefing` (the
+top five stories on Hacker News, read by a Straw script, the first said out loud),
+`network-check` (the network, the address on the internet and the speed, at once), `dev-check`
+(repositories with work not pushed, and what's listening), `presentation-mode` (awake for an hour,
+muted, after asking) and `clean-read` (the page in front without its cookie banner, in outline).
+
+The **Scripts** grid's own examples, beside `hello` and friends: `backup-folder` (a folder zipped
+into ~/Backups, dated), `top-processes` (what's using the CPU and the memory) and `recent-files`
+(what you changed lately). The **Browser** grid's: the Straw scripts `hacker-news`,
+`wikipedia-article`, `page-outline`, `dismiss-cookies` and `fill-search`, and `copy-link` (the page
+in front as a Markdown link), `archive-page` (the Wayback Machine's copies of it, or `--save` one)
+and `find-tab` (the tab with your words in it, brought to the front).
 
 **The API board** (⌘5) is everything the HTTP API can run, a tile each, filling the window: every
 script, utility, browser script and flow, EPA's commands and Flow's own functions, with a search
@@ -110,8 +133,9 @@ printed (live while it runs), the command to run it yourself in a terminal, Stop
 `http://127.0.0.1:8768` (the way Super Voice serves speech): another app lists your scripts and
 flows, asks to run one (or sends Flow code to run), and gets back how it went and what it printed,
 all at once or as it prints. Each request shows a large card on the Mac (which app, the exact
-command or the code in full, what it looks like it does) and waits for you to click **Run**.
-→ [API.md](API.md)
+command or the code in full, what it looks like it does, and for a flow what the scripts it runs
+look like they do) and waits for you to click **Run**. An app asking to stop a run you started
+gets the card too (**Stop It** or **Keep Running**). → [API.md](API.md)
 
 
 **Notifications you can't miss.** A run that ends while you're elsewhere, one that's taking long,
@@ -168,7 +192,12 @@ The panel's **HTTP API** section starts and stops it, has a switch for each grou
 (run scripts, run flows, list them, read runs), **Copy API Doc** (the whole API in one page, with
 this Mac's address and, when sharing is on, the token: paste it into another app's code, a README
 or a chat with an assistant; it's also served at `/api/doc`), and **Try it** (the API's own page:
-every endpoint, and a place to run a script or some Flow code). **Allow other devices** listens
+every endpoint, and a place to run a script or some Flow code). Under **How another app calls it,
+ready to paste**, a chip copies working code for each kind of client: **curl**, **Python** (the
+standard library only), **JavaScript** (`fetch`), **Swift** (`URLSession`), **Shortcuts** (the
+actions, step by step, for a shortcut Siri can run), **AI Agent** (the rules and endpoints, worded
+for an assistant's instructions), and the **Address**. Each lists the scripts, runs one with
+`client` and `why`, keeps the request id and handles Don't Run. **Allow other devices** listens
 on the network too; callers from elsewhere need the token shown there.
 
 ## Install (and update)
@@ -209,9 +238,9 @@ install command again still works too.
 
 1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
 2. Use **~/Scripts** (one click; it's made if it isn't there) or pick any folder. Keep "Add the
-   examples" on and you start with five small scripts and four flows that use them, the
-   utilities, eight browser scripts, and ten flows that use those (Google, the weather, the news,
-   cloud services, YouTube, a morning briefing); keep "Add the EPA recipes" on
+   examples" on and you start with eight small scripts and four flows that use them, the
+   utilities, the browser scripts (Straw ones among them), and the flows that use those (Google,
+   the weather, the news, cloud services, YouTube, Hacker News, a morning briefing); keep "Add the EPA recipes" on
    and EPA's recipes are there too, with EPA set up for you. (Already set up? The empty Utilities
    and Browser grids offer **Add the Examples** for theirs.)
 3. Click a cell. It runs; its border moves while it does, and what it prints shows beside the
@@ -294,6 +323,32 @@ Two things are asked once: macOS asks whether the app may control Chrome (click 
 Chrome needs **View › Developer › Allow JavaScript from Apple Events** ticked. Until then the
 scripts say which one is missing and where.
 
+## Straw: driving a page by what's on it
+
+A `.straw` file in the `browser` folder is a Straw script: a plain line a step, things named the
+way you'd name them, checked whole before anything runs.
+
+```
+# Looks something up on Wikipedia in Chrome: the article's title and its first paragraph
+# Input: What to look up
+open "en.wikipedia.org/w/index.php?search={1}&go=Go"
+wait css "#firstHeading"
+if see css ".mw-search-results-container"
+  click css ".mw-search-result-heading a[data-serp-pos='0']"
+  wait gone css ".mw-search-results-container"
+read css "#firstHeading"
+read css ".mw-parser-output > p:not(.mw-empty-elt), .mw-parser-output > section > p:not(.mw-empty-elt)"
+```
+
+Twenty-five words: `open` `go` `tab` `back` `forward` `reload` `wait` `click` `hover` `type` `press`
+`select` `check` `uncheck` `scroll` `see` `read` `js` `set` `print` `ask` `confirm` `stop` `if`
+`else`. Two buttons with the same name? It stops and says how to tell them apart (`click "Delete"
+in "my-old-key"`) rather than guessing; something not there? It names what's near. A `click` on
+*Delete*, *Send*, *Buy* or *Publish* marks the cell and asks before it runs; `confirm "Post it?"`
+asks at the moment it matters. `browser/straw.py` runs them (with nothing, it lists every word;
+`--check FILE` says what a script would do without doing it). → [The Straw guide](docs/STRAW-GUIDE.md)
+(also in the app: **Guides** → **Straw**)
+
 ## From a terminal
 
 ```bash
@@ -325,6 +380,7 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `API.md` | the HTTP API, for client apps |
 | `docs/AGENTS-GUIDE.md` | the API from an agent's loop (Super Voice's Tom and Jerry): request ids, `async`, polling, what to tell the person |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
+| `docs/STRAW-GUIDE.md` | the Straw guide, for `.straw` scripts that drive Chrome (also shown inside the app); `straw.py`, which runs them, is an example in `Sources/RunCore/ExampleTools.swift`, and `Straw.swift` finds it |
 | `docs/DOCTRINE.md` | how the app should feel and the checks every change walks |
 
 Every change is checked against [docs/DOCTRINE.md](docs/DOCTRINE.md): the guided-UX promises, who

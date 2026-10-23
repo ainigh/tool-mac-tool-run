@@ -212,11 +212,23 @@ public final class ScriptProcess: @unchecked Sendable {
             return Launch(executable: shebang.interpreter, arguments: all, shown: shown, problem: problem)
         }
         if let cmd = language.command {
-            let all = [cmd.program] + cmd.leading + [script.path] + arguments
+            var leading = cmd.leading
+            var problem: LaunchError?
+            if language == .straw {
+                if let runner = Straw.runner(for: script) {
+                    leading.append(runner.path)
+                } else {
+                    problem = LaunchError("Straw scripts are run by straw.py, and there's none beside \(name) or in your browser folder.",
+                                          fix: Straw.fixMissingRunner)
+                }
+            }
+            let all = [cmd.program] + leading + [script.path] + arguments
             let found = find(cmd.program, path: path) != nil
-            return Launch(executable: "/usr/bin/env", arguments: all, shown: words(all),
-                          problem: found ? nil : LaunchError("\(language.title) scripts need `\(cmd.program)`, and it isn't installed (or isn't on the PATH).",
-                                                             fix: Remedy.install(cmd.program)))
+            if problem == nil, !found {
+                problem = LaunchError("\(language.title) scripts need `\(cmd.program)`, and it isn't installed (or isn't on the PATH).",
+                                      fix: Remedy.install(cmd.program))
+            }
+            return Launch(executable: "/usr/bin/env", arguments: all, shown: words(all), problem: problem)
         }
         if language == .executable {
             if head != nil {
