@@ -149,13 +149,18 @@ SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
 ## For other apps
 
 **[API.md](API.md)** is what client apps need: `http://127.0.0.1:8768`, with `/api/scripts`,
-`/api/flows`, `/api/run`, `/api/compose` (a flow, or Flow code you send), `/api/check` and
-`/api/runs`. Nothing runs until the person at the Mac clicks **Run** on the card that comes up.
+`/api/flows`, `/api/run`, `/api/compose` (a flow, or Flow code you send), `/api/check`,
+`/api/runs` and `/api/requests`. Nothing runs until the person at the Mac clicks **Run** on the
+card that comes up. Every request gets an id the moment it arrives (`X-Request-Id`, and `request`
+in the answer), and `/api/requests/{id}` says where it is any time later: waiting for the click,
+denied, running, how it ended. `"async": true` answers with the id at once.
 
 ```bash
 curl -s localhost:8768/api/scripts
 curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App", "why": "You pressed Greet"}'
 curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
+curl -si localhost:8768/api/run -d '{"script": "backup.sh", "async": true, "client": "My App"}'   # 202 now, with X-Request-Id
+curl -s localhost:8768/api/requests/<the id>
 curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App"}'
 ```
 

@@ -127,6 +127,8 @@ extension RunHost {
 public final class RunAPI: @unchecked Sendable {
     public let host: RunHost
     public let version: String
+    /// Every request that reached the card, by its id (`GET /api/requests/{id}`).
+    public let requests = RequestLedger()
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
@@ -156,7 +158,7 @@ public final class RunAPI: @unchecked Sendable {
 
     private static let routes: [String: String] = [
         "/": "GET", "/index.html": "GET", "/favicon.ico": "GET", "/api/health": "GET", "/api/doc": "GET",
-        "/api/scripts": "GET", "/api/flows": "GET", "/api/runs": "GET",
+        "/api/scripts": "GET", "/api/flows": "GET", "/api/runs": "GET", "/api/requests": "GET",
         "/api/run": "POST", "/api/compose": "POST", "/api/check": "POST",
     ]
 
@@ -164,6 +166,7 @@ public final class RunAPI: @unchecked Sendable {
         var path = req.path
         if path.count > 1, path.hasSuffix("/") { path.removeLast() }
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
+        if path.hasPrefix("/api/requests/") { return try await requestRoute(req, path: path, s) }
         if path == "/api/automation" { return try await automationRoute(req, s) }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (see /api/health)")
@@ -197,7 +200,19 @@ public final class RunAPI: @unchecked Sendable {
         case "/api/runs":
             try need(.runs, s)
             let limit = min(300, max(1, Int(req.query["limit"] ?? "") ?? 20))
-            return JSON.response(["runs": await host.recent(limit).map { Self.runJSON($0, output: false) }])
+            var runs: [[String: Any]] = []
+            for r in await host.recent(limit) {
+                var out = Self.runJSON(r, output: false)
+                if let request = await requests.request(forRun: r.id) { out["request"] = request.uuidString }
+                runs.append(out)
+            }
+            return JSON.response(["runs": runs])
+        case "/api/requests":
+            try need(.runs, s)
+            let limit = min(500, max(1, Int(req.query["limit"] ?? "") ?? 20))
+            var list: [[String: Any]] = []
+            for e in await requests.recent(limit) { list.append(await requestJSON(e, run: false)) }
+            return JSON.response(["requests": list])
         case "/api/run":
             try need(.run, s)
             return try await runScript(req)
@@ -233,7 +248,67 @@ public final class RunAPI: @unchecked Sendable {
         }
         try allow(req, "GET", path)
         guard let r = await host.record(id) else { throw unknownRun(id) }
-        return JSON.response(Self.runJSON(r, steps: await host.steps(of: id)))
+        var out = Self.runJSON(r, steps: await host.steps(of: id))
+        if let request = await requests.request(forRun: id) { out["request"] = request.uuidString }
+        return JSON.response(out)
+    }
+
+    /// GET /api/requests/{id}: where a request is, from the moment it arrived.
+    private func requestRoute(_ req: HTTPRequest, path: String, _ s: APISettings) async throws -> HTTPResponse {
+        try need(.runs, s)
+        let parts = path.dropFirst("/api/requests/".count).split(separator: "/").map(String.init)
+        guard parts.count == 1, let id = UUID(uuidString: parts[0]) else {
+            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (a request is /api/requests/<its id>)")
+        }
+        try allow(req, "GET", path)
+        guard let e = await requests.entry(id) else {
+            throw HTTPError(status: 404, code: "unknown_request",
+                            message: "no request \(id.uuidString) (the latest \(requests.capacity) are kept while the app runs)")
+        }
+        return JSON.response(await requestJSON(e), headers: [("X-Request-Id", id.uuidString)])
+    }
+
+    /// A request as the API gives it: its state (`waiting`, `denied`, `not_answered`, `running`,
+    /// then how its run ended, or `automated`), who asked and why, and (with `run`) the run itself.
+    func requestJSON(_ e: RequestLedger.Entry, run: Bool = true) async -> [String: Any] {
+        let r = e.request
+        var out: [String: Any] = [
+            "request": e.id.uuidString, "name": r.name, "kind": r.automation != nil ? "automation" : (r.isScript ? "script" : "flow"),
+            "via": e.via, "client": r.client, "from": r.from, "asked": JSON.date(e.asked), "url": "/api/requests/\(e.id.uuidString)",
+        ]
+        if let why = r.why { out["why"] = why }
+        if let answered = e.answered { out["answered"] = JSON.date(answered) }
+        switch e.outcome {
+        case .waiting:
+            out["state"] = "waiting"
+            out["message"] = r.automation == nil ? "On the Mac, waiting for Run" : "On the Mac, waiting for Allow"
+        case .denied:
+            let err = Self.denied(r)
+            out["state"] = "denied"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
+        case .notAnswered:
+            let err = Self.unanswered(r)
+            out["state"] = "not_answered"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
+        case .automated:
+            out["state"] = "automated"; out["ok"] = true
+        case let .failed(err):
+            out["state"] = "could_not_start"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
+        case let .running(id):
+            out["run_id"] = id.uuidString
+            out["run_url"] = "/api/runs/\(id.uuidString)"
+            if let record = await host.record(id) {
+                out["state"] = Self.stateName(record.state)
+                if record.state.finished { out["ok"] = record.state == .succeeded }
+                if run {
+                    var runOut = Self.runJSON(record, steps: await host.steps(of: id))
+                    runOut["request"] = e.id.uuidString
+                    out["run"] = runOut
+                }
+            } else {
+                out["state"] = "gone"
+                out["error"] = "the run was cleared from the app's history (Clear Finished)"
+            }
+        }
+        return out
     }
 
     /// GET /api/automation: the tags there are, and the items that run by themselves. POST: tags
@@ -320,7 +395,7 @@ public final class RunAPI: @unchecked Sendable {
         let request = RunRequest(what: .script(item), name: item.id, arguments: args, stdin: stdin,
                                  client: Self.client(req, fields), from: Self.from(req), command: command, dangers: item.dangers,
                                  why: Self.why(fields), automation: try Self.automation(fields, items: c.scripts + c.flows))
-        return try await execute(request, fields)
+        return try await execute(request, fields, via: given == nil ? "run" : "automation")
     }
 
     private func compose(_ req: HTTPRequest, fields given: [String: Any]? = nil) async throws -> HTTPResponse {
@@ -366,7 +441,7 @@ public final class RunAPI: @unchecked Sendable {
         }
         let request = RunRequest(what: what, name: name, arguments: args, client: Self.client(req, fields),
                                  from: Self.from(req), command: command, why: Self.why(fields), automation: automation)
-        return try await execute(request, fields)
+        return try await execute(request, fields, via: given == nil ? "compose" : "automation")
     }
 
     /// Checks Flow code (nothing runs, nothing is asked): its types, or its mistake.
@@ -392,32 +467,94 @@ public final class RunAPI: @unchecked Sendable {
     }
 
     /// Asks on the Mac, then runs it: waiting for it to end (the default), answering at once
-    /// (`"wait": false`), or sending what it prints as it prints it (`"stream": true`).
-    private func execute(_ request: RunRequest, _ fields: [String: Any]) async throws -> HTTPResponse {
+    /// (`"wait": false`: once it has started; `"async": true`: before anyone has clicked), or
+    /// sending what it prints as it prints it (`"stream": true`). Every way, the request's id goes
+    /// back (`X-Request-Id`, and `request` in the JSON), and `GET /api/requests/{id}` has the rest.
+    private func execute(_ request: RunRequest, _ fields: [String: Any], via: String) async throws -> HTTPResponse {
+        await requests.add(request, via: via)
+        let id = request.id.uuidString
+        let tagged: [(String, String)] = [("X-Request-Id", id)]
         // Tagging it to run by itself: asked about the same way, then tagged rather than run.
         if request.automation != nil {
-            switch await host.approve(request) {
-            case .allowed: break
-            case .denied: throw Self.denied(request)
-            case .unanswered: throw Self.unanswered(request)
+            do {
+                try await approve(request)
+                let entry: AutomationEntry
+                do {
+                    entry = try await host.automate(request)
+                } catch let e as HTTPError {
+                    await requests.set(request.id, .failed(e))
+                    throw e
+                }
+                await requests.set(request.id, .automated)
+                var out = Self.automationJSON(entry)
+                out["ok"] = true
+                out["automated"] = true
+                out["request"] = id
+                return JSON.response(out, headers: tagged)
+            } catch let e as HTTPError {
+                return refused(e, request)
             }
-            var out = Self.automationJSON(try await host.automate(request))
-            out["ok"] = true
-            out["automated"] = true
-            return JSON.response(out)
         }
         if fields["stream"] as? Bool == true { return stream(request) }
+        if fields["async"] as? Bool == true {
+            // Answered now; the card stays on the Mac, and the run (if allowed) goes on without the
+            // caller: a task of its own, which the caller hanging up doesn't cancel.
+            Task { [self] in _ = try? await self.approveAndStart(request) }
+            return JSON.response(["request": id, "state": "waiting", "url": "/api/requests/\(id)",
+                                  "message": "On the Mac, waiting for Run; GET /api/requests/\(id) says how it goes"],
+                                 status: 202, headers: tagged)
+        }
+        let runID: UUID
+        do {
+            runID = try await approveAndStart(request)
+        } catch let e as HTTPError {
+            return refused(e, request)
+        }
+        if fields["wait"] as? Bool == false {
+            return JSON.response(["id": runID.uuidString, "request": id, "state": "running", "url": "/api/runs/\(runID.uuidString)"],
+                                 status: 202, headers: tagged)
+        }
+        let (run, steps) = try await finish(runID)
+        var out = Self.runJSON(run, steps: steps)
+        out["request"] = id
+        return JSON.response(out, headers: tagged)
+    }
+
+    /// Waits for the click, recording how it went; throws `denied` or `not_answered`.
+    private func approve(_ request: RunRequest) async throws {
         switch await host.approve(request) {
         case .allowed: break
-        case .denied: throw Self.denied(request)
-        case .unanswered: throw Self.unanswered(request)
+        case .denied:
+            await requests.set(request.id, .denied)
+            throw Self.denied(request)
+        case .unanswered:
+            await requests.set(request.id, .notAnswered)
+            throw Self.unanswered(request)
         }
-        let id = try await host.start(request)
-        if fields["wait"] as? Bool == false {
-            return JSON.response(["id": id.uuidString, "state": "running", "url": "/api/runs/\(id.uuidString)"], status: 202)
+    }
+
+    /// Waits for the click, then starts it: the run's id. The ledger follows along.
+    private func approveAndStart(_ request: RunRequest) async throws -> UUID {
+        try await approve(request)
+        do {
+            let id = try await host.start(request)
+            await requests.set(request.id, .running(id))
+            return id
+        } catch let e as HTTPError {
+            await requests.set(request.id, .failed(e))
+            throw e
+        } catch {
+            let e = HTTPError(status: 500, code: "failed", message: "\(error)")
+            await requests.set(request.id, .failed(e))
+            throw e
         }
-        let (run, steps) = try await finish(id)
-        return JSON.response(Self.runJSON(run, steps: steps))
+    }
+
+    /// A request that didn't run (or wasn't automated), with its id still: the app can ask
+    /// `/api/requests/{id}` later and get the same answer.
+    private func refused(_ e: HTTPError, _ request: RunRequest) -> HTTPResponse {
+        JSON.response(["error": e.message, "code": e.code, "request": request.id.uuidString], status: e.status,
+                      headers: [("X-Request-Id", request.id.uuidString)])
     }
 
     static func denied(_ r: RunRequest) -> HTTPError {
@@ -444,29 +581,22 @@ public final class RunAPI: @unchecked Sendable {
     /// NDJSON, one event a line: waiting, then started (or denied), output as it's printed, the
     /// steps of a flow as they start and end, and done with everything a waited-for run gives.
     private func stream(_ request: RunRequest) -> HTTPResponse {
-        let host = self.host, poll = self.poll
-        return HTTPResponse(status: 200, headers: [("Content-Type", "application/x-ndjson"), ("Cache-Control", "no-cache")],
-                            body: .stream { out in
-            try await out.write(JSON.line(["type": "waiting", "message": "Waiting for the person at the Mac to click Run"]))
-            switch await host.approve(request) {
-            case .allowed: break
-            case .denied:
-                let e = Self.denied(request)
-                try await out.write(JSON.line(["type": "denied", "code": e.code, "message": e.message]))
-                return
-            case .unanswered:
-                let e = Self.unanswered(request)
-                try await out.write(JSON.line(["type": "denied", "code": e.code, "message": e.message]))
-                return
-            }
+        let host = self.host, poll = self.poll, rq = request.id.uuidString
+        return HTTPResponse(status: 200, headers: [("Content-Type", "application/x-ndjson"), ("Cache-Control", "no-cache"), ("X-Request-Id", rq)],
+                            body: .stream { [self] out in
+            try await out.write(JSON.line(["type": "waiting", "request": rq, "url": "/api/requests/\(rq)",
+                                           "message": "Waiting for the person at the Mac to click Run"]))
             let id: UUID
             do {
-                id = try await host.start(request)
+                id = try await self.approveAndStart(request)
+            } catch let e as HTTPError where e.code == "denied" || e.code == "not_answered" {
+                try await out.write(JSON.line(["type": "denied", "request": rq, "code": e.code, "message": e.message]))
+                return
             } catch {
-                try await out.write(JSON.line(["type": "error", "message": (error as? HTTPError)?.message ?? "\(error)"]))
+                try await out.write(JSON.line(["type": "error", "request": rq, "message": (error as? HTTPError)?.message ?? "\(error)"]))
                 return
             }
-            try await out.write(JSON.line(["type": "started", "id": id.uuidString, "name": request.name]))
+            try await out.write(JSON.line(["type": "started", "id": id.uuidString, "request": rq, "name": request.name]))
             var sent: [UUID: Int] = [:]
             var stepStates: [UUID: RunRecord.State] = [:]
             while true {
@@ -494,7 +624,7 @@ public final class RunAPI: @unchecked Sendable {
                     }
                 }
                 if run.state.finished {
-                    try await out.write(JSON.line(["type": "done"].merging(Self.runJSON(run, steps: steps)) { a, _ in a }))
+                    try await out.write(JSON.line(["type": "done", "request": rq].merging(Self.runJSON(run, steps: steps)) { a, _ in a }))
                     return
                 }
                 try await Task.sleep(nanoseconds: poll)
