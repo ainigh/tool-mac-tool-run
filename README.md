@@ -24,7 +24,8 @@ other apps use; the settings along the bottom. The four grids:
   get just the answer (`google`), search YouTube or play a video (`youtube`), play music on
   YouTube Music (`youtube-music`), read any page. `browser.sh` does the driving. And **Straw**
   scripts (`.straw`): a few plain words for driving a page by what's on it (`open`, `click "Sign
-  in"`, `type "Search" "cats"`, `see "Results"`, `read all css "h2"`). → [The Straw guide](docs/STRAW-GUIDE.md)
+  in"`, `type "Search" "cats"`, `see "Results"`, `read all css "h2"`, `click first css "h3 a"`).
+  → [The Straw guide](docs/STRAW-GUIDE.md)
 
 The utilities also look things up (`wikipedia`, `define`, `currency`, `world-clock`,
 `public-ip`), check things (`site-check`, `battery`, `system-info`) and help (`password`,
@@ -34,6 +35,17 @@ sound, the words out loud and a notification at a time you give it: `alarm "20 m
 up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`). The browser scripts build on
 each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
 `close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
+
+**Finding files**, with Spotlight as ⌘Space does: `find-file` (by name, the newest first: `find-file
+invoice`, `find-file invoice ~/Documents`, `find-file invoice everywhere`), `spotlight` (the words
+in a file's name or in what's written in it, of a kind if you say: `spotlight --kind pdf tax
+return`; image, video, audio, document, presentation, spreadsheet, code, folder, app, archive,
+email), `screenshots` (every one, wherever it went; `screenshots latest`, `screenshots open`),
+`large-files` (everything over a size: `large-files 2GB`), `recent-downloads` (the newest, with the
+site each came from), `file-info` (a file's kind, dates, pages or pixels, and where it was
+downloaded from), `find-text` (the files in a folder with some text in them, and the lines),
+`find-duplicates` (exact copies, and the room they take) and `open-file` (opens one, shows it in
+the Finder with `reveal`, previews it with `look`). None of them moves or deletes anything.
 
 **Working things out, and this Mac's network**: `calc` (arithmetic, written as you'd say it:
 `calc 15% of 80`, `calc sqrt 2`; worked out, never run as code), `convert` (units: `convert 5 km to
@@ -80,14 +92,28 @@ opened one after another), `countdown` (a notice with how long until a date), `h
 top five stories on Hacker News, read by a Straw script, the first said out loud),
 `network-check` (the network, the address on the internet and the speed, at once), `dev-check`
 (repositories with work not pushed, and what's listening), `presentation-mode` (awake for an hour,
-muted, after asking) and `clean-read` (the page in front without its cookie banner, in outline).
+muted, after asking), `clean-read` (the page in front without its cookie banner, in outline),
+`search-a-site` (pick one of 50 well-known sites, say what, and its results open),
+`search-everywhere` (YouTube, GitHub, Hacker News and arXiv, the top three of each, read by Straw
+scripts), `youtube-channels` (the newest videos from the channels you name), `find-and-open` (a
+file by name: pick one, then open it, show it in the Finder, preview it or copy where it is),
+`spotlight-search` (a kind of file, by its words), `latest-screenshot` (opened, and its path on
+the clipboard), `downloads-report` (the newest downloads, the biggest and the copies, in one
+result), and, from what's selected in Chrome, `explain-selection` (Wikipedia and the dictionary
+on it), `translate-selection` and `read-selection-aloud`.
 
 The **Scripts** grid's own examples, beside `hello` and friends: `backup-folder` (a folder zipped
 into ~/Backups, dated), `top-processes` (what's using the CPU and the memory) and `recent-files`
 (what you changed lately). The **Browser** grid's: the Straw scripts `hacker-news`,
-`wikipedia-article`, `page-outline`, `dismiss-cookies` and `fill-search`, and `copy-link` (the page
-in front as a Markdown link), `archive-page` (the Wayback Machine's copies of it, or `--save` one)
-and `find-tab` (the tab with your words in it, brought to the front).
+`wikipedia-article`, `page-outline`, `dismiss-cookies` and `fill-search`, the searches that read
+their results, a line each (title, tab, address), `youtube-videos`, `youtube-play` (the first one,
+playing), `youtube-latest` (a channel's newest), `github-repos`, `hn-search` and `arxiv-search`;
+`site-search` (any of 50 well-known sites by name: `site-search amazon usb-c hub`, `site-search
+maps coffee`, `site-search list`); and `copy-link` (the page in front as a Markdown link),
+`archive-page` (the Wayback Machine's copies of it, or `--save` one) and `find-tab` (the tab with
+your words in it, brought to the front). Two Straw scripts are on the **Utilities** grid, for flows
+to build on: `selected-text` (what's selected on the page in front) and `page-word-count` (how
+long it takes to read); its Add the Examples brings `straw.py` and `browser.sh` with them.
 
 **The API board** (⌘5) is everything the HTTP API can run, a tile each, filling the window: every
 script, utility, browser script and flow, EPA's commands and Flow's own functions, with a search
@@ -317,6 +343,7 @@ browser/browser.sh read https://example.com 'document.title'   # in a tab of its
 browser/browser.sh title                       # also: url, text, tabs, js, js-in, focus, go, wait, encode
 browser/google.sh how tall is the eiffel tower # just the answer, then the top results
 browser/youtube-music.sh bohemian rhapsody     # plays it; also pause, play, next, previous, now
+browser/site-search.sh amazon usb-c hub        # any of 50 well-known sites' results, in front (site-search.sh list)
 ```
 
 Two things are asked once: macOS asks whether the app may control Chrome (click **Allow**), and
@@ -343,7 +370,8 @@ read css ".mw-parser-output > p:not(.mw-empty-elt), .mw-parser-output > section 
 Twenty-five words: `open` `go` `tab` `back` `forward` `reload` `wait` `click` `hover` `type` `press`
 `select` `check` `uncheck` `scroll` `see` `read` `js` `set` `print` `ask` `confirm` `stop` `if`
 `else`. Two buttons with the same name? It stops and says how to tell them apart (`click "Delete"
-in "my-old-key"`) rather than guessing; something not there? It names what's near. A `click` on
+in "my-old-key"`) rather than guessing, and in a list of results `click first css "h3 a"` takes
+the one highest on the page; something not there? It names what's near. A `click` on
 *Delete*, *Send*, *Buy* or *Publish* marks the cell and asks before it runs; `confirm "Post it?"`
 asks at the moment it matters. `browser/straw.py` runs them (with nothing, it lists every word;
 `--check FILE` says what a script would do without doing it). → [The Straw guide](docs/STRAW-GUIDE.md)

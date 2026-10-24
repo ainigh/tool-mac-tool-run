@@ -2626,6 +2626,481 @@ extension Examples {
         now=$(ask "get dark mode")
         [ "$now" = "true" ] && echo "🌙 Dark Mode is on." || echo "☀️ Dark Mode is off."
         """# + "\n"),
+        ("utilities/find-file.sh", #"""
+        #!/bin/bash
+        # Finds files by name with Spotlight, newest first: in your home folder, in a folder you name, or anywhere on this Mac
+        #
+        # Input: Part of the file's name (invoice, .pdf, "trip photos")
+        # Why: Spotlight is asked for files with it in their name; nothing is opened or changed
+        # Input (optional): Where to look: a folder, or everywhere (your home folder unless set)
+        #
+        #   find-file.sh invoice                   files with "invoice" in their name, in your home folder
+        #   find-file.sh invoice ~/Documents       only in that folder (and the folders in it)
+        #   find-file.sh invoice everywhere        anywhere on this Mac, apps and the system too
+        #   find-file.sh --all invoice             every match, not just the newest 20
+        set -uo pipefail
+
+        limit=20
+        if [ "${1:-}" = "--all" ]; then limit=0; shift; fi
+        name="${1:-}"
+        where="${2:-$HOME}"
+        if [ -z "$name" ]; then
+          echo "What's in the file's name? (find-file.sh invoice)" >&2
+          exit 1
+        fi
+        where="${where/#\~/$HOME}"
+        if [ "$where" != everywhere ]; then
+          if [ ! -d "$where" ]; then
+            echo "There's no folder $where" >&2
+            exit 1
+          fi
+          where=$(cd "$where" && pwd)
+        fi
+        # A path with your home folder written as ~.
+        tidy() { sed "s|^$HOME/|~/|; s|^$HOME\$|~|"; }
+
+        # Spotlight when it's on (mdfind), else find, which walks the folder (slower, and the same answer).
+        search() {
+          if command -v mdfind >/dev/null 2>&1; then
+            if [ "$where" = everywhere ]; then mdfind -name "$name"; else mdfind -onlyin "$where" -name "$name"; fi
+            return
+          fi
+          local top="$where"
+          [ "$top" = everywhere ] && top=/
+          find "$top" \( -name '.*' -o -name node_modules -o -path "$HOME/Library" \) -prune -o -iname "*$name*" -print 2>/dev/null
+        }
+
+        # Newest first: each path after its last change, in seconds (BSD stat on a Mac, GNU stat elsewhere).
+        if stat -f '%m' / >/dev/null 2>&1; then when=(stat -f '%m %N'); else when=(stat -c '%Y %n'); fi
+        found=$(search | grep -v -e '/\.' -e "^$HOME/Library/" | head -5000 | tr '\n' '\0' | xargs -0 "${when[@]}" 2>/dev/null | sort -rn | cut -d' ' -f2-)
+        if [ -z "$found" ]; then
+          echo "No file with \"$name\" in its name in $(printf '%s\n' "$where" | tidy)." >&2
+          exit 1
+        fi
+        count=$(printf '%s\n' "$found" | wc -l | tr -d ' ')
+        if [ "$limit" -gt 0 ] && [ "$count" -gt "$limit" ]; then
+          echo "$count found; the newest $limit (--all for every one):" >&2
+          found=$(printf '%s\n' "$found" | head -n "$limit")
+        fi
+        printf '%s\n' "$found" | tidy
+        """# + "\n"),
+        ("utilities/spotlight.sh", #"""
+        #!/bin/bash
+        # Searches this Mac with Spotlight, as ⌘Space does: files with your words in their name or in what's written in them, newest first
+        #
+        # Input: The words to look for (tax return 2025, or --kind pdf tax return)
+        # Why: Spotlight is asked for files with every one of the words in them; nothing is opened or changed
+        #
+        #   spotlight.sh tax return                 files with both words in their name or their text
+        #   spotlight.sh --kind pdf tax return      only PDFs; kinds: pdf, image, video, audio, text, document,
+        #                                           presentation, spreadsheet, code, folder, app, archive, email
+        #   spotlight.sh --in ~/Documents budget    only in that folder
+        #   spotlight.sh --kinds                    every kind, and what it is
+        set -uo pipefail
+
+        # Each kind, as Spotlight's content type (every file has its type's parents too: a .jpg is public.image).
+        kind_type() {
+          case "$1" in
+            pdf|pdfs) echo com.adobe.pdf ;;
+            image|images|photo|photos|picture|pictures) echo public.image ;;
+            video|videos|movie|movies) echo public.movie ;;
+            audio|music|song|songs|sound|sounds) echo public.audio ;;
+            text|txt) echo public.plain-text ;;
+            document|documents|doc|docs) echo public.composite-content ;;
+            presentation|presentations|slides|keynote) echo public.presentation ;;
+            spreadsheet|spreadsheets|sheet|sheets|excel|numbers) echo public.spreadsheet ;;
+            code|source) echo public.source-code ;;
+            folder|folders) echo public.folder ;;
+            app|apps|application|applications) echo com.apple.application-bundle ;;
+            archive|archives|zip|zips) echo public.archive ;;
+            email|emails|mail) echo com.apple.mail.emlx ;;
+            *) return 1 ;;
+          esac
+        }
+
+        kind="" where=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --kinds)
+              echo "pdf, image, video, audio, text, document (Word, Pages, RTF…), presentation, spreadsheet,"
+              echo "code, folder, app, archive (zip and the like), email (Mail's own)"
+              exit 0 ;;
+            --kind) kind="${2:-}"; shift 2 || shift ;;
+            --in) where="${2:-}"; shift 2 || shift ;;
+            *) break ;;
+          esac
+        done
+        if [ $# -eq 0 ]; then
+          echo "What should Spotlight look for? (spotlight.sh tax return, or spotlight.sh --kind pdf tax return)" >&2
+          exit 1
+        fi
+        if [ -n "$kind" ] && ! type_of_kind=$(kind_type "$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]')"); then
+          echo "Spotlight has no kind \"$kind\". The kinds: pdf, image, video, audio, text, document, presentation, spreadsheet, code, folder, app, archive, email" >&2
+          exit 1
+        fi
+        where="${where/#\~/$HOME}"
+        if [ -n "$where" ] && [ ! -d "$where" ]; then
+          echo "There's no folder $where" >&2
+          exit 1
+        fi
+        if ! command -v mdfind >/dev/null 2>&1; then
+          echo "Spotlight (mdfind) is macOS's: this needs a Mac." >&2
+          exit 1
+        fi
+
+        # Every word, in the name or the text (any case, any accents), and the kind if one was given.
+        query=""
+        for word in "$@"; do
+          word=$(printf '%s' "$word" | tr -d '"*\\')
+          [ -z "$word" ] && continue
+          part="(kMDItemDisplayName == \"*$word*\"cd || kMDItemTextContent == \"$word*\"cdw)"
+          query="${query:+$query && }$part"
+        done
+        [ -n "${type_of_kind:-}" ] && query="${query:+$query && }kMDItemContentTypeTree == \"$type_of_kind\""
+        if [ -n "$where" ]; then found=$(mdfind -onlyin "$where" "$query"); else found=$(mdfind "$query"); fi
+
+        found=$(printf '%s\n' "$found" | grep -v -e '^$' -e '/\.' -e "^$HOME/Library/" | head -2000 | tr '\n' '\0' | xargs -0 stat -f '%m %N' 2>/dev/null | sort -rn | cut -d' ' -f2-)
+        what="\"$*\"${kind:+ ($kind)}"
+        if [ -z "$found" ]; then
+          echo "Spotlight found nothing for $what." >&2
+          echo "Spotlight only finds what it has indexed: System Settings > Spotlight says what it looks in." >&2
+          exit 1
+        fi
+        count=$(printf '%s\n' "$found" | wc -l | tr -d ' ')
+        [ "$count" -gt 25 ] && echo "$count found for $what; the newest 25:" >&2
+        printf '%s\n' "$found" | head -n 25 | sed "s|^$HOME/|~/|"
+        """# + "\n"),
+        ("utilities/find-text.sh", #"""
+        #!/bin/bash
+        # Finds the files in a folder that have some text in them, and the lines it's on (your home folder's Documents unless one is named)
+        #
+        # Input: The text to look for (any case)
+        # Why: The files are read, never changed; folders like .git and node_modules are skipped
+        # Input (optional): A folder to look in (your Documents unless set)
+        set -uo pipefail
+
+        text="${1:-}"
+        where="${2:-$HOME/Documents}"
+        where="${where/#\~/$HOME}"
+        if [ -z "$text" ]; then echo "What text? (find-text.sh \"TODO\" ~/Projects)" >&2; exit 1; fi
+        if [ ! -d "$where" ]; then echo "There's no folder $where" >&2; exit 1; fi
+
+        # ripgrep when it's installed (fast, and it skips what .gitignore says to), else grep.
+        if command -v rg >/dev/null 2>&1; then
+          found=$(rg --ignore-case --fixed-strings --line-number --max-columns 200 --max-count 3 -g '!node_modules' -- "$text" "$where" 2>/dev/null)
+        else
+          found=$(grep -rIinF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=Library -m 3 -- "$text" "$where" 2>/dev/null | cut -c1-240)
+        fi
+        if [ -z "$found" ]; then
+          echo "No file in $(printf '%s' "$where" | sed "s|^$HOME|~|") has \"$text\" in it." >&2
+          exit 1
+        fi
+        files=$(printf '%s\n' "$found" | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
+        echo "$files file$( [ "$files" = 1 ] || echo s) with \"$text\" (3 lines each at most):" >&2
+        printf '%s\n' "$found" | head -150 | sed "s|^$HOME/|~/|"
+        """# + "\n"),
+        ("utilities/file-info.sh", #"""
+        #!/bin/bash
+        # What Spotlight knows about a file: its kind, size, dates, where it was downloaded from, and its pages, pixels or length
+        #
+        # Input: A file (a path; ~ is your home folder)
+        # Why: Its details are read (Spotlight's mdls, and the file itself); nothing is opened or changed
+        set -uo pipefail
+
+        file="${1:-}"
+        file="${file/#\~/$HOME}"
+        if [ -z "$file" ]; then
+          echo "Which file? (file-info.sh ~/Downloads/report.pdf)" >&2
+          exit 1
+        fi
+        if [ ! -e "$file" ]; then
+          echo "There's no file $file" >&2
+          exit 1
+        fi
+
+        echo "$(basename "$file")"
+        echo "  Where:     $(cd "$(dirname "$file")" && pwd | sed "s|^$HOME|~|")"
+        if [ -d "$file" ]; then
+          echo "  Size:      $(du -sh "$file" 2>/dev/null | cut -f1) ($(find "$file" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+        else
+          echo "  Size:      $(du -h "$file" | cut -f1) ($(wc -c < "$file" | tr -d ' ') bytes)"
+        fi
+        if ! command -v mdls >/dev/null 2>&1; then
+          echo "  Changed:   $(date -r "$file" '+%Y-%m-%d %H:%M' 2>/dev/null)"
+          exit 0
+        fi
+
+        # One attribute, as text ("" when Spotlight has none: (null)).
+        attr() {
+          mdls -raw -name "$1" "$file" 2>/dev/null | tr -d '\0' | grep -v '^(null)$'
+        }
+        # A list attribute, its items on one line: ("a", "b") is a, b.
+        list() {
+          attr "$1" | tr -d '()"\n' | sed 's/^ *//; s/,  */, /g; s/ *$//'
+        }
+        line() { [ -n "$2" ] && printf '  %-10s %s\n' "$1:" "$2"; }
+
+        line "Kind" "$(attr kMDItemKind)"
+        line "Created" "$(attr kMDItemContentCreationDate | cut -c1-16)"
+        line "Changed" "$(attr kMDItemContentModificationDate | cut -c1-16)"
+        line "Opened" "$(attr kMDItemLastUsedDate | cut -c1-16)"
+        line "From" "$(list kMDItemWhereFroms)"
+        line "Pages" "$(attr kMDItemNumberOfPages)"
+        w=$(attr kMDItemPixelWidth) h=$(attr kMDItemPixelHeight)
+        [ -n "$w" ] && [ -n "$h" ] && line "Pixels" "$w × $h"
+        secs=$(attr kMDItemDurationSeconds)
+        [ -n "$secs" ] && line "Length" "$(printf '%.0f' "$secs" | awk '{ printf "%d:%02d", $1 / 60, $1 % 60 }')"
+        line "By" "$(list kMDItemAuthors)"
+        line "Tags" "$(list kMDItemUserTags)"
+        exit 0
+        """# + "\n"),
+        ("utilities/recent-downloads.sh", #"""
+        #!/bin/bash
+        # The newest files in your Downloads (10 unless you say how many): when each came, how big it is, and the site it came from
+        #
+        # Input (optional): How many (10 unless set)
+        set -uo pipefail
+
+        count="${1:-10}"
+        case "$count" in *[!0-9]*|"") echo "Give a number: recent-downloads 20" >&2; exit 1 ;; esac
+        dir="$HOME/Downloads"
+        if [ ! -d "$dir" ]; then echo "There's no Downloads folder in your home folder." >&2; exit 1; fi
+
+        if stat -f '%m' / >/dev/null 2>&1; then when=(stat -f '%m %N'); else when=(stat -c '%Y %n'); fi
+        newest=$(find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' -print0 2>/dev/null | xargs -0 "${when[@]}" 2>/dev/null | sort -rn | head -n "$count")
+        if [ -z "$newest" ]; then echo "Your Downloads folder is empty."; exit 0; fi
+
+        now=$(date +%s)
+        printf '%s\n' "$newest" | while read -r stamp path; do
+          age=$(( (now - stamp) / 60 ))
+          if [ "$age" -lt 60 ]; then ago="${age} min ago"
+          elif [ "$age" -lt 1440 ]; then ago="$(( age / 60 )) h ago"
+          else ago="$(( age / 1440 )) days ago"; fi
+          size=$(du -sh "$path" 2>/dev/null | cut -f1)
+          # Where it came from: the address the browser saved with it (Spotlight's kMDItemWhereFroms), its site.
+          from=""
+          if command -v mdls >/dev/null 2>&1; then
+            from=$(mdls -raw -name kMDItemWhereFroms "$path" 2>/dev/null | tr -d '\0' | grep -o 'https\{0,1\}://[^/"]*' | head -1 | sed 's|^https\{0,1\}://||')
+          fi
+          printf '%s  ·  %s  ·  %s%s\n' "$(basename "$path")" "$size" "$ago" "${from:+  ·  from $from}"
+        done
+        """# + "\n"),
+        ("utilities/screenshots.sh", #"""
+        #!/bin/bash
+        # Your screenshots, newest first, found by Spotlight wherever they were saved (10 unless you say how many)
+        #
+        # Input (optional): How many, or latest (just the newest one's path), or open (opens the newest)
+        #
+        #   screenshots.sh              the 10 newest, with when each was taken
+        #   screenshots.sh 30           the 30 newest
+        #   screenshots.sh latest       the newest one's path, alone (for a flow)
+        #   screenshots.sh open         opens the newest in Preview
+        set -uo pipefail
+
+        what="${1:-10}"
+        case "$what" in
+          latest|open) count=1 ;;
+          *[!0-9]*|"") echo "Give a number, latest, or open: screenshots 5" >&2; exit 1 ;;
+          *) count="$what" ;;
+        esac
+        if ! command -v mdfind >/dev/null 2>&1; then
+          echo "Spotlight (mdfind) is macOS's: this needs a Mac." >&2
+          exit 1
+        fi
+
+        # macOS marks every screenshot it takes (kMDItemIsScreenCapture), whatever it's called and wherever it went.
+        found=$(mdfind 'kMDItemIsScreenCapture == 1' | grep -v '/\.' | tr '\n' '\0' | xargs -0 stat -f '%m %N' 2>/dev/null | sort -rn | head -n "$count")
+        if [ -z "$found" ]; then
+          echo "Spotlight found no screenshots (⇧⌘3 or ⇧⌘4 takes one; ⇧⌘5 says where they go)." >&2
+          exit 1
+        fi
+        case "$what" in
+          latest) printf '%s\n' "$found" | cut -d' ' -f2- ;;
+          open)
+            newest=$(printf '%s\n' "$found" | cut -d' ' -f2-)
+            open "$newest"
+            echo "Opened $(basename "$newest")" ;;
+          *)
+            printf '%s\n' "$found" | while read -r stamp path; do
+              printf '%s  ·  %s\n' "$(date -r "$stamp" '+%a %d %b %H:%M')" "$(printf '%s' "$path" | sed "s|^$HOME/|~/|")"
+            done ;;
+        esac
+        """# + "\n"),
+        ("utilities/large-files.sh", #"""
+        #!/bin/bash
+        # The biggest files in your home folder (or a folder you name), found by Spotlight: everything over a size you give (1 GB unless set), biggest first
+        #
+        # Input (optional): The smallest size to list: 500MB, 2GB (1GB unless set)
+        # Input (optional): A folder to look in (your home folder unless set)
+        set -uo pipefail
+
+        size="${1:-1GB}"
+        where="${2:-$HOME}"
+        where="${where/#\~/$HOME}"
+        number=$(printf '%s' "$size" | tr -d ' ' | tr '[:lower:]' '[:upper:]' | sed -E 's/I?B$//')
+        digits="${number%[KMGT]}"
+        case "${number#"$digits"}" in
+          K) unit=1024 ;;
+          M) unit=1048576 ;;
+          G) unit=1073741824 ;;
+          T) unit=1099511627776 ;;
+          *) unit="" ;;
+        esac
+        case "$digits" in
+          ""|*[!0-9]*) unit="" ;;
+        esac
+        if [ -z "$unit" ]; then
+          echo "Give a size in whole KB, MB, GB or TB: large-files 500MB" >&2
+          exit 1
+        fi
+        bytes=$(( digits * unit ))
+        if [ ! -d "$where" ]; then echo "There's no folder $where" >&2; exit 1; fi
+
+        # Spotlight's index when there is one; else find walks the folder (slower, and the same answer).
+        if command -v mdfind >/dev/null 2>&1; then
+          found=$(mdfind -onlyin "$where" "kMDItemFSSize > $bytes" | tr '\n' '\0' | xargs -0 stat -f '%z %N' 2>/dev/null)
+        else
+          found=$(find "$where" -type f -size +"$(( bytes / 1024 ))"k -print0 2>/dev/null | xargs -0 stat -c '%s %n' 2>/dev/null)
+        fi
+        found=$(printf '%s\n' "$found" | grep -v -e '^$' -e '/\.' | sort -rn | head -30)
+        if [ -z "$found" ]; then
+          echo "Nothing over $size in $(printf '%s' "$where" | sed "s|^$HOME|~|")."
+          exit 0
+        fi
+        printf '%s\n' "$found" | while read -r bytes path; do
+          printf '%8s  %s\n' "$(awk -v b="$bytes" 'BEGIN { split("B KB MB GB TB", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf (i == 1 ? "%d %s" : "%.1f %s"), b, u[i] }')" \
+            "$(printf '%s' "$path" | sed "s|^$HOME/|~/|")"
+        done
+        """# + "\n"),
+        ("utilities/find-duplicates.py", #"""
+        #!/usr/bin/env python3
+        # Finds files that are exact copies of each other in a folder and the folders in it (your Downloads unless one is named), and how much room the copies take
+        #
+        # Input (optional): A folder to look in (your Downloads unless set)
+        #
+        # Nothing is moved or deleted: it lists each set of copies, the newest first, so you can choose.
+        import hashlib
+        import os
+        import sys
+
+        SKIP = {".git", "node_modules", "Library", ".Trash"}
+
+
+        def human(n):
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024:
+                    return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+                n /= 1024
+            return f"{n:.1f} TB"
+
+
+        def digest(path):
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    h.update(block)
+            return h.hexdigest()
+
+
+        def main():
+            home = os.path.expanduser("~")
+            folder = os.path.expanduser(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(home, "Downloads")
+            if not os.path.isdir(folder):
+                print(f"There's no folder {folder}", file=sys.stderr)
+                return 1
+            # Only files of the same size can be copies: they alone are read.
+            by_size = {}
+            for root, dirs, files in os.walk(folder):
+                dirs[:] = [d for d in dirs if d not in SKIP and not d.startswith(".")]
+                for name in files:
+                    if name.startswith("."):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        if os.path.islink(path):
+                            continue
+                        size = os.path.getsize(path)
+                    except OSError:
+                        continue
+                    if size > 0:
+                        by_size.setdefault(size, []).append(path)
+            sets = []
+            for size, paths in by_size.items():
+                if len(paths) < 2:
+                    continue
+                by_hash = {}
+                for p in paths:
+                    try:
+                        by_hash.setdefault(digest(p), []).append(p)
+                    except OSError:
+                        continue
+                sets += [(size, group) for group in by_hash.values() if len(group) > 1]
+            shown = folder.replace(home, "~", 1)
+            if not sets:
+                print(f"No copies in {shown}: every file is different.")
+                return 0
+            sets.sort(key=lambda s: s[0] * (len(s[1]) - 1), reverse=True)
+            wasted = sum(size * (len(group) - 1) for size, group in sets)
+            print(f"{len(sets)} set{'s' if len(sets) != 1 else ''} of copies in {shown}; the copies take {human(wasted)}:")
+            for size, group in sets[:40]:
+                group.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+                print(f"\n{human(size)} × {len(group)}")
+                for p in group:
+                    print("  " + p.replace(home, "~", 1))
+            return 0
+
+
+        if __name__ == "__main__":
+            sys.exit(main())
+        """# + "\n"),
+        ("utilities/open-file.sh", #"""
+        #!/bin/bash
+        # Opens a file with its app (or one you name), or shows it in the Finder, or previews it with Quick Look
+        #
+        # Input: A file (a path; ~ is your home folder)
+        # Why: It's opened, shown or previewed, never changed
+        # Input (optional): reveal (show it in the Finder), look (Quick Look), or an app to open it with
+        #
+        #   open-file.sh ~/Downloads/report.pdf           with its own app (Preview, for a PDF)
+        #   open-file.sh ~/Downloads/report.pdf reveal    selected in a Finder window
+        #   open-file.sh ~/Downloads/photo.jpg look       a Quick Look preview (Space in the Finder)
+        #   open-file.sh ~/notes.txt "Visual Studio Code" with that app
+        set -uo pipefail
+
+        file="${1:-}"
+        file="${file/#\~/$HOME}"
+        how="${2:-}"
+        if [ -z "$file" ]; then echo "Which file? (open-file.sh ~/Downloads/report.pdf)" >&2; exit 1; fi
+        if [ ! -e "$file" ]; then echo "There's no file $file" >&2; exit 1; fi
+        if ! command -v open >/dev/null 2>&1; then echo "Opening files needs macOS (open)." >&2; exit 1; fi
+
+        name=$(basename "$file")
+        case "$how" in
+          "") open "$file" && echo "Opened $name" ;;
+          reveal|finder|show) open -R "$file" && echo "Showing $name in the Finder" ;;
+          look|preview|quicklook) qlmanage -p "$file" >/dev/null 2>&1 & echo "Previewing $name (Quick Look)" ;;
+          *)
+            if ! open -a "$how" "$file" 2>/dev/null; then
+              echo "Couldn't open $name with \"$how\": is that the app's name, as in Applications?" >&2
+              exit 1
+            fi
+            echo "Opened $name in $how" ;;
+        esac
+        """# + "\n"),
+        ("utilities/selected-text.straw", #"""
+        # What's selected (highlighted) on the page in front of Chrome, as plain text: in the page, or in the field you're typing in
+        #
+        # Straw: other scripts and flows build on it (define it, translate it, say it out loud).
+        js "const f = document.activeElement; const inField = f && typeof f.selectionStart === 'number' && f.selectionEnd > f.selectionStart; const t = (inField ? f.value.slice(f.selectionStart, f.selectionEnd) : String(getSelection())).trim(); if (!t) throw new Error('nothing is selected on the page in front of Chrome: select some words first'); return t"
+        """# + "\n"),
+        ("utilities/page-word-count.straw", #"""
+        # How long the page in front of Chrome takes to read: its words, and the minutes at 230 words a minute
+        #
+        # Straw: the article (or the page's main part) is counted, not its menus.
+        read title into title
+        js "const words = (document.querySelector('article') || document.querySelector('main') || document.body).innerText.split(/\s+/).filter(Boolean).length; return words + ' words, about ' + Math.max(1, Math.round(words / 230)) + ' min to read'" into count
+        print "{title}: {count}"
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -2650,9 +3125,10 @@ extension Examples {
         #   browser.sh wait              waits (up to 30 seconds) for the page in front to load
         #   browser.sh encode TEXT       TEXT made safe for an address (for ?q=…)
         #
-        # JavaScript is an expression (document.title), or statements with a return at the start of a line
-        # (or after a ;) giving back the answer; what isn't text comes back as JSON. Chrome lets scripts run it once View > Developer > Allow JavaScript from Apple
-        # Events is ticked; macOS asks once whether this app may control Chrome.
+        # JavaScript is an expression (document.title, or items.map(v => { …; return v.x })), or statements with a
+        # return of their own, outside any function, giving back the answer; what isn't text comes back as JSON.
+        # Chrome lets scripts run it once View > Developer > Allow JavaScript from Apple Events is ticked; macOS
+        # asks once whether this app may control Chrome.
         set -uo pipefail
 
         CHROME=com.google.Chrome
@@ -2707,20 +3183,62 @@ extension Examples {
           printf '%s\n' "$out"
         }
 
+        # Statements, not one expression: a return (or a const, let, var, if, for, while, try or throw
+        # starting a statement) outside every function, string, comment and pattern in it.
+        is_statements() {
+          printf '%s' "$1" | LC_ALL=C awk 'BEGIN { RS = "\001" }
+          {
+            n = split($0, c, "")
+            depth = 0; quote = ""; prev = ""
+            for (i = 1; i <= n; i++) {
+              ch = c[i]
+              if (quote != "") {
+                if (ch == "\\") i++
+                else if (ch == quote) { quote = ""; prev = ch }
+                continue
+              }
+              if (ch == "\"" || ch == "\047" || ch == "`") { quote = ch; continue }
+              if (ch == "/" && c[i + 1] == "/") { while (i <= n && c[i] != "\n") i++; continue }
+              if (ch == "/" && c[i + 1] == "*") { for (i += 2; i < n && !(c[i] == "*" && c[i + 1] == "/"); i++) ; i++; continue }
+              if (ch == "/" && (prev == "" || index("(,=:[!&|?{};+-*%<>~^", prev) > 0)) {
+                inclass = 0
+                for (i++; i <= n && c[i] != "\n"; i++) {
+                  if (c[i] == "\\") i++
+                  else if (c[i] == "[") inclass = 1
+                  else if (c[i] == "]") inclass = 0
+                  else if (c[i] == "/" && !inclass) break
+                }
+                prev = "/"; continue
+              }
+              if (ch == "{" || ch == "(" || ch == "[") depth++
+              else if (ch == "}" || ch == ")" || ch == "]") depth--
+              else if (depth == 0 && ch ~ /[a-z]/ && (i == 1 || c[i - 1] !~ /[A-Za-z0-9_$.]/)) {
+                w = ""
+                for (j = i; j <= n && c[j] ~ /[A-Za-z0-9_$]/; j++) w = w c[j]
+                if (w == "return") { found = 1; exit }
+                if ((prev == "" || prev == ";" || prev == "}") && (w == "const" || w == "let" || w == "var" || w == "if" || w == "for" || w == "while" || w == "try" || w == "throw")) { found = 1; exit }
+                i = j - 1; prev = c[i]; continue
+              }
+              if (ch !~ /[ \t\r\n]/) prev = ch
+            }
+          }
+          END { exit found ? 0 : 1 }'
+        }
+
         # JavaScript, wrapped so an expression or statements with a return give back text (JSON for the rest).
         wrap_js() {
           local code="$1" body
           # Trailing semicolons and spaces off, so an expression can be returned.
           code="${code%"${code##*[![:space:];]}"}"
-          # Statements when a return starts a line (or follows a ;); otherwise one expression, whatever
-          # functions inside it return.
-          case "$code" in
-            return*|*"
-        return"*|*"; return"*|*";return"*) body="$code" ;;
-            *) body="return (
+          # Statements as they are; otherwise one expression, whatever functions inside it return
+          # (items.map(v => { const t = …; return t }) is an expression).
+          if is_statements "$code"; then
+            body="$code"
+          else
+            body="return (
         $code
-        );" ;;
-          esac
+        );"
+          fi
           printf '%s' "(() => { try { const r = (() => {
         $body
         })(); return r === undefined || r === null ? '' : typeof r === 'string' ? r : JSON.stringify(r, null, 2); } catch (e) { return 'TMR_JS_ERROR ' + e; } })()"
@@ -3481,8 +3999,8 @@ extension Examples {
             "uncheck": ("THING", "unticks it", 'uncheck "Send me news"'),
             "scroll":  ("THING | down | up | top | bottom", "scrolls it into view, or the page", 'scroll down'),
             "see":     ("[no] THING", "stops the script unless THING is on the page (with no: unless it isn't)", 'see "Welcome back"'),
-            "read":    ("[all | after] THING | title | url | page | links  [into NAME]", "gives back its words (a field: what's in it); all: every match, a line each; after: what's beside it", 'read all css ".titleline > a"'),
-            "js":      ("CODE [into NAME]", "runs JavaScript in the page and gives back what it gives", 'js "document.title" into t'),
+            "read":    ("[all | after | links] THING | title | url | page | links  [into NAME]", "gives back its words (a field: what's in it); all: every match, a line each; after: what's beside it; links: every link (or each one THING names), its words, a tab, its address", 'read all css ".titleline > a"'),
+            "js":      ("CODE [into NAME]", "runs JavaScript in the page and gives back what it gives (a list: a line each)", 'js "document.title" into t'),
             "set":     ("NAME TEXT", "remembers TEXT as {NAME}", 'set city "{1|Lagos}"'),
             "print":   ("TEXT", "gives TEXT back (the script's output)", 'print "Top story: {top}"'),
             "ask":     ("NAME QUESTION", "asks on the Mac, and remembers the answer as {NAME}", 'ask query "Search for what?"'),
@@ -3527,7 +4045,8 @@ extension Examples {
                 elif c in "\"'":
                     j, buf = i + 1, []
                     while j < n and text[j] != c:
-                        if text[j] == "\\" and j + 1 < n:
+                        # \" (the quote it's in) and \\ are escapes; any other backslash stays, for JavaScript's \n and \s.
+                        if text[j] == "\\" and j + 1 < n and text[j + 1] in (c, "\\"):
                             j += 1
                         buf.append(text[j])
                         j += 1
@@ -3558,9 +4077,15 @@ extension Examples {
 
 
         def target(toks, number, word):
-            """THING: "Name", css "selector", either with in "Container" after it. Returns it and what's left."""
+            """THING: "Name", css "selector", either with first before it (the first of several, the highest on the
+            page) and in "Container" after it. Returns it and what's left."""
             if not toks:
                 raise Mistake(number, f"{word} needs something to work on.", "Name it as it's written on the page: " + WORDS[word][2])
+            first = toks[0] == ("word", "first")
+            if first:
+                toks = toks[1:]
+                if not toks:
+                    raise Mistake(number, "first needs the thing after it.", f'{word} first css "h3 a"')
             kind = "name"
             if toks[0] == ("word", "css"):
                 kind = "css"
@@ -3570,6 +4095,8 @@ extension Examples {
             if toks[0][0] != "text":
                 raise Mistake(number, f'{word} needs the thing\'s name in quotes: {toks[0][1]} isn\'t.', f'{word} "{toks[0][1]}"')
             thing = {"kind": kind, "name": toks[0][1]}
+            if first:
+                thing["first"] = True
             toks = toks[1:]
             if toks and toks[0] == ("word", "in"):
                 if len(toks) < 2 or toks[1][0] != "text":
@@ -3668,7 +4195,7 @@ extension Examples {
             if word == "read":
                 name, rest = into(rest, number)
                 mode = "one"
-                if rest and rest[0][0] == "word" and rest[0][1] in ("all", "after"):
+                if rest and rest[0][0] == "word" and (rest[0][1] in ("all", "after") or (rest[0][1] == "links" and len(rest) > 1)):
                     mode, rest = rest[0][1], rest[1:]
                 if mode == "one" and len(rest) == 1 and rest[0][0] == "word" and rest[0][1] in ("title", "url", "page", "links"):
                     return Step(number, source, word, mode=rest[0][1], thing=None, name=name)
@@ -3900,6 +4427,8 @@ extension Examples {
           const found = find(thing);
           if (!found.length) return [null, missing(thing)];
           const distinct = [...new Set(found.map(active))];
+          // first: the one highest on the page, in the order it's written.
+          if (thing.first) return [distinct.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))[0], null];
           if (distinct.length > 1) return [null, { ok: false, why: 'many', count: distinct.length, where: distinct.slice(0, 5).map(where) }];
           return [distinct[0], null];
         }
@@ -4036,7 +4565,14 @@ extension Examples {
             if (p.mode === 'url') return { ok: true, text: location.href };
             if (p.mode === 'page') return { ok: true, text: textOf(document.body) };
             if (p.mode === 'links') {
-              const rows = [...document.querySelectorAll('a[href]')].filter(shown).map((a) => (textOf(a).replace(/\s+/g, ' ') || a.href) + '\t' + a.href);
+              let links = [...document.querySelectorAll('a[href]')].filter(shown);
+              if (p.thing) {
+                // The links among the things it names: each one's own, or the one it's in, or the first in it.
+                const found = find(p.thing);
+                if (!found.length) return missing(p.thing);
+                links = found.map((el) => el.closest('a[href]') || el.querySelector('a[href]')).filter(Boolean);
+              }
+              const rows = links.map((a) => (textOf(a).replace(/\s+/g, ' ') || a.href) + '\t' + a.href);
               return { ok: true, text: [...new Set(rows)].join('\n') };
             }
             const found = find(p.thing);
@@ -4131,7 +4667,8 @@ extension Examples {
                 return t
 
             def shown(self, thing):
-                return f'css "{thing["name"]}"' if thing["kind"] == "css" else f'"{thing["name"]}"' + (f' in "{thing["within"]}"' if "within" in thing else "")
+                said = f'css "{thing["name"]}"' if thing["kind"] == "css" else f'"{thing["name"]}"'
+                return said + (f' in "{thing["within"]}"' if "within" in thing else "")
 
             def refuse(self, step, answer, thing=None):
                 why = answer.get("why")
@@ -4147,6 +4684,7 @@ extension Examples {
                     where = [w for w in answer.get("where", []) if w]
                     hint = (f' Say which, by what\'s beside it: {step.word} {name} in "{where[0]}"' if where else
                             f' Say which, by what it\'s in: {step.word} {name} in "…"')
+                    hint += f" (or {step.word} first {name}: the one highest on the page)"
                     raise Stop(f"{answer.get('count')} things on the page are called {name}.{hint}")
                 if why == "not_field":
                     raise Stop(f"{name} isn't a field to type in, and there's no field beside it.")
@@ -4261,7 +4799,7 @@ extension Examples {
                         self.refuse(s, a, thing)
                     self.keep(s, a.get("text", ""))
                 elif w == "js":
-                    self.keep(s, b.sh("js", self.fill(s.code, s.number)))
+                    self.keep(s, lines_of(b.sh("js", self.fill(s.code, s.number))))
                 elif w == "set":
                     self.values[s.name] = self.fill(s.text, s.number)
                 elif w == "print":
@@ -4293,6 +4831,18 @@ extension Examples {
                 return os.path.splitext(os.path.basename(self.path))[0] + " (Straw)"
 
 
+        def lines_of(out):
+            """What js gave back: a list (browser.sh gives it as JSON) a line each; anything else as it is."""
+            if out.startswith("[") and out.endswith("]"):
+                try:
+                    items = json.loads(out)
+                except ValueError:
+                    return out
+                if isinstance(items, list) and all(isinstance(i, (str, int, float)) for i in items):
+                    return "\n".join(str(i) for i in items)
+            return out
+
+
         def applescript(text):
             return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -4311,7 +4861,7 @@ extension Examples {
             print("Straw: Chrome driven by what's on the page, one plain line at a time.")
             print("Run a .straw file: straw.py FILE [words…]  (they're {1}, {2}…; {args} is all of them)")
             print("A THING is its name in quotes, as written on the page (\"Sign in\"), or css \"selector\";")
-            print("either can be narrowed down with in \"what it's in\".\n")
+            print("either can be narrowed down with in \"what it's in\", or first before it: the highest on the page of several.\n")
             for word, (takes, does, example) in WORDS.items():
                 print(f"  {word} {takes}".rstrip())
                 print(f"      {does}")
@@ -4487,6 +5037,190 @@ extension Examples {
           echo "Also matching:"
           printf '%s\n' "$others" | sed 's/^/  /'
         fi
+        """# + "\n"),
+        ("browser/site-search.sh", #"""
+        #!/bin/bash
+        # Searches a well-known site for you, in Chrome: YouTube, Amazon, GitHub, Wikipedia, Reddit, Stack Overflow, Google Maps and 40 more, by name
+        #
+        # Input: The site, then what to search it for (youtube lofi hip hop, amazon usb-c hub, maps coffee near me)
+        # Why: The site's own results page is opened in Chrome, in front, as if you'd typed the search there
+        #
+        #   site-search.sh youtube lofi hip hop       YouTube's results, in a new tab in front
+        #   site-search.sh --url amazon usb-c hub     just the address (for a flow, or another browser)
+        #   site-search.sh list                       every site it knows, and the names it answers to
+        set -uo pipefail
+
+        # Each site: its names (the first is shown), then its search address, with %s where the words go.
+        SITES='google g|https://www.google.com/search?q=%s
+        images pictures|https://www.google.com/search?tbm=isch&q=%s
+        maps map directions|https://www.google.com/maps/search/%s
+        news|https://news.google.com/search?q=%s
+        scholar papers|https://scholar.google.com/scholar?q=%s
+        translate|https://translate.google.com/?sl=auto&tl=en&text=%s
+        youtube yt|https://www.youtube.com/results?search_query=%s
+        youtube-music music|https://music.youtube.com/search?q=%s
+        wikipedia wiki w|https://en.wikipedia.org/w/index.php?search=%s
+        duckduckgo ddg|https://duckduckgo.com/?q=%s
+        bing|https://www.bing.com/search?q=%s
+        perplexity|https://www.perplexity.ai/search?q=%s
+        claude|https://claude.ai/new?q=%s
+        chatgpt|https://chatgpt.com/?q=%s
+        wolfram wolframalpha|https://www.wolframalpha.com/input?i=%s
+        amazon|https://www.amazon.com/s?k=%s
+        ebay|https://www.ebay.com/sch/i.html?_nkw=%s
+        etsy|https://www.etsy.com/search?q=%s
+        walmart|https://www.walmart.com/search?q=%s
+        github gh|https://github.com/search?q=%s&type=repositories
+        github-code code|https://github.com/search?q=%s&type=code
+        stackoverflow so|https://stackoverflow.com/search?q=%s
+        mdn|https://developer.mozilla.org/en-US/search?q=%s
+        apple-developer swift|https://developer.apple.com/search/?q=%s
+        npm|https://www.npmjs.com/search?q=%s
+        pypi pip|https://pypi.org/search/?q=%s
+        crates rust|https://crates.io/search?q=%s
+        docker dockerhub|https://hub.docker.com/search?q=%s
+        huggingface hf|https://huggingface.co/models?search=%s
+        arxiv|https://arxiv.org/search/?query=%s&searchtype=all
+        hackernews hn|https://hn.algolia.com/?q=%s
+        reddit|https://www.reddit.com/search/?q=%s
+        x twitter|https://x.com/search?q=%s
+        linkedin|https://www.linkedin.com/search/results/all/?keywords=%s
+        pinterest|https://www.pinterest.com/search/pins/?q=%s
+        imdb movie movies|https://www.imdb.com/find/?q=%s
+        rottentomatoes rt|https://www.rottentomatoes.com/search?search=%s
+        netflix|https://www.netflix.com/search?q=%s
+        spotify|https://open.spotify.com/search/%s
+        apple-music|https://music.apple.com/us/search?term=%s
+        soundcloud|https://soundcloud.com/search?q=%s
+        twitch|https://www.twitch.tv/search?term=%s
+        vimeo|https://vimeo.com/search?q=%s
+        genius lyrics|https://genius.com/search?q=%s
+        goodreads books|https://www.goodreads.com/search?q=%s
+        archive wayback|https://archive.org/search?query=%s
+        dictionary define|https://www.merriam-webster.com/dictionary/%s
+        thesaurus synonyms|https://www.merriam-webster.com/thesaurus/%s
+        unsplash photos|https://unsplash.com/s/photos/%s
+        yelp|https://www.yelp.com/search?find_desc=%s
+        tripadvisor|https://www.tripadvisor.com/Search?q=%s'
+
+        # Text made safe for an address: each byte but letters, digits and -._~ as %XX (a space is %20, é is %C3%A9).
+        encode() {
+          printf '%s' "$1" | od -An -tx1 -v | LC_ALL=C awk '{
+            for (i = 1; i <= NF; i++) {
+              n = (index("0123456789abcdef", substr($i, 1, 1)) - 1) * 16 + index("0123456789abcdef", substr($i, 2, 1)) - 1
+              c = sprintf("%c", n)
+              if (n < 128 && c ~ /[A-Za-z0-9._~-]/) printf "%s", c; else printf "%%%s", toupper($i)
+            }
+          }'
+        }
+
+        # The search address of the site a name means (nothing, and a failure, when it means none).
+        template() {
+          printf '%s\n' "$SITES" | awk -F'|' -v want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" '
+            { n = split($1, names, " "); for (i = 1; i <= n; i++) if (names[i] == want) { print $2; found = 1; exit } }
+            END { exit !found }'
+        }
+
+        # Every site: its name, where it is, and the other names it answers to.
+        sites() {
+          printf '%s\n' "$SITES" | awk -F'|' '{
+            n = split($1, names, " "); host = $2; sub(/^https:\/\//, "", host); sub(/\/.*/, "", host)
+            also = ""; for (i = 2; i <= n; i++) also = also (i > 2 ? ", " : "") names[i]
+            printf "%-16s %s%s\n", names[1], host, (also == "" ? "" : " (or: " also ")")
+          }'
+        }
+
+        only_url=false
+        if [ "${1:-}" = "--url" ]; then only_url=true; shift; fi
+        case "${1:-}" in
+          list|--list|sites) sites; exit 0 ;;
+          "") echo "Which site, and what? (site-search.sh youtube lofi hip hop) The sites:" >&2; sites >&2; exit 1 ;;
+        esac
+        site="$1"
+        shift
+        if ! url=$(template "$site"); then
+          echo "site-search doesn't know \"$site\". site-search.sh list says every site it knows." >&2
+          exit 1
+        fi
+        if [ $# -eq 0 ]; then
+          echo "What should $site be searched for? (site-search.sh $site …)" >&2
+          exit 1
+        fi
+        # The words go where the %s is (one in each address).
+        address="${url%%\%s*}$(encode "$*")${url#*\%s}"
+        if $only_url; then
+          printf '%s\n' "$address"
+          exit 0
+        fi
+        browser="$(dirname "$0")/browser.sh"
+        if [ ! -f "$browser" ]; then
+          echo "This needs browser.sh beside it, in the browser folder (Add the Examples on the Browser grid puts it back)." >&2
+          exit 1
+        fi
+        title=$(bash "$browser" open "$address") || exit 1
+        echo "Searched $site for \"$*\": ${title:-$address}"
+        """# + "\n"),
+        ("browser/youtube-videos.straw", #"""
+        # Searches YouTube in Chrome: the top videos, a line each (the title, a tab, the address)
+        #
+        # Input: What to search YouTube for
+        # Why: It's searched for on YouTube as typed, and the results page is read
+        open "www.youtube.com/results?search_query={args}"
+        wait css "ytd-video-renderer a#video-title"
+        # Each video's own address (watch?v=…), without the mix and tracking YouTube adds to it.
+        js "[...document.querySelectorAll('ytd-video-renderer a#video-title')].slice(0, 15).map(a => a.textContent.trim() + '\t' + 'https://www.youtube.com/watch?v=' + new URL(a.href).searchParams.get('v'))"
+        """# + "\n"),
+        ("browser/youtube-play.straw", #"""
+        # Plays the first YouTube video for what you search for, in Chrome, in front
+        #
+        # Input: What to play on YouTube
+        # Why: It's searched for on YouTube as typed, and the first video (not a mix or a channel) is played
+        open "www.youtube.com/results?search_query={args}"
+        wait css "ytd-video-renderer a#video-title"
+        read css "ytd-video-renderer a#video-title" into title
+        click first css "ytd-video-renderer a#video-title"
+        wait css "video"
+        print "Playing: {title}"
+        """# + "\n"),
+        ("browser/youtube-latest.straw", #"""
+        # A YouTube channel's latest videos, newest first, a line each (the title, a tab, the address)
+        #
+        # Input: The channel's handle, as in its address (youtube.com/@LofiGirl is LofiGirl)
+        # Why: Its Videos page is opened in Chrome and read
+        open "www.youtube.com/@{1}/videos"
+        # A handle YouTube doesn't know gets a bare "404 Not Found" page, without YouTube's own app in it.
+        if no css "ytd-app"
+          stop "YouTube has no channel @{1}: write the handle as it is in the channel's address."
+        wait css "ytd-rich-item-renderer a#video-title-link, ytd-rich-item-renderer a.ytLockupMetadataViewModelTitle"
+        read links css "ytd-rich-item-renderer a#video-title-link, ytd-rich-item-renderer a.ytLockupMetadataViewModelTitle"
+        """# + "\n"),
+        ("browser/github-repos.straw", #"""
+        # Searches GitHub for repositories in Chrome: the top ones, a line each (owner/name, a tab, the address)
+        #
+        # Input: What to search GitHub for
+        # Why: It's searched for on GitHub as typed (repositories only), and the results page is read
+        open "github.com/search?q={args}&type=repositories"
+        wait css "[data-testid='results-list'] .search-title a"
+        read links css "[data-testid='results-list'] .search-title a"
+        """# + "\n"),
+        ("browser/hn-search.straw", #"""
+        # Searches Hacker News (through Algolia) in Chrome: the stories that best match, a line each (the title, a tab, the address)
+        #
+        # Input: What to search Hacker News for
+        # Why: It's searched for on hn.algolia.com as typed, and the results page is read
+        open "hn.algolia.com/?q={args}"
+        wait css ".Story_title"
+        read links css ".Story_title > a:first-child"
+        """# + "\n"),
+        ("browser/arxiv-search.straw", #"""
+        # Searches arXiv for papers in Chrome: the newest that match, a line each (the title, a tab, the abstract's address)
+        #
+        # Input: What to search arXiv for
+        # Why: It's searched for on arxiv.org as typed (in every field), and the results page is read
+        open "arxiv.org/search/?query={args}&searchtype=all&order=-announced_date_first"
+        see no "Sorry, your query"
+        wait css "li.arxiv-result"
+        js "[...document.querySelectorAll('li.arxiv-result')].slice(0, 10).map(r => r.querySelector('p.title').textContent.replace(/\s+/g, ' ').trim() + '\t' + r.querySelector('p.list-title a').href)"
         """# + "\n"),
     ]
 
@@ -4810,7 +5544,130 @@ extension Examples {
 
         showResult $"{cookies}\n\n{outline}"
         """# + "\n"),
+        ("search-a-site.flow", #"""
+        // Searches one of 50 well-known sites (YouTube, Amazon, GitHub, Reddit, Maps, IMDb…): pick it, say what, and its results open in Chrome
+        //
+        // Input (optional): The site, then what to search it for (amazon usb-c hub)
+        let sites = run "site-search" ["list"] |> lines |> map (fun line -> first (split " " line))
+        let site = if isEmpty args then choose "Search which site?" sites else first args
+        let words = if length args > 1 then args |> skip 1 |> join " " else ask $"Search {site} for…"
+
+        print (run "site-search" [site; words])
+        """# + "\n"),
+        ("search-everywhere.flow", #"""
+        // Searches YouTube, GitHub, Hacker News and arXiv for a topic in Chrome (Straw scripts, all) and gives the top three of each in one result
+        //
+        // Input: A topic
+        let topic = if isEmpty args then ask "Search everywhere for…" else join " " args
+        // What went wrong, in its last line (a Straw script says what it was doing before that).
+        let why r = if isEmpty (lines r.err) then $"it stopped ({r.code})" else r.err |> lines |> last
+        let top r = if r.ok then r.out |> lines |> take 3 |> map (replace "\t" " — ") |> join "\n" else $"(couldn't search: {why r})"
+        // One after another: a Straw script drives the tab in front of Chrome, so two at once would share it.
+        let youtube = top (attempt "youtube-videos" [topic])
+        let github = top (attempt "github-repos" [topic])
+        let hackerNews = top (attempt "hn-search" [topic])
+        let arxiv = top (attempt "arxiv-search" [topic])
+
+        showResult $"{topic}\n\nYouTube\n{youtube}\n\nGitHub\n{github}\n\nHacker News\n{hackerNews}\n\narXiv\n{arxiv}"
+        """# + "\n"),
+        ("youtube-channels.flow", #"""
+        // The latest videos from the YouTube channels you name, three each, in one result (read in Chrome by a Straw script, a channel at a time)
+        //
+        // Input: The channels' handles, with commas between them (LofiGirl, veritasium, mkbhd)
+        let named = if isEmpty args then ask "Which channels? (LofiGirl, veritasium, mkbhd)" else join " " args
+        let channels = named |> split "," |> map trim |> map (replace "@" "") |> filter (fun c -> not (c = ""))
+        let why r = if isEmpty (lines r.err) then $"it stopped ({r.code})" else r.err |> lines |> last
+        let latest channel =
+            let r = attempt "youtube-latest" [channel]
+            let videos = if r.ok then r.out |> lines |> take 3 |> map (fun v -> "  " + first (split "\t" v)) |> join "\n" else "  " + why r
+            $"@{channel}\n{videos}"
+
+        showResult (channels |> map latest |> join "\n\n")
+        """# + "\n"),
+        ("find-and-open.flow", #"""
+        // Finds a file by name with Spotlight, lets you pick one of the newest, then opens it, shows it in the Finder, previews it or copies where it is
+        //
+        // Input: Part of the file's name
+        let name = if isEmpty args then ask "Find a file called…" else join " " args
+        let found = attempt "find-file" [name]
+        if not found.ok then
+            fail (found.err |> trim)
+        let picked = found.out |> lines |> choose $"Files called “{name}”, the newest first:"
+        let action = choose $"{picked}" ["Open it"; "Show it in the Finder"; "Preview it (Quick Look)"; "Copy where it is"]
+
+        let done =
+            if action = "Show it in the Finder" then run "open-file" [picked; "reveal"]
+            elif action = "Preview it (Quick Look)" then run "open-file" [picked; "look"]
+            elif action = "Copy where it is" then run "copy-to-clipboard" [picked]
+            else run "open-file" [picked]
+        print done
+        """# + "\n"),
+        ("spotlight-search.flow", #"""
+        // Searches this Mac with Spotlight, as ⌘Space does, for a kind of file (or any): pick one of what it finds, and it opens
+        //
+        // Input: The words to look for (in the file's name or in what's written in it)
+        let words = if isEmpty args then ask "Search this Mac for…" else join " " args
+        let kind = choose "What kind of file?" ["anything"; "pdf"; "document"; "image"; "video"; "audio"; "presentation"; "spreadsheet"; "text"; "code"; "folder"; "app"; "archive"; "email"]
+        let terms = words |> split " " |> filter (fun w -> not (w = ""))
+        let found = if kind = "anything" then attempt "spotlight" terms else attempt "spotlight" (["--kind"; kind] @ terms)
+        if not found.ok then
+            fail (found.err |> trim)
+
+        let picked = found.out |> lines |> choose $"Spotlight found, the newest first:"
+        print (run "open-file" [picked])
+        """# + "\n"),
+        ("latest-screenshot.flow", #"""
+        // Opens your newest screenshot, wherever it was saved, and puts where it is on the clipboard (for a message or a terminal)
+        let newest = run "screenshots" ["latest"]
+        run "open-file" [newest] |> ignore
+        run "copy-to-clipboard" [newest] |> ignore
+
+        notify $"Your newest screenshot is open, and where it is is on the clipboard"
+        print newest
+        """# + "\n"),
+        ("downloads-report.flow", #"""
+        // What's in your Downloads, in one result: the newest files and the sites they came from, the biggest, and any exact copies (nothing is moved or deleted)
+        let get r = if r.ok then r.out else $"(couldn't look: {trim r.err})"
+        let found =
+            parallel [
+                (fun () -> attempt "recent-downloads" ["10"])
+                (fun () -> attempt "large-files" ["100MB"; "~/Downloads"])
+                (fun () -> attempt "find-duplicates" ["~/Downloads"]) ]
+            |> map get
+        let part n = found |> skip n |> first
+
+        showResult $"The newest\n{part 0}\n\nOver 100 MB\n{part 1}\n\nCopies\n{part 2}"
+        """# + "\n"),
+        ("explain-selection.flow", #"""
+        // Explains what's selected on the page in front of Chrome: what Wikipedia says about it and what the dictionary says it means, in one result
+        let picked = run "selected-text" []
+        let get r = if r.ok then r.out else $"(nothing found: {trim r.err})"
+        let found = parallel [ (fun () -> attempt "wikipedia" [picked]); (fun () -> attempt "define" [picked]) ] |> map get
+
+        showResult $"“{picked}”\n\nWikipedia\n{first found}\n\nThe dictionary\n{found |> skip 1 |> first}"
+        """# + "\n"),
+        ("translate-selection.flow", #"""
+        // Translates what's selected on the page in front of Chrome (into English, or the language you say), with Google
+        //
+        // Input (optional): The language to translate into (English unless set)
+        let picked = run "selected-text" []
+        let into = if isEmpty args then "English" else join " " args
+
+        showResult $"“{picked}”\n\n{run "translate" [picked; into]}"
+        """# + "\n"),
+        ("read-selection-aloud.flow", #"""
+        // Says out loud what's selected on the page in front of Chrome (select a paragraph, then run it)
+        let picked = run "selected-text" []
+        run "speak" [picked] |> ignore
+
+        print $"Said {length (split " " picked)} words"
+        """# + "\n"),
     ]
+
+    /// What runs a Straw script, wherever it is: straw.py, and browser.sh, which it drives Chrome with.
+    public static var strawRunner: [(String, String)] {
+        browser.filter { $0.0 == "browser/\(Straw.runnerName)" || $0.0 == "browser/browser.sh" }
+    }
 
     /// Every example script, wherever it goes.
     public static var allScripts: [(String, String)] { scripts + utilities + browser }

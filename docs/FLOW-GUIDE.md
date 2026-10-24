@@ -370,7 +370,11 @@ Two more grids hold scripts too, each in a folder of its own inside your scripts
   `google` asks Google and gives back just the answer (Google's own, then the top results),
   `youtube` gives the top videos (or plays the first with `--play`), `youtube-music` plays a song
   and takes `pause`, `play`, `next`, `previous` and `now`; `open-page`, `page-info`, `page-text`
-  and `page-links` work on any page.
+  and `page-links` work on any page. `site-search` searches any of 50 well-known sites by name
+  (`run "site-search" ["amazon"; "usb-c hub"]` opens Amazon's results; `["--url"; …]` gives just
+  the address), and the Straw scripts read results: `youtube-videos`, `youtube-play`,
+  `youtube-latest` (a channel's newest), `github-repos`, `hn-search` and `arxiv-search` give a line
+  each, the title, a tab, the address (`split "\t"` takes them apart).
 
 More utilities look things up (`wikipedia`, `define`, `currency`, `world-clock`, `public-ip`),
 check things (`site-check`, `battery`, `system-info`) and help (`password`, `timer`). They build on
@@ -391,10 +395,30 @@ text there's `text-case` (upper, lower, title, slug, snake, camel…), `encode` 
 escapes, hex, HTML), `hash`, `new-id` and `pick` (a number, one of some things, a coin, dice, a
 shuffle). Text goes in as their input: `"Hello World" |> pipe "text-case" ["slug"]`.
 
+Finding files is Spotlight's, as ⌘Space is: `find-file` (by name, the newest first: `run
+"find-file" ["invoice"]`, or `["invoice"; "~/Documents"]`, or `["invoice"; "everywhere"]`),
+`spotlight` (by the words in a file's name or in what's written in it, of a kind if you say:
+`["--kind"; "pdf"; "tax"; "return"]`), `screenshots` (every one, wherever it was saved; `["latest"]`
+for the newest's path), `large-files` (everything over a size: `["2GB"]`), `recent-downloads`
+(the newest, and the site each came from), `file-info` (a file's kind, dates, pages, pixels, and
+where it was downloaded from), `find-text` (the files in a folder with some text in them, and
+the lines) and `find-duplicates` (exact copies, and the room they take). Nothing in them moves or
+deletes a file; `open-file` opens one (`[path]`), shows it in the Finder (`[path; "reveal"]`) or
+previews it (`[path; "look"]`). Each gives back a path a line, so a flow picks one and goes on:
+
+```
+let picked = run "find-file" ["invoice"] |> lines |> choose "Which one?"
+run "open-file" [picked; "reveal"] |> print
+```
+
 The Composer examples do the heavy lifting with them: `ask-google`, `weather-now`,
 `news-briefing`, `urgent-news`, `cloud-check`, `youtube-search`, `play-music`, `research`,
 `travel-check`, `focus-session`, `site-watch`, `mac-health`, `translate`, `tidy-chrome`,
-`inbox-check`, `new-password`, `today-briefing`, `open-apps`, `countdown` and
+`inbox-check`, `new-password`, `today-briefing`, `open-apps`, `countdown`, the file finders'
+`find-and-open`, `spotlight-search`, `latest-screenshot` and `downloads-report`, the searches'
+`search-a-site` (one of 50 well-known sites, by name), `search-everywhere` (YouTube, GitHub,
+Hacker News and arXiv at once, through Straw scripts) and `youtube-channels`, what's selected in
+Chrome's `explain-selection`, `translate-selection` and `read-selection-aloud`, and
 `morning-briefing`, which fetches the weather, the news and the cloud services at the same time
 and keeps going when one can't be reached:
 
@@ -440,8 +464,9 @@ run "play-sound" ["Glass"] |> ignore
 | `["wait"]` | waits (up to 30 seconds) for the page in front to finish loading |
 | `["encode"; text]` | the text made safe to put in an address (`?q=…`) |
 
-JavaScript is an expression (`document.title`), or statements whose answer is given back by a
-`return` at the start of a line; what isn't text comes back as JSON.
+JavaScript is an expression (`document.title`, or `items.map(v => { const t = v.title; return t })`:
+the functions inside it return what they like), or statements whose answer is given back by a
+`return` of their own, outside any function; what isn't text comes back as JSON.
 
 Two things are asked once, the first time: macOS asks whether the app may control Chrome (click
 **Allow**), and Chrome needs **View › Developer › Allow JavaScript from Apple Events** ticked.
