@@ -32,7 +32,11 @@ The utilities also look things up (`wikipedia`, `define`, `currency`, `world-clo
 `timer`, which plays a sound and speaks through the other utilities; `copy-to-clipboard`, which
 puts text on the clipboard and says what it copied; `alarm`, which rings on this Mac with a
 sound, the words out loud and a notification at a time you give it: `alarm "20 minutes" "Stand
-up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`). The browser scripts build on
+up"`, `alarm 16:30 "Call Sam"`, `alarm list`, `alarm cancel`; `library`, your notes, kept as plain text
+files in `~/Documents/Library`: `library add Shopping "eggs, milk"`, `library list`, `library
+search budget`, `library read Shopping`, `library append Shopping bread`, `replace`, `rename`,
+`star`, `remove` (to its trash) and `restore`, which is how an assistant such as Super Face
+keeps and finds notes for you). The browser scripts build on
 each other: `translate` is `google --answer`; `gmail` reads your unread mail; `save-tabs`,
 `close-duplicate-tabs` and `maps` drive Chrome through `browser.sh`.
 
