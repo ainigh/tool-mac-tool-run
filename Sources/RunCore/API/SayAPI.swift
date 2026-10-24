@@ -521,10 +521,12 @@ extension RunAPI {
     func sayNews(_ ctx: SayContext, tell: Bool) async -> [(number: Int, line: String)] {
         var out: [(Int, String)] = []
         for var e in await sayLog.entries(ctx.client) where e.asks {
-            if let id = e.request, e.state.open { await sayFollow(&e, id) }
+            let followed = e.request != nil && e.state.open
+            if followed, let id = e.request { await sayFollow(&e, id) }
             let key = e.state.key
             guard key != e.told else {
-                await sayLog.update(ctx.client, e.number) { [e] x in x.state = e.state; x.result = e.result; x.ended = e.ended }
+                // Only what was followed can have changed.
+                if followed { await sayLog.update(ctx.client, e.number) { [e] x in x.state = e.state; x.result = e.result; x.ended = e.ended } }
                 continue
             }
             let line = Self.newsLine(e)
@@ -559,7 +561,7 @@ extension RunAPI {
                 break
             }
             guard r.state.finished else { e.state = .running; return }
-            e.state = .finished(ok: r.state == .succeeded, code: r.code.map { Int($0) })
+            e.state = r.state == .stopped ? .stopped : .finished(ok: r.state == .succeeded, code: r.code.map { Int($0) })
             var result = r.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if r.kind == .flow {
                 let steps = await host.steps(of: run).filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -589,6 +591,7 @@ extension RunAPI {
         case .notAnswered: return "\(s) didn't go ahead: no one answered on the Mac in time. Say it again to ask again."
         case .withdrawn: return "\(s) was taken back; nothing ran."
         case let .couldNotStart(why): return "\(s) couldn't start: \(why)"
+        case .stopped: return "\(s) was stopped before it ended.\((e.result ?? "").isEmpty ? "" : " Say \"show me \(s)\" to see what it printed first.")"
         case .done: return e.result ?? "\(s) is done."
         case let .failed(why): return "\(s) didn't work: \(why)"
         case .waiting: return "\(s) is waiting for the person at the Mac."
@@ -611,6 +614,7 @@ extension RunAPI {
         case .notAnswered: return "no one answered on the Mac in time"
         case .withdrawn: return "taken back"
         case .couldNotStart: return "it couldn't start"
+        case .stopped: return "stopped"
         }
     }
 
@@ -656,6 +660,7 @@ extension RunAPI {
             let head: String
             switch e.state {
             case let .finished(ok, _): head = "\(Self.capitalized(e.short)) \(ok ? "worked" : "failed")\(e.ended.map { " at \(SayWords.time($0))" } ?? ""). It printed:\n"
+            case .stopped: head = "\(Self.capitalized(e.short)) was stopped. Before that it printed:\n"
             default: head = ""
             }
             return SayReply(answer: head + result, about: [e.number])
@@ -732,6 +737,7 @@ extension RunAPI {
         case .notAnswered: return "\(s) didn't go ahead: no one answered on the Mac in time."
         case .withdrawn: return "\(s) was taken back before anyone answered; nothing ran."
         case let .couldNotStart(why): return "\(s) couldn't start: \(why)"
+        case .stopped: return "\(s) was stopped before it ended."
         }
     }
 
