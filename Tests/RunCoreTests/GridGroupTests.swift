@@ -97,7 +97,8 @@ final class GridGroupTests: XCTestCase {
                             "travel-check.flow", "site-watch.flow", "new-password.flow", "today-briefing.flow", "open-apps.flow",
                             "countdown.flow", "network-check.flow", "dev-check.flow", "presentation-mode.flow", "page-aloud.flow",
                             "find-and-open.flow", "spotlight-search.flow", "latest-screenshot.flow", "downloads-report.flow",
-                            "explain-selection.flow", "read-selection-aloud.flow"]
+                            "explain-selection.flow", "read-selection-aloud.flow", "quick-note.flow", "journal.flow", "find-note.flow",
+                            "library-digest.flow", "save-page.flow", "clip-selection.flow"]
         // mac-health also runs disk-space, from the Scripts grid's examples: it comes with them.
         let withScripts = ["mac-health.flow"]
         let utilities = try lib.addExamples(for: .utilities)
@@ -539,7 +540,8 @@ final class APIBoardTests: XCTestCase {
         XCTAssertTrue(functions.isDisjoint(with: ["run", "attempt", "pipe", "epa", "map", "print", "fail", "parallel", "sum", "not"]), "\(functions)")
         // The sections, in order, and each one's endpoint.
         XCTAssertEqual(actions.map(\.section).reduce(into: [APIAction.Section]()) { if $0.last != $1 { $0.append($1) } },
-                       [.scripts, .utilities, .browser, .flows, .epa, .functions])
+                       [.scripts, .utilities, .browser, .library, .flows, .epa, .functions])
+        XCTAssertEqual(APIAction.Section.library.endpoint, .library)
         XCTAssertEqual(APIAction.Section.browser.endpoint, .run)
         XCTAssertEqual(APIAction.Section.functions.endpoint, .compose)
 
@@ -575,6 +577,33 @@ final class APIBoardTests: XCTestCase {
             let answers = action.inputs.map { $0.prompt.contains("number") ? "2" : "x" }
             XCTAssertNoThrow(try Flow.check(try action.code(answers: answers) ?? "", scripts: []), action.title)
         }
+        // The library: its operations, run on the board as one line of Flow, sent by another app to
+        // /api/library (answered at once).
+        let library = actions.filter { $0.section == .library }
+        XCTAssertEqual(library.count, APICatalog.libraryOps.count)
+        let write = try XCTUnwrap(library.first { $0.id == "library:write" })
+        XCTAssertEqual(write.inputs.map(\.prompt), ["The note's name", "What goes in it (it replaces what's there)"])
+        XCTAssertEqual(try write.code(answers: ["groceries", "- eggs"]), #"libraryWrite "groceries" "- eggs""#)
+        let sent = try write.request(answers: ["groceries", "- eggs"])
+        XCTAssertEqual(sent.path, "/api/library")
+        XCTAssertEqual(sent.body["op"] as? String, "write")
+        XCTAssertEqual(sent.body["text"] as? String, "- eggs")
+        XCTAssertEqual(try library.first { $0.id == "library:recent" }?.request(answers: ["3"]).body["limit"] as? Int, 3)
+        for action in library {
+            let answers = action.inputs.map { $0.prompt.hasPrefix("How many") ? "2" : "x" }
+            XCTAssertNoThrow(try Flow.check(try action.code(answers: answers) ?? "", scripts: []), action.title)
+        }
+        XCTAssertFalse(functions.contains("libraryRead"), "the library's functions are in its own section")
+        // Each section's tiles by their topic.
+        XCTAssertEqual(jsonGet.group, "Text and data")
+        XCTAssertEqual(actions.first { $0.id == "script:utilities/find-file.sh" }?.group, "Finding files")
+        XCTAssertEqual(actions.first { $0.id == "script:utilities/library-search.sh" }?.group, "Library")
+        XCTAssertEqual(actions.first { $0.id == "script:browser/hacker-news.straw" }?.group, "Straw")
+        XCTAssertEqual(actions.first { $0.id == "function:upper" }?.group, "Text")
+        let utilityTopics = actions.filter { $0.section == .utilities }.compactMap(\.group)
+        XCTAssertEqual(utilityTopics.first, "Library", "the topics in order: \(utilityTopics)")
+        XCTAssertFalse(utilityTopics.contains("Your own"), "every example utility has a topic: \(actions.filter { $0.group == "Your own" }.map(\.id))")
+
         // EPA: its command and the words typed.
         let doctor = try XCTUnwrap(actions.first { $0.section == .epa && $0.title == "Check Connections" })
         XCTAssertEqual(try doctor.code(answers: ["--json 'two words'"]), #"epa ["doctor"; "--json"; "two words"] |> ignore"#)

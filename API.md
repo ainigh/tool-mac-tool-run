@@ -10,8 +10,13 @@ the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serve
 - **Read** the runs, and stop one. **Every request has an id** you get back at once and can ask
   about any time later (`/api/requests/{id}`): still waiting for the click, denied, running, done.
 - **Automate**: tag a script or a flow to run by itself, on a schedule or when something happens.
+- **Keep notes** in the person's file library (LIBRARY on their Desktop): Markdown notes by name,
+  like keys and values. List, read, write, append, search the full text, delete to the library's
+  own Trash and restore. **These answer at once, without a card**: they're notes, not programs.
+- **Drive Chrome with Straw**: its words, check Straw code, run a Straw script or code you send.
+- **See every route**, in its groups: `GET /api/endpoints`.
 
-**Nothing runs without the person's say-so.** Every run request shows a large card on the Mac
+**Nothing runs without the person's say-so** (the file library aside). Every run request shows a large card on the Mac
 naming your app, why it wants the run (your `why`, in your words; the card says when you gave
 none), what would run (the exact command, or your Flow code in full) and anything it looks like
 it does that can't be undone, with **Run** and **Don't Run**. Your request waits for the click.
@@ -76,13 +81,35 @@ curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
 
 # tag a script to run by itself every evening (waits for Allow on the Mac; nothing runs now)
 curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
+
+# the file library: a note by name, written, read, searched (answered at once, nothing asked)
+curl -s localhost:8768/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\n- milk\n"}'
+curl -s localhost:8768/api/library -d '{"op": "search", "q": "milk"}'
+curl -s localhost:8768/api/library/files/groceries?format=text
+
+# every route, in its groups
+curl -s localhost:8768/api/endpoints
 ```
 
 ## Endpoints
 
+`GET /api/endpoints` (or `GET /api`) lists every route, in these groups, as JSON:
+`{"groups": [{"id", "title", "about", "switch"?, "on"?, "routes": [{"method", "path", "summary",
+"asks_on_the_mac"}]}]}`; `?group=library` gives one. `GET /api/doc` lists them the same way, as text.
+
+| group | what's in it |
+|---|---|
+| **About the API** | `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
+| **Scripts and flows** | `/api/scripts`, `/api/flows`, `/api/run`, `/api/compose`, `/api/check` |
+| **Straw** | `/api/straw`, `/api/straw/check`, `/api/straw/run` ([below](#straw-get-apistraw-post-apistrawcheck-post-apistrawrun)) |
+| **File library** | `/api/library` and everything under it ([below](#the-file-library-apilibrary)) |
+| **Automation** | `/api/automation` |
+| **Runs and requests** | `/api/requests`, `/api/runs`, stopping one |
+
 | route | switch | does |
 |---|---|---|
-| `GET  /api/health` | — | whether it's up, which endpoints are on, the folder |
+| `GET  /api/endpoints` | — | every route, in its groups |
+| `GET  /api/health` | — | whether it's up, which endpoints are on, the folder, the library |
 | `GET  /api/scripts` | `catalog` | the scripts in the folder (and its utilities and browser scripts): name, group, language, description, what they look like they do |
 | `GET  /api/flows` | `catalog` | the flows in the folder's `composer` folder |
 | `POST /api/run` | `run` | runs a script once it's allowed on the Mac |
@@ -94,6 +121,10 @@ curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": 
 | `GET  /api/runs` | `runs` | the latest runs (yours and the person's), without their output |
 | `GET  /api/runs/{id}` | `runs` | one run, with its output (and a flow's steps) |
 | `POST /api/runs/{id}/stop` | `runs` | stops it |
+| `GET  /api/straw` | `catalog` | Straw's words and the Straw scripts in the folder |
+| `POST /api/straw/check` | `catalog` | checks Straw code: what it would do, or its mistake (nothing runs, nothing is asked) |
+| `POST /api/straw/run` | `run` | runs a Straw script, or Straw code you send, in Chrome, once it's allowed |
+| `/api/library…` | `library` | the file library's notes: **answered at once, nothing asked** ([below](#the-file-library-apilibrary)) |
 | `GET  /` | — | a status page listing the endpoints, with a place to try running a script or Flow code |
 
 **Switches.** Each group can be turned off or on in the menu bar panel's **HTTP API** section (and
@@ -430,6 +461,87 @@ send `client` and `why` in the body as for a run. It answers like a run request:
 
 ---
 
+### The file library: `/api/library`
+
+**LIBRARY**, on the person's Desktop, holds their notes: Markdown files, each known by its name
+without `.md` (`groceries` is `LIBRARY/groceries.md`). A name is a key and its text the value.
+**Nothing here shows a card or waits for a click**: the library's calls answer at once. Deleting
+a note only moves it to the library's own Trash folder, numbered (`groceries (1).md`, `groceries
+(2).md`…), so several of the same name can wait there and `restore` brings back the latest, or the
+one you name. The person sees the same notes on the app's **Library** board (⌘7), and flows reach
+them too (`libraryRead`, `libraryWrite`…).
+
+**Every call has an id**, as a run's request does: the `X-Request-Id` header and `request` in the
+JSON (refusals too). `GET /api/library/operations/{id}` — or `GET /api/requests/{id}` — says what
+it was, who asked and how it went; `GET /api/library/operations?limit=20` lists the latest.
+
+**The easy way: one endpoint for everything.** `POST /api/library` with `{"op": "…", …its fields}`:
+
+| op | fields | gives back |
+|---|---|---|
+| `list` | `sort` (`name`·`modified`·`created`·`size`), `order` (`asc`·`desc`), `q` (words in the name), `limit`, `offset`, `content` | `notes`: `[{name, file, title, size, modified, created, text?}]`, `count`, `total` |
+| `names` | | `names`, A to Z |
+| `read` | `name` | `name`, `text`, `title`, `size`, `words`, `lines`, `modified`, `created` |
+| `read_many` | `names` | `notes` (each with its `text`), `missing` |
+| `exists` | `name` | `exists` |
+| `write` | `name`, `text` | the note, and `new` (true: it was created) and `action` (`created`·`replaced`) |
+| `create` | `name`, `text`? | the note; **409** `already_exists` if the name is taken |
+| `append` | `name`, `text` | adds it on a line of its own at the end (creating the note if needed); `action`: `created`·`appended` |
+| `rename` | `name`, `to`, `overwrite`? | the note under its new name (`overwrite`: the one there goes to the Trash first) |
+| `copy` | `name`, `to` | the copy |
+| `delete` | `name` | `trash`: `{name, number, file, deleted}` |
+| `search` | `q`, `match` (`all`·`any`), `case_sensitive`, `whole_words`, `names_only`, `lines` (5), `limit` | `results`: `[{name, score, lines: [{line, text}], …}]`, the best first |
+| `find` | the same | `names`, the best first: "list the files by the search's result" |
+| `recent` | `limit` (10) | `notes`, the latest changed first |
+| `outline` | `name` | `headings`: `[{level, text, line}]` |
+| `backlinks` | `name` | `results`: the notes linking to it (`[[name]]`, or a Markdown link to its file) |
+| `stats` | | `notes`, `bytes`, `words`, `trashed`, `newest` |
+| `trash` | | `trash`: what's in it, the latest deleted first |
+| `restore` | `name`, `number`?, `as`? | the note, back (the latest of that name unless `number`; `as` another name when it's taken) |
+| `empty_trash` | `older_than_days`? | `deleted`: how many, for good |
+
+A search's words must all be in the note (`"match": "any"`: one is enough), in its name or its
+text; a `"phrase in quotes"` is one; case and accents never matter (`cafe` finds `café`). A name in
+its name counts more than in its text.
+
+**Or a route each**, for the usual ones: `GET /api/library/files` (list, with the same fields as
+query parameters), `POST /api/library/files` (create), `GET|PUT|DELETE /api/library/files/{name}`
+(read, write, to the Trash), `POST …/{name}/append|rename|copy`, `GET …/{name}/exists|outline|backlinks`,
+`GET /api/library/names|search|find|recent|stats|trash`, `POST /api/library/trash/restore|empty`.
+`PUT` takes the text itself as its body too (`text/plain` or `text/markdown`), and
+`GET /api/library/files/{name}?format=text` gives the text alone, as Markdown.
+
+```bash
+curl -s localhost:8768/api/library -d '{"op": "create", "name": "Trip to Lagos", "text": "# Trip\n- book the flight\n", "client": "My App"}'
+curl -s localhost:8768/api/library -d '{"op": "append", "name": "Trip to Lagos", "text": "- call the bank"}'
+curl -s localhost:8768/api/library -d '{"op": "find", "q": "bank"}'          # {"names": ["Trip to Lagos"], …}
+curl -s -X PUT localhost:8768/api/library/files/groceries -H 'Content-Type: text/markdown' --data-binary @groceries.md
+curl -s -X DELETE localhost:8768/api/library/files/groceries                 # {"trash": {"file": "groceries (1).md", …}}
+curl -s localhost:8768/api/library/trash/restore -d '{"name": "groceries"}'
+```
+
+Names: any words but `/` and `:`, not starting with a dot (`groceries.md` is `groceries`); case
+and accents don't matter when one is looked up. A name that isn't there is **404** `not_found`,
+with `fix` naming the notes near it; **400** `bad_name`, `missing_op`, `unknown_op`; **409**
+`already_exists`. The `library` switch turns them all off (**503** `endpoint_off`).
+
+### Straw: `GET /api/straw`, `POST /api/straw/check`, `POST /api/straw/run`
+
+[Straw](docs/STRAW-GUIDE.md) scripts drive Google Chrome by naming what's on the page (`open
+news.ycombinator.com`, `click "More"`, `read all css ".titleline > a"`).
+
+- `GET /api/straw`: its 25 words (`[{word, takes, does, example}]`), the Straw scripts in the
+  folder (as `/api/scripts` gives them), and where its runner (`straw.py`) is.
+- `POST /api/straw/check` with `{"source": "<Straw code>"}` (or the code as `text/plain`): nothing
+  runs and nothing is asked. `{"ok": true, "steps", "plan": [what it would do, a line a step]}`, or
+  `{"ok": false, "code": "straw_mistake", "line", "error", "fix"}`.
+- `POST /api/straw/run` with `{"script": "hacker-news"}` (a Straw script's name) or `{"source":
+  "<Straw code>", "name": "What to call it"}`: runs it in Chrome once the person clicks **Run**
+  (the card shows your code in full). Code you send is checked first: a mistake is **400**, and
+  nothing is asked. It takes `args`, `why`, `client`, `wait`, `async` and `stream` as `/api/run`
+  does, and answers the same way: what the script read is its `stdout`; what it was doing, a line a
+  step, is its `stderr`.
+
 ## Errors
 
 Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
@@ -439,11 +551,15 @@ Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
 | 400 | `missing_script`, `missing_flow`, `bad_args`, `bad_request` | the request isn't right |
 | 400 | `unknown_tag` | no such automation tag (`error` lists them) |
 | 400 | `flow_mistake` | the Flow code has a mistake (with `line` and `fix`) |
+| 400 | `straw_mistake` | the Straw code has a mistake (with `line` and `fix`) |
+| 400 | `missing_op`, `unknown_op`, `bad_name` | a file library call that isn't right (`fix` says how) |
 | 401 | `unauthorized` | sharing on the network is on and the request didn't send the token |
 | 403 | `denied`, `not_answered` | it didn't run: Don't Run, or no answer in time |
 | 403 | `forbidden` | a browser page from another site, a `Host` that isn't this Mac, or another machine while sharing is off |
 | 404 | `not_found`, `unknown_script`, `unknown_flow`, `unknown_run`, `unknown_request` | no such route, script, flow, run or request |
 | 409 | `no_folder` | no scripts folder is chosen yet |
+| 409 | `already_exists` | a library note of that name is there already (`create`, `rename`, `copy`, `restore`) |
+| 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
 | 413 | `too_large` | a body over 8 MB |
 | 503 | `endpoint_off` | that group is switched off in the app |
 | 500 | `failed` | anything else; `error` says what |

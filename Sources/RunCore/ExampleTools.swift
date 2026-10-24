@@ -3101,6 +3101,433 @@ extension Examples {
         js "const words = (document.querySelector('article') || document.querySelector('main') || document.body).innerText.split(/\s+/).filter(Boolean).length; return words + ' words, about ' + Math.max(1, Math.round(words / 230)) + ' min to read'" into count
         print "{title}: {count}"
         """# + "\n"),
+        ("utilities/library.py", #"""
+        #!/usr/bin/env python3
+        # The notes in LIBRARY on your Desktop, by name: list, read, write, add to, search, delete (to its Trash) and restore them
+        #
+        # Input (optional): What to do, then its words (with nothing, every note)
+        #
+        #   library.py                          every note, A to Z, with when it changed
+        #   library.py read groceries           a note's text (its name, without .md)
+        #   library.py write groceries - eggs   creates it, or replaces its text (the words, or the input)
+        #   library.py new "Trip to Lagos"      a new note (not if the name is taken), starting with its name as a heading
+        #   library.py append journal Ran 5k    adds a line at its end (creating it if it isn't there)
+        #   library.py search bank account      every line with the words on it, in every note, the best first
+        #   library.py find bank account        just the names of the notes with them, the best first
+        #   library.py recent 5                 the latest changed
+        #   library.py rename old new · copy a b · open groceries · stats · path
+        #   library.py delete draft             to the library's Trash, as "draft (1).md" (then 2, 3…)
+        #   library.py trash                    what's in the Trash · restore draft [number] [as NAME]
+        #
+        # The same library the app's Library board shows and its API serves (/api/library).
+        import datetime
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+        import tempfile
+        import unicodedata
+
+        EXT = "md"
+        ROOT = os.path.expanduser(os.environ.get("TMR_LIBRARY") or "~/Desktop/LIBRARY")
+        TRASH = os.path.join(ROOT, "Trash")
+        INDEX = os.path.join(TRASH, ".index.json")
+
+
+        class Problem(Exception):
+            pass
+
+
+        def fold(s):
+            s = unicodedata.normalize("NFKD", s)
+            return "".join(c for c in s if not unicodedata.combining(c)).casefold()
+
+
+        def key(name):
+            k = unicodedata.normalize("NFC", name.strip())
+            if k.lower().endswith("." + EXT):
+                k = k[: -len(EXT) - 1].strip()
+            if not k:
+                raise Problem("A note needs a name.")
+            if any(c in k for c in "/:\\") or k.startswith(".") or any(ord(c) < 32 for c in k):
+                raise Problem(f'"{k}" can\'t be a name: any words but / and :, not starting with a dot.')
+            if k.lower() == "trash":
+                raise Problem("Trash is the library's own Trash folder.")
+            return k
+
+
+        def notes():
+            try:
+                files = os.listdir(ROOT)
+            except FileNotFoundError:
+                return []
+            out = []
+            for f in files:
+                p = os.path.join(ROOT, f)
+                if not f.startswith(".") and f.lower().endswith("." + EXT) and os.path.isfile(p):
+                    out.append((unicodedata.normalize("NFC", f[: -len(EXT) - 1]), p))
+            return sorted(out, key=lambda n: fold(n[0]))
+
+
+        def find(name):
+            k = key(name)
+            exact = os.path.join(ROOT, k + "." + EXT)
+            if os.path.isfile(exact):
+                return k, exact
+            for n, p in notes():
+                if fold(n) == fold(k):
+                    return n, p
+            return None
+
+
+        def existing(name):
+            found = find(name)
+            if found:
+                return found
+            k = key(name)
+            near = [n for n, _ in notes() if fold(k) in fold(n) or fold(n) in fold(k) or fold(n)[:5] == fold(k)[:5]]
+            raise Problem(f"There's no note called {k}." + (" Near it: " + ", ".join(near[:5]) if near else " (library.py lists them)"))
+
+
+        def read_text(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                return f.read()
+
+
+        def save(path, text):
+            os.makedirs(ROOT, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=ROOT, prefix=".writing-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+            os.replace(tmp, path)
+
+
+        def given_text(words):
+            """The words after the name, else what was piped in (by a flow, or a terminal's |)."""
+            if words:
+                return " ".join(words)
+            if not sys.stdin.isatty():
+                return sys.stdin.read()
+            return ""
+
+
+        def ago(t):
+            s = (datetime.datetime.now() - datetime.datetime.fromtimestamp(t)).total_seconds()
+            if s < 90:
+                return "just now"
+            if s < 3600:
+                return f"{int(s // 60)} min ago"
+            if s < 86400:
+                return f"{int(s // 3600)} h ago"
+            return f"{int(s // 86400)} days ago"
+
+
+        def load_index():
+            try:
+                with open(INDEX, encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, ValueError):
+                return {}
+
+
+        def save_index(index):
+            os.makedirs(TRASH, exist_ok=True)
+            with open(INDEX, "w", encoding="utf-8") as f:
+                json.dump(index, f, indent=2, sort_keys=True)
+
+
+        def trashed():
+            index = load_index()
+            out = []
+            try:
+                files = os.listdir(TRASH)
+            except FileNotFoundError:
+                return []
+            for f in files:
+                if f.startswith(".") or not f.lower().endswith("." + EXT):
+                    continue
+                p = os.path.join(TRASH, f)
+                known = index.get(f)
+                if known:
+                    name, number, when = known["name"], known["number"], known["deleted"]
+                else:
+                    m = re.match(r"^(.*) \((\d+)\)$", f[: -len(EXT) - 1])
+                    name, number = (m.group(1), int(m.group(2))) if m else (f[: -len(EXT) - 1], 1)
+                    when = datetime.datetime.fromtimestamp(os.path.getmtime(p), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                out.append({"name": name, "number": number, "file": f, "path": p, "deleted": when})
+            return sorted(out, key=lambda t: (t["deleted"], t["number"]), reverse=True)
+
+
+        def search(words, names_only=False):
+            terms = re.findall(r'"([^"]+)"|(\S+)', " ".join(words))
+            terms = [fold(a or b) for a, b in terms]
+            hits = []
+            for name, path in notes():
+                text = read_text(path)
+                fname, ftext = fold(name), fold(text)
+                if not all(t in fname or t in ftext for t in terms):
+                    continue
+                score = sum(fname.count(t) * 10 + ftext.count(t) for t in terms)
+                lines = [(k + 1, line.strip()) for k, line in enumerate(text.split("\n")) if any(t in fold(line) for t in terms)]
+                hits.append((score, os.path.getmtime(path), name, lines))
+            hits.sort(key=lambda h: (-h[0], -h[1]))
+            return hits
+
+
+        def main(argv):
+            what = argv[0].lower() if argv else "list"
+            rest = argv[1:]
+            if what in ("list", "ls", "all"):
+                found = notes()
+                if not found:
+                    print(f"The library is empty: {ROOT.replace(os.path.expanduser('~'), '~')} (library.py new NAME makes a note)")
+                    return 0
+                for name, path in found:
+                    print(f"{name}  ·  {ago(os.path.getmtime(path))}")
+            elif what == "read":
+                name, path = existing(" ".join(rest))
+                sys.stdout.write(read_text(path))
+            elif what in ("write", "new", "create"):
+                if not rest:
+                    raise Problem(f"Which note? (library.py {what} NAME words…)")
+                k = key(rest[0])
+                found = find(k)
+                text = given_text(rest[1:])
+                if what != "write" and found:
+                    raise Problem(f"There's already a note called {found[0]}.")
+                if what != "write" and not text:
+                    text = f"# {k}\n"
+                path = found[1] if found else os.path.join(ROOT, k + "." + EXT)
+                save(path, text if text.endswith("\n") or not text else text + "\n")
+                print(f"{'Wrote' if found else 'Created'} {found[0] if found else k}")
+            elif what in ("append", "add"):
+                if not rest:
+                    raise Problem("Which note? (library.py append NAME words…)")
+                text = given_text(rest[1:])
+                if not text:
+                    raise Problem("What should be added? (library.py append NAME words…)")
+                found = find(rest[0])
+                now = read_text(found[1]) if found else ""
+                if now and not now.endswith("\n"):
+                    now += "\n"
+                path = found[1] if found else os.path.join(ROOT, key(rest[0]) + "." + EXT)
+                save(path, now + text + ("" if text.endswith("\n") else "\n"))
+                print(f"Added to {found[0] if found else key(rest[0])}")
+            elif what in ("search", "grep"):
+                if not rest:
+                    raise Problem('What should be searched for? (library.py search words, or "a phrase")')
+                hits = search(rest)
+                if not hits:
+                    print(f"No note has {' '.join(rest)} in it.", file=sys.stderr)
+                    return 1
+                for _, _, name, lines in hits:
+                    if not lines:
+                        print(f"{name}: (in its name)")
+                    for number, line in lines[:5]:
+                        print(f"{name}:{number}: {line[:240]}")
+            elif what == "find":
+                if not rest:
+                    raise Problem("What should be found? (library.py find words)")
+                hits = search(rest)
+                if not hits:
+                    print(f"No note has {' '.join(rest)} in it.", file=sys.stderr)
+                    return 1
+                for _, _, name, _ in hits:
+                    print(name)
+            elif what in ("recent", "latest"):
+                count = int(rest[0]) if rest and rest[0].isdigit() else 10
+                for name, path in sorted(notes(), key=lambda n: -os.path.getmtime(n[1]))[:count]:
+                    print(f"{name}  ·  {ago(os.path.getmtime(path))}")
+            elif what in ("rename", "move", "copy"):
+                if len(rest) < 2:
+                    raise Problem(f"library.py {what} OLD NEW")
+                name, path = existing(rest[0])
+                new = key(" ".join(rest[1:]))
+                there = find(new)
+                if there and fold(there[0]) != fold(name):
+                    raise Problem(f"There's already a note called {there[0]}.")
+                target = os.path.join(ROOT, new + "." + EXT)
+                if what == "copy":
+                    if there:
+                        raise Problem(f"There's already a note called {there[0]}.")
+                    save(target, read_text(path))
+                    print(f"Copied {name} to {new}")
+                else:
+                    os.replace(path, target)
+                    print(f"Renamed {name} to {new}")
+            elif what in ("delete", "remove", "trash-it"):
+                name, path = existing(" ".join(rest))
+                os.makedirs(TRASH, exist_ok=True)
+                number = max([t["number"] for t in trashed() if fold(t["name"]) == fold(name)] or [0]) + 1
+                while os.path.exists(os.path.join(TRASH, f"{name} ({number}).{EXT}")):
+                    number += 1
+                target = f"{name} ({number}).{EXT}"
+                os.replace(path, os.path.join(TRASH, target))
+                index = load_index()
+                index[target] = {"name": name, "number": number,
+                                 "deleted": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                save_index(index)
+                print(f"Moved {name} to the library's Trash as {target} (library.py restore {name} brings it back)")
+            elif what == "trash":
+                items = trashed()
+                if not items:
+                    print("The library's Trash is empty.")
+                for t in items:
+                    print(f"{t['name']} ({t['number']})  ·  deleted {t['deleted'][:16].replace('T', ' ')}")
+            elif what == "restore":
+                if not rest:
+                    return main(["trash"])
+                words = list(rest)
+                new = None
+                if "as" in words:
+                    k = words.index("as")
+                    new, words = " ".join(words[k + 1:]), words[:k]
+                number = int(words.pop()) if len(words) > 1 and words[-1].isdigit() else None
+                name = " ".join(words)
+                picks = [t for t in trashed() if fold(t["name"]) == fold(key(name)) and (number is None or t["number"] == number)]
+                if not picks:
+                    raise Problem(f"There's no {name}{f' ({number})' if number else ''} in the library's Trash (library.py trash lists it).")
+                t = picks[0]
+                target = key(new or t["name"])
+                if find(target):
+                    raise Problem(f'There\'s a note called {target} now: restore it as another name (library.py restore {name} as "{target} restored").')
+                os.replace(t["path"], os.path.join(ROOT, target + "." + EXT))
+                index = load_index()
+                index.pop(t["file"], None)
+                save_index(index)
+                print(f"Restored {target}")
+            elif what == "open":
+                name, path = existing(" ".join(rest))
+                if subprocess.run(["open", path]).returncode != 0:
+                    raise Problem(f"Couldn't open {name} (opening needs macOS)")
+                print(f"Opened {name}")
+            elif what == "stats":
+                found = notes()
+                words = sum(len(read_text(p).split()) for _, p in found)
+                size = sum(os.path.getsize(p) for _, p in found)
+                print(f"{len(found)} notes, {words} words, {size / 1024:.1f} KB; {len(trashed())} in the Trash")
+            elif what in ("path", "folder", "where"):
+                print(ROOT)
+            else:
+                raise Problem(f"library.py doesn't know {what}: list, read, write, new, append, search, find, recent, rename, copy, delete, trash, restore, open, stats, path")
+            return 0
+
+
+        if __name__ == "__main__":
+            try:
+                sys.exit(main(sys.argv[1:]))
+            except Problem as p:
+                print(p, file=sys.stderr)
+                sys.exit(1)
+        """# + "\n"),
+        ("utilities/library-search.sh", #"""
+        #!/bin/bash
+        # Searches every note in the library (LIBRARY on your Desktop): each line with your words on it, the best notes first
+        #
+        # Input: The words to look for (a "phrase" in quotes)
+        # Why: Every note is read; nothing is changed
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" search "$@"
+        """# + "\n"),
+        ("utilities/library-find.sh", #"""
+        #!/bin/bash
+        # Lists the notes in the library with every one of your words in their name or text, the best first: just their names
+        #
+        # Input: The words to look for (a "phrase" in quotes)
+        # Why: Every note is read; nothing is changed
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" find "$@"
+        """# + "\n"),
+        ("utilities/library-read.sh", #"""
+        #!/bin/bash
+        # A note's text, from the library (LIBRARY on your Desktop), by its name
+        #
+        # Input: The note's name (without .md)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" read "$@"
+        """# + "\n"),
+        ("utilities/library-write.sh", #"""
+        #!/bin/bash
+        # Writes a note in the library: creates it, or replaces its text with yours
+        #
+        # Input: The note's name (without .md)
+        # Input: What goes in it (or its input, from a flow)
+        # Why: The note's text is replaced by this (what was there isn't kept)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" write "$@"
+        """# + "\n"),
+        ("utilities/library-new.sh", #"""
+        #!/bin/bash
+        # Makes a new note in the library (not if the name is taken), starting with its name as a heading, or your words
+        #
+        # Input: The new note's name
+        # Input (optional): What goes in it (its name as a heading unless set)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" new "$@"
+        """# + "\n"),
+        ("utilities/library-append.sh", #"""
+        #!/bin/bash
+        # Adds a line at the end of a note in the library (creating the note if it isn't there): a journal, a log, a list
+        #
+        # Input: The note's name (without .md)
+        # Input: The line to add
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" append "$@"
+        """# + "\n"),
+        ("utilities/library-delete.sh", #"""
+        #!/bin/bash
+        # Moves a note to the library's Trash (as name (1), name (2)…), from where library-restore brings it back
+        #
+        # Input: The note's name (without .md)
+        # Why: It's moved to LIBRARY/Trash, not deleted for good
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" delete "$@"
+        """# + "\n"),
+        ("utilities/library-restore.sh", #"""
+        #!/bin/bash
+        # Brings a note back from the library's Trash (the latest of that name, or its number), or says what's there
+        #
+        # Input (optional): The note's name, and its number in the Trash (what's there unless set)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" restore "$@"
+        """# + "\n"),
+        ("utilities/library-recent.sh", #"""
+        #!/bin/bash
+        # The notes in the library you changed last, newest first (10 unless you say how many)
+        #
+        # Input (optional): How many (10 unless set)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" recent "$@"
+        """# + "\n"),
+        ("utilities/library-open.sh", #"""
+        #!/bin/bash
+        # Opens a note from the library in its app (your Markdown editor, or TextEdit)
+        #
+        # Input: The note's name (without .md)
+        set -euo pipefail
+
+        # library.py, beside it, does the work (the same rules as the Library board and /api/library).
+        exec python3 "$(dirname "$0")/library.py" open "$@"
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -5661,6 +6088,70 @@ extension Examples {
         run "speak" [picked] |> ignore
 
         print $"Said {length (split " " picked)} words"
+        """# + "\n"),
+        ("quick-note.flow", #"""
+        // Adds a line to the Inbox note in your library (LIBRARY on the Desktop), with the time: a thought to sort out later
+        //
+        // Input: What to note down
+        let words = if isEmpty args then ask "Note down…" else join " " args
+        libraryAppend "Inbox" $"- {now ()} {words}"
+
+        notify $"In your Inbox: {words}"
+        """# + "\n"),
+        ("journal.flow", #"""
+        // Writes in today's journal in your library: a note a day, named by its date, each entry under the time it was written
+        //
+        // Input: What happened, or what's on your mind
+        let entry = if isEmpty args then ask "Today's journal…" else join " " args
+        let stamp = now ()
+        let day = stamp |> split " " |> first
+        let time = stamp |> split " " |> last
+        if not (libraryExists day) then libraryWrite day $"# {day}\n"
+        libraryAppend day $"\n**{time}** {entry}"
+
+        print $"Written in {day}"
+        """# + "\n"),
+        ("find-note.flow", #"""
+        // Searches every note in your library for your words, lets you pick one of the notes that have them (the best first), and shows it
+        //
+        // Input: The words to look for (a "phrase" in quotes)
+        let words = if isEmpty args then ask "Search the library for…" else join " " args
+        let found = libraryFind words
+        if isEmpty found then fail $"No note in the library has {words} in it."
+        let picked = choose $"Notes with “{words}”, the best first:" found
+
+        showResult $"{picked}\n\n{libraryRead picked}"
+        """# + "\n"),
+        ("library-digest.flow", #"""
+        // What's new in your library: the five notes changed last, each with its first lines, in one result
+        let names = run "library-recent" ["5"] |> lines |> map (fun line -> first (split "  ·  " line))
+        let opening name =
+            let start = libraryRead name |> lines |> take 3 |> join "\n"
+            $"{name}\n{start}"
+
+        if isEmpty names then fail "The library is empty: library-new (or the Library board's New Note) makes a note."
+        showResult (names |> map opening |> join "\n\n")
+        """# + "\n"),
+        ("save-page.flow", #"""
+        // Saves the page in front of Chrome to your library: a note named by the page's title, with its address and all its text
+        let title = run "browser.sh" ["title"] |> trim
+        let address = run "browser.sh" ["url"] |> trim
+        let text = run "browser.sh" ["text"]
+        // A title can have a / or a : in it; a note's name can't.
+        let name = title |> replace "/" "-" |> replace ":" " -" |> trim
+        libraryWrite name $"# {title}\n\n<{address}>\n\n{text}"
+
+        notify $"Saved to the library: {name}"
+        print name
+        """# + "\n"),
+        ("clip-selection.flow", #"""
+        // Adds what's selected on the page in front of Chrome to the Clippings note in your library, with where it came from
+        let picked = run "selected-text" []
+        let address = run "browser.sh" ["url"] |> trim
+        libraryAppend "Clippings" $"\n> {picked}\n\n— <{address}>"
+
+        notify "Added to Clippings in the library"
+        print picked
         """# + "\n"),
     ]
 

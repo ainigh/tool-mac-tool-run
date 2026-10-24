@@ -131,6 +131,17 @@ enum Windows {
         }
     }
 
+    /// The Library board: the notes in LIBRARY on the Desktop, a tile each, one open to edit.
+    /// It fills 90% of the screen, as the other boards do.
+    static func showLibraryBoard() {
+        let id = "library-board"
+        let frame = ninetyPercent
+        show(id, title: "Library", size: frame.size, minSize: NSSize(width: 720, height: 460), autosave: false) {
+            LibraryBoardView(app: AppModel.shared)
+        }
+        windows[id]?.setFrame(frame, display: true, animate: false)
+    }
+
     // MARK: editors
 
     private static func standardPath(_ url: URL) -> String { url.standardizedFileURL.path }

@@ -225,14 +225,29 @@ struct APIBoardView: View {
                         .foregroundStyle(.orange)
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 460), spacing: 10)], spacing: 10) {
-                ForEach(tiles) { action in
-                    let last = latest(action)
-                    APITile(action: action, last: last, shown: last?.id != nil && last?.id == shown,
-                            automation: item(action).map { app.settings($0.grid).automation(for: $0.id) }) { start(action) }
-                        .modifier(Dragged(payload: payload(action), action: action))
-                        .contextMenu { menu(action, last: last) }
+            // Under their topics (a utility's, a function's group), when they have them.
+            ForEach(TileGroup.of(tiles)) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    if !group.id.isEmpty {
+                        Text(group.id)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                    }
+                    tileGrid(group.tiles)
                 }
+            }
+        }
+    }
+
+    private func tileGrid(_ tiles: [APIAction]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 460), spacing: 10)], spacing: 10) {
+            ForEach(tiles) { action in
+                let last = latest(action)
+                APITile(action: action, last: last, shown: last?.id != nil && last?.id == shown,
+                        automation: item(action).map { app.settings($0.grid).automation(for: $0.id) }) { start(action) }
+                    .modifier(Dragged(payload: payload(action), action: action))
+                    .contextMenu { menu(action, last: last) }
             }
         }
     }
@@ -368,12 +383,28 @@ struct APIBoardView: View {
     }
 }
 
+/// A section's tiles of one topic, in the order they come ("": no topic).
+struct TileGroup: Identifiable {
+    let id: String
+    var tiles: [APIAction]
+
+    static func of(_ tiles: [APIAction]) -> [TileGroup] {
+        var out: [TileGroup] = []
+        for t in tiles {
+            let name = t.group ?? ""
+            if let k = out.firstIndex(where: { $0.id == name }) { out[k].tiles.append(t) } else { out.append(TileGroup(id: name, tiles: [t])) }
+        }
+        return out
+    }
+}
+
 extension APIAction.Section {
     var color: Color {
         switch self {
         case .scripts: GridKind.scripts.colors[0]
         case .utilities: GridKind.utilities.colors[0]
         case .browser: GridKind.browser.colors[0]
+        case .library: LibraryBoardView.colors[0]
         case .flows: GridKind.composer.colors[0]
         case .epa: BlockStyle.color(BlockGroup.epa)
         case .functions: BlockStyle.color(BlockGroup.values)
@@ -385,6 +416,7 @@ extension APIAction.Section {
         case .scripts: GridKind.scripts.symbol
         case .utilities: GridKind.utilities.symbol
         case .browser: GridKind.browser.symbol
+        case .library: LibraryBoardView.symbol
         case .flows: GridKind.composer.symbol
         case .epa: "bolt.horizontal.circle.fill"
         case .functions: "function"

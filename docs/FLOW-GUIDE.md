@@ -395,6 +395,30 @@ text there's `text-case` (upper, lower, title, slug, snake, camel…), `encode` 
 escapes, hex, HTML), `hash`, `new-id` and `pick` (a number, one of some things, a coin, dice, a
 shuffle). Text goes in as their input: `"Hello World" |> pipe "text-case" ["slug"]`.
 
+**The file library.** Your notes, LIBRARY on the Desktop (the **Library** board, ⌘7), are a flow's
+too, each by its name without `.md`: `libraryRead "groceries"`, `libraryWrite "groceries" "- eggs"`
+(created, or its text replaced), `libraryAppend "journal" "Ran 5k"` (a line at its end),
+`libraryExists`, `libraryNames ()`, `libraryRecent 5`, `libraryRename "draft" "Letter"`,
+`libraryDelete "old"` (to the library's own Trash, as `old (1)`, `old (2)`…) and `libraryRestore
+"old"`. `libraryFind "bank account"` gives the names of the notes with every word in them, the
+best first; `librarySearch "bank"` each line they're on (`"Trip, line 3: Call the bank"`):
+
+```
+let found = libraryFind "invoice"
+if isEmpty found then fail "No note mentions an invoice."
+let picked = choose "Which note?" found
+showResult (libraryRead picked)
+```
+
+The Utilities grid has the same as scripts (`library` does everything: `library search bank`,
+`library delete draft`, `library trash`, `library restore draft 2`; `library-search`,
+`library-find`, `library-read`, `library-write`, `library-new`, `library-append`, `library-delete`,
+`library-restore`, `library-recent` and `library-open` each do one), and other apps reach the
+library over the API (`POST /api/library`), without asking you each time. The flows `quick-note`
+(a line in your Inbox note, with the time), `journal` (a note a day), `find-note`, `library-digest`,
+`save-page` (the page in front of Chrome, as a note) and `clip-selection` (what's selected in
+Chrome, into Clippings) are made of them.
+
 Finding files is Spotlight's, as ⌘Space is: `find-file` (by name, the newest first: `run
 "find-file" ["invoice"]`, or `["invoice"; "~/Documents"]`, or `["invoice"; "everywhere"]`),
 `spotlight` (by the words in a file's name or in what's written in it, of a kind if you say:

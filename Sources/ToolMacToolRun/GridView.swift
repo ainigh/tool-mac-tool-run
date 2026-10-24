@@ -305,6 +305,7 @@ struct BoardSwitcher: View {
 
     static let api = "api"
     static let automation = "automation"
+    static let library = "library"
 
     var body: some View {
         Picker("", selection: Binding(get: { current }, set: { picked in
@@ -313,6 +314,8 @@ struct BoardSwitcher: View {
                 app.openGrid(kind)
             } else if picked == Self.automation {
                 Windows.showAutomationBoard()
+            } else if picked == Self.library {
+                Windows.showLibraryBoard()
             } else {
                 Windows.showAPIBoard()
             }
@@ -320,6 +323,7 @@ struct BoardSwitcher: View {
             ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k.rawValue) }
             Text("API").tag(Self.api)
             Text("Automation").tag(Self.automation)
+            Text("Library").tag(Self.library)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -329,7 +333,8 @@ struct BoardSwitcher: View {
 
     /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, ⌘6 Automation, from the menu bar icon)".
     private static var help: String {
-        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" } + ["⌘\(GridKind.allCases.count + 1) API", "⌘\(GridKind.allCases.count + 2) Automation"]
+        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" }
+            + ["⌘\(GridKind.allCases.count + 1) API", "⌘\(GridKind.allCases.count + 2) Automation", "⌘\(GridKind.allCases.count + 3) Library"]
         return "Switch boards (\(keys.joined(separator: ", ")), from the menu bar icon)"
     }
 }

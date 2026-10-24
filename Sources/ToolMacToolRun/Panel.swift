@@ -328,6 +328,9 @@ struct PanelView: View {
             ToolTile(title: "Automation", detail: automationDetail,
                      symbol: AutomationBoardView.symbol, colors: AutomationBoardView.colors,
                      shortcut: "⌘\(GridKind.allCases.count + 2)") { go { Windows.showAutomationBoard() } }
+            ToolTile(title: "Library", detail: libraryDetail,
+                     symbol: LibraryBoardView.symbol, colors: LibraryBoardView.colors,
+                     shortcut: "⌘\(GridKind.allCases.count + 3)") { go { Windows.showLibraryBoard() } }
             ToolTile(title: "Runs", detail: runs.runningCount > 0 ? "\(runs.runningCount) running now" : "Everything they printed",
                      symbol: "list.bullet.rectangle.fill", colors: [Color(red: 0.18, green: 0.70, blue: 0.72), Color(red: 0.20, green: 0.72, blue: 0.42)],
                      shortcut: "⌘R") { go { Windows.showRuns(nil) } }
@@ -335,6 +338,12 @@ struct PanelView: View {
                      symbol: "book.fill", colors: [Color(red: 0.98, green: 0.58, blue: 0.24), Color(red: 0.90, green: 0.30, blue: 0.26)],
                      shortcut: nil) { go { Windows.showGuide() } }
         }
+    }
+
+    /// What the Library tile says: how many notes are in LIBRARY on the Desktop.
+    private var libraryDetail: String {
+        let n = FileLibrary().list().count
+        return n == 0 ? "Notes by name, on your Desktop" : "\(n) note\(n == 1 ? "" : "s") on your Desktop"
     }
 
     /// What the Automation tile says: how many run by themselves, or what it's for.
@@ -443,6 +452,7 @@ struct PanelView: View {
             }
             Button("") { go { Windows.showAPIBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 1))))
             Button("") { go { Windows.showAutomationBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 2))))
+            Button("") { go { Windows.showLibraryBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 3))))
             Button("") { go { Windows.showRuns(nil) } }.keyboardShortcut("r")
             Button("") { go { app.quit() } }.keyboardShortcut("q")
         }

@@ -31,31 +31,16 @@ public enum APIDoc {
         Base URL: \(baseURL)
         Tool Mac Tool Run is a menu bar app on this Mac that runs the person's scripts (bash, Python, Node…) and flows (scripts composed in the Flow language), and serves them over HTTP. JSON in, JSON out.
 
-        NOTHING RUNS WITHOUT THE PERSON'S CLICK. Every run request shows a card on the Mac naming your app and what would run; your request waits until the person clicks Run (or Don't Run; no click in two minutes is Don't Run). Send "client": "Your App's Name" so the card says who's asking.
+        NOTHING RUNS WITHOUT THE PERSON'S CLICK (the file library aside: see below). Every run request shows a card on the Mac naming your app and what would run; your request waits until the person clicks Run (or Don't Run; no click in two minutes is Don't Run). Send "client": "Your App's Name" so the card says who's asking.
         EVERY REQUEST HAS AN ID you can depend on: it comes back at once (the X-Request-Id header, and "request" in the JSON of every answer, refusals included), and GET /api/requests/{id} says where it is any time later: waiting for the click, denied, running, how it ended. Send "async": true to get the id now and not wait at all.
 
-        ## Endpoints
+        ## Endpoints, by group
 
-        GET  /api/health              is it up, which groups are on, the folder, how many scripts and flows
-        GET  /api/scripts             the scripts: name, title, group, language, language_name, summary, asks_for_input, dangers, uses_epa, inputs
-                                      (?group=utilities or ?group=browser: only that grid's)
-        GET  /api/flows               the flows: name, title, summary, uses_epa, inputs
-                                      (inputs: what each takes, in order: {"prompt", "kind": "argument"|"stdin", "optional", "why"?})
-        POST /api/run                 run a script  {"script", "args"?, "stdin"?, "client"?, "why"?, "wait"?, "async"?, "stream"?, "automation"?}
-        POST /api/compose             run a flow    {"flow", "args"?, "client"?, "why"?, "wait"?, "async"?, "stream"?, "automation"?}
-                                      or Flow code  {"source", "name"?, …} (a text/plain body is the source)
-        POST /api/check               check Flow code without running it  {"source"} → {"ok": true, "bindings": [{"name", "type", "line"}]} or {"ok": false, "code": "flow_mistake", "error", "message", "line", "fix"}
-        GET  /api/automation          the automation tags there are, and the items that run by themselves (see Automation)
-        POST /api/automation          tag a script or a flow to run by itself  {"script"|"flow", "automation": [tags], "once"?, "after"?}
-        GET  /api/requests/{id}       where a request is (see Request ids): {"request", "state", "ok"?, "run_id"?, "run_url"?, "run"?, …}
-        GET  /api/requests?limit=20   the latest requests, newest first, without their runs' output
-        GET  /api/runs?limit=20       the latest runs, newest first, without their output
-        GET  /api/runs/{id}           one run, with output, stdout, stderr (and a flow's steps)
-        POST /api/runs/{id}/stop      stop it → {"ok": true, "stopping": true|false}; a run the person started (not one an app asked for) waits for Stop It on the Mac (send "client", "why")
-        GET  /api/doc                 this page (text/markdown)
-        GET  /                        a status page in a browser, with a place to try a script or Flow code
+        GET /api/endpoints gives this list as JSON ({"groups": [{"id", "title", "about", "routes": [{"method", "path", "summary", "asks_on_the_mac"}]}]}).
 
-        Each group (run, compose, catalog, runs) can be switched off in the app: it then answers 503 {"code": "endpoint_off"}. A refused connection means the app isn't running or its API is stopped.
+        \(APIRoutes.text)
+
+        Each switch (run, compose, catalog, runs, library) can be turned off in the app: its routes then answer 503 {"code": "endpoint_off"}. A refused connection means the app isn't running or its API is stopped.
 
         ## Running
 
@@ -79,6 +64,27 @@ public enum APIDoc {
         A run that fails is still 200: look at "ok". It didn't run when the status is 403 ("denied": Don't Run was clicked; "not_answered": no click in two minutes) or 404 ("unknown_script"; "error" lists the ones there are).
 
         POST /api/compose with {"flow": "morning.flow"} runs a flow from the folder; with {"source": "<Flow code>", "name": "What to call it"} runs code you send (it can run the folder's scripts: run "hello.sh" []). The code is checked first: a mistake is 400 flow_mistake and nothing is shown on the Mac. A flow's result has "kind": "flow" and "steps": each script it ran, as a run of its own. A flow that asks something asks the person at the Mac and waits. In Flow code you send, say why a question is asked: confirmBecause "Delete them?" "They're 30 days old and take 12 GB" (also askBecause, askYesNoBecause, chooseBecause) — the why shows under the question.
+
+        ## The file library: notes by name, answered at once
+
+        LIBRARY, on the person's Desktop, holds their notes: Markdown files, each known by its name without .md (groceries is LIBRARY/groceries.md). A name is a key and the note's text its value. NOTHING HERE ASKS ON THE MAC: the library's calls answer at once (they're notes, not programs). A delete only moves the note to the library's own Trash folder, numbered (groceries (1).md, groceries (2).md…), so it can be restored.
+        Every call has an id, as a run's request does: X-Request-Id, and "request" in the JSON; GET /api/library/operations/{id} (or /api/requests/{id}) says what it did, who asked and how it went.
+        The easy way: POST /api/library {"op": "<operation>", …its fields}. Every answer has "ok", "op" and "request"; a refusal also "code", "error" and often "fix".
+        - list {"sort"?: "name"|"modified"|"created"|"size", "order"?: "asc"|"desc", "q"?: words in the name, "limit"?, "offset"?, "content"?: true} → {"notes": [{"name", "file", "title"?, "size", "modified", "created"?, "text"?}], "count", "total"}
+        - names → {"names": [...]}            read {"name"} → {"name", "text", "title", "size", "words", "lines", "modified", …}
+        - read_many {"names": [...]} → {"notes": [...], "missing": [...]}            exists {"name"} → {"exists": true|false}
+        - write {"name", "text"} creates it or replaces its text → {"name", "new": true|false, "action": "created"|"replaced", …}
+        - create {"name", "text"?} → 409 already_exists if the name is taken            append {"name", "text"} adds it on a line of its own (creating the note if needed)
+        - rename {"name", "to", "overwrite"?}            copy {"name", "to"}            delete {"name"} → {"trash": {"name", "number", "file", "deleted"}}
+        - search {"q", "match"?: "all"|"any", "case_sensitive"?, "whole_words"?, "names_only"?, "lines"?: 5, "limit"?} → {"results": [{"name", "score", "lines": [{"line", "text"}], …}]}: every word (or a "quoted phrase") in the name or the text, accents and case aside, the best first
+        - find (the same fields) → {"names": [...]}, the best first            recent {"limit"?: 10}            stats            outline {"name"} → {"headings": [{"level", "text", "line"}]}            backlinks {"name"}: the notes linking to it ([[name]])
+        - trash → {"trash": [...]}            restore {"name", "number"?, "as"?} (the latest of that name unless "number"; "as" when the name is taken now)            empty_trash {"older_than_days"?}
+        Names: any words but / and :, not starting with a dot; "groceries.md" is groceries; case and accents don't matter when one is found. 404 not_found says the names near it ("fix"). 400 bad_name, unknown_op; 409 already_exists.
+        Raw text works too: PUT /api/library/files/groceries with the text as the body (text/plain or text/markdown) writes it; GET /api/library/files/groceries?format=text gives the text alone.
+
+        ## Straw: Chrome by what's on the page
+
+        Straw scripts (.straw, in the browser folder) drive Google Chrome by naming what's on the page: open news.ycombinator.com, click "More", type "Search" "cats", read all css ".titleline > a". GET /api/straw lists the 25 words (each with what it takes, what it does and an example) and the Straw scripts in the folder. POST /api/straw/check {"source": "<Straw code>"} checks it without running anything → {"ok": true, "steps", "plan": [lines]} or {"ok": false, "code": "straw_mistake", "line", "error", "fix"}. POST /api/straw/run {"script": "hacker-news"} runs one, or {"source": "<Straw code>", "name"?} runs code you send (checked first: a mistake is 400 and nothing is asked); it waits for Run on the Mac like /api/run (the card shows your code in full), and takes the same "args", "why", "wait", "async" and "stream". What a Straw script reads is its output; what it's doing (a line a step) is its stderr.
 
         ## Request ids
 
@@ -116,7 +122,10 @@ public enum APIDoc {
         401 unauthorized                                            sharing on the network is on and no token was sent
         403 denied | not_answered                                   it didn't run
         403 forbidden                                               a page from another site, a Host that isn't this Mac, or another machine while sharing is off
+        400 missing_op | unknown_op | bad_name                       a library call that isn't right (see The file library)
+        400 straw_mistake                                           the Straw code has a mistake (with "line" and "fix")
         404 not_found | unknown_script | unknown_flow | unknown_run | unknown_request
+        409 already_exists                                          a library note of that name is there already
         409 no_folder                                               no scripts folder is chosen yet
         413 too_large                                               a body over 8 MB
         503 endpoint_off                                            that group is switched off in the app
@@ -128,12 +137,18 @@ public enum APIDoc {
 
         ## Examples
 
+        curl -s \(baseURL)/api/endpoints
         curl -s \(baseURL)/api/scripts
         curl -s \(baseURL)/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App", "why": "You pressed Greet"}'
         curl -sN \(baseURL)/api/run -d '{"script": "backup.sh", "stream": true, "client": "My App", "why": "Nightly backup, from the Backup Now button"}'
         curl -si \(baseURL)/api/run -d '{"script": "backup.sh", "async": true, "client": "My App", "why": "Nightly backup"}'   # 202 now, with X-Request-Id
         curl -s \(baseURL)/api/requests/<the id>
         curl -s \(baseURL)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My App"}'
+        curl -s \(baseURL)/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\\n- milk\\n"}'
+        curl -s \(baseURL)/api/library -d '{"op": "search", "q": "milk"}'
+        curl -s \(baseURL)/api/library/files/groceries?format=text
+        curl -s -X DELETE \(baseURL)/api/library/files/groceries      # to the library's Trash
+        curl -s \(baseURL)/api/straw/check -d '{"source": "open example.com\\nread title"}'
         curl -s \(baseURL)/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
         """
     }
