@@ -458,9 +458,10 @@ extension RunAPI {
             return SayReply(answer: text, next: [form], about: [n])
         }
         let n = await sayLog.add(ctx.client, said: Self.firstLine(said), form: form.title, what: what, short: short, state: .waiting, asks: true, request: id)
-        var answer = "This needs the person at the Mac to click Run. I'll tell you when they do."
-        if !dangers.isEmpty { answer += " (The card tells them it looks like it \(Self.listed(dangers)).)" }
-        return SayReply(answer: answer, next: ctx.forms(["What happened"]), about: [n])
+        // The client needn't know it waits for an OK on the Mac (the card says what it does, dangers
+        // and all): it's asked for, and how it goes comes as news, or when it asks.
+        _ = dangers
+        return SayReply(answer: "Asked for \(short). I'll tell you how it goes.", next: ctx.forms(["What happened"]), about: [n])
     }
 
     /// A script or a flow: its inputs from the values, in order, then asked for on the Mac.
@@ -518,14 +519,14 @@ extension RunAPI {
             } catch {}
             let code = json["code"] as? String
             let state: SayLog.State = status < 400 ? .done : code == "denied" ? .denied : code == "not_answered" ? .notAnswered : .failed(SayWords.failure(json))
-            let result = status < 400 ? "The person at the Mac allowed it: \(short) runs \(when) now." : nil
+            let result = status < 400 ? "\(short) runs \(when) now." : nil
             await log.update(client, n) { e in
                 e.state = state
                 e.result = result
                 e.ended = Date()
             }
         }
-        return SayReply(answer: "This needs the person at the Mac to click Allow. I'll tell you when they do.", next: ctx.forms(["What happened"]), about: [n])
+        return SayReply(answer: "Asked for \(short) to run \(when). I'll tell you how it goes.", next: ctx.forms(["What happened"]), about: [n])
     }
 
     // MARK: the news
@@ -598,19 +599,19 @@ extension RunAPI {
     static func newsLine(_ e: SayLog.Entry) -> String {
         let s = e.short
         switch e.state {
-        case .running: return "the person at the Mac clicked Run: \(s) is running."
+        case .running: return "\(s) has started."
         case let .finished(ok, code):
             let empty = (e.result ?? "").isEmpty
             if ok { return empty ? "\(s) finished (it worked, and printed nothing)." : "\(s) finished (it worked). Say \"show me \(s)\" to see what it printed." }
             return "\(s) finished, but it failed\(code.map { " (code \($0))" } ?? "").\(empty ? "" : " Say \"show me \(s)\" to see what it printed.")"
-        case .denied: return "\(s) didn't go ahead: the person at the Mac said no."
-        case .notAnswered: return "\(s) didn't go ahead: no one answered on the Mac in time. Say it again to ask again."
+        case .denied: return "\(s) didn't run: it was turned down on the Mac."
+        case .notAnswered: return "\(s) didn't run: no one OK'd it on the Mac in time. Say it again to try again."
         case .withdrawn: return "\(s) was taken back; nothing ran."
         case let .couldNotStart(why): return "\(s) couldn't start: \(why)"
         case .stopped: return "\(s) was stopped before it ended.\((e.result ?? "").isEmpty ? "" : " Say \"show me \(s)\" to see what it printed first.")"
         case .done: return e.result ?? "\(s) is done."
         case let .failed(why): return "\(s) didn't work: \(why)"
-        case .waiting: return "\(s) is waiting for the person at the Mac."
+        case .waiting: return "\(s) hasn't started yet."
         case .answered: return "\(s) was answered."
         }
     }
@@ -621,13 +622,13 @@ extension RunAPI {
         case .answered: return "answered"
         case .done: return "done"
         case .failed: return "it didn't work"
-        case .waiting: return "waiting for the person at the Mac"
+        case .waiting: return "not started yet: waiting to be OK'd on the Mac"
         case .running: return "running"
         case let .finished(ok, _):
             let word = ok ? "it worked" : "it failed"
             return e.shown || (e.result ?? "").isEmpty || e.muted ? word : "\(word); not shown yet: say \"show me \(e.short)\""
-        case .denied: return "the person at the Mac said no"
-        case .notAnswered: return "no one answered on the Mac in time"
+        case .denied: return "turned down on the Mac"
+        case .notAnswered: return "not OK'd on the Mac in time"
         case .withdrawn: return "taken back"
         case .couldNotStart: return "it couldn't start"
         case .stopped: return "stopped"
@@ -710,7 +711,7 @@ extension RunAPI {
     /// Stopping a request: taken back while it waits for the click, stopped while it runs.
     func sayStop(_ e: SayLog.Entry, _ ctx: SayContext) async -> SayReply {
         guard let id = e.request else {
-            if e.state == .waiting { return SayReply(answer: "\(Self.capitalized(e.short)) is on the Mac, waiting for the person: they can say no there.", about: [e.number]) }
+            if e.state == .waiting { return SayReply(answer: "\(Self.capitalized(e.short)) hasn't started, and can't be taken back from here: it can be turned down on the Mac.", about: [e.number]) }
             return SayReply(answer: "\(Self.capitalized(e.short)) is over already.", about: [e.number])
         }
         var now = e
@@ -719,9 +720,9 @@ extension RunAPI {
         case .waiting:
             if await requests.withdraw(id) {
                 await sayLog.update(ctx.client, e.number) { $0.state = .withdrawn; $0.told = "withdrawn"; $0.ended = Date() }
-                return SayReply(answer: "Taken back: the card is gone from the Mac, and nothing ran.", about: [e.number])
+                return SayReply(answer: "Taken back: \(e.short) won't run.", about: [e.number])
             }
-            return SayReply(answer: "\(Self.capitalized(e.short)) is on the Mac, and can't be taken back right now.", about: [e.number])
+            return SayReply(answer: "\(Self.capitalized(e.short)) hasn't started, and can't be taken back right now.", about: [e.number])
         case .running:
             if let run = await requests.entry(id)?.runID, await host.stop(run) {
                 await sayLog.update(ctx.client, e.number) { $0.told = "running" }
@@ -739,7 +740,7 @@ extension RunAPI {
         let s = capitalized(e.short)
         let at = SayWords.time(e.asked)
         switch e.state {
-        case .waiting: return "\(s) is waiting for the person at the Mac (asked at \(at)). I'll tell you when they answer."
+        case .waiting: return "\(s) hasn't started yet: it's waiting for someone at the Mac to OK it (asked at \(at)). Nothing has run. I'll tell you when it starts."
         case .running: return "\(s) is running (asked at \(at)). I'll tell you when it's done."
         case let .finished(ok, code):
             var out = "\(s) finished\(e.ended.map { " at \(SayWords.time($0))" } ?? "") and \(ok ? "worked" : "failed\(code.map { " (code \($0))" } ?? "")")."
@@ -749,8 +750,8 @@ extension RunAPI {
             let first = (e.result ?? "").split(separator: "\n").first.map(String.init) ?? ""
             return "That was \(e.state == .done ? "done" : "answered") at \(at)\(first.isEmpty ? "." : ": \(first)")"
         case let .failed(why): return "That didn't work (at \(at)): \(why)"
-        case .denied: return "\(s) didn't go ahead: the person at the Mac said no."
-        case .notAnswered: return "\(s) didn't go ahead: no one answered on the Mac in time."
+        case .denied: return "\(s) didn't run: it was turned down on the Mac."
+        case .notAnswered: return "\(s) didn't run: no one OK'd it on the Mac in time."
         case .withdrawn: return "\(s) was taken back before anyone answered; nothing ran."
         case let .couldNotStart(why): return "\(s) couldn't start: \(why)"
         case .stopped: return "\(s) was stopped before it ended."
@@ -765,7 +766,7 @@ extension RunAPI {
         var out = "Say what you want, in your own words. If I'm not sure, I'll answer with a few sentences to fill in and say back.\n\nSome of what you can say:\n" + tools.joined(separator: "\n")
         if !folder.isEmpty {
             let some = folder.prefix(3).map { "- " + $0.short }
-            out += "\n\nThe Mac also has \(folder.count) script\(folder.count == 1 ? "" : "s") and flow\(folder.count == 1 ? "" : "s") (each waits for the person to click Run), like:\n" + some.joined(separator: "\n")
+            out += "\n\nThe Mac also has \(folder.count) script\(folder.count == 1 ? "" : "s") and flow\(folder.count == 1 ? "" : "s") , like:\n" + some.joined(separator: "\n")
         }
         out += "\n\nAnd about what you've asked for: what have I asked for today · what happened to {something you asked for} · show me {something you asked for} · stop {something you asked for} · more"
         return out

@@ -64,7 +64,7 @@ the scripts, runs one with `client` and `why`, keeps the request id, and handles
 ```bash
 # the one way in, for any client (a small model most of all): say what you want, get words back
 curl -s localhost:8768/api/say?client=My+App -H 'Content-Type: text/plain' -d "what's the weather in Lagos"
-# This needs the person at the Mac to click Run. I'll tell you when they do.
+# Asked for the weather. I'll tell you how it goes.
 
 # what you need, by a few words: only the routes, scripts and flows that match, each with how to call it
 curl -s "localhost:8768/api/search?q=remember+a+birthday"
@@ -857,10 +857,13 @@ Fill one in and say it back.
   (one or two templates). Never JSON, routes, file names or ids. Lists are numbered. A long answer
   is cut to its first 20 lines (or 1500 characters), then *(26 more lines: say "more" for the
   rest.)*. A failure is a sentence and the template that fixes it.
-- **Consent stays the person's**: a run (a script, a flow, Flow code, Straw) is asked for with
-  `"async": true` and the card says why, in the client's own words (*My App asked in words: “run the
-  nightly backup”*). The reply says *This needs the person at the Mac to click Run. I'll tell you
-  when they do.* The client agreeing never stands in for that click.
+- **Consent stays the person's, and the client needn't know about it**: a run (a script, a flow,
+  Flow code, Straw) is asked for with `"async": true`, and the card on the Mac says what it does
+  and why, in the client's own words (*My App asked in words: “run the nightly backup”*). The
+  reply only says it was asked for: *Asked for the nightly backup. I'll tell you how it goes.* The
+  detail is there when it matters: in the news (*The nightly backup didn't run: it was turned down
+  on the Mac.*) and when the client asks (*… hasn't started yet: it's waiting for someone at the
+  Mac to OK it. Nothing has run.*). Nothing the client says stands in for that OK.
 - **How long**: a conversation starts again after six hours without a word (the numbers and
   anything pending are forgotten; the log is kept). The log keeps a week, at most 200 requests a
   client, for the latest 100 clients, while the app runs.

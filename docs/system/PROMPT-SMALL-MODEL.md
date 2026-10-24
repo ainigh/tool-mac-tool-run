@@ -70,7 +70,7 @@ Mac:    These can do that:
         Fill one in and say it back.
 
 Model:  what's the weather in Lagos
-Mac:    This needs the person at the Mac to click Run. I'll tell you when they do.
+Mac:    Asked for the weather. I'll tell you how it goes.
 
 Model:  what's coming up this week
 Mac:    Meanwhile: The weather finished (it worked). Say "show me the weather" to see what it printed.
@@ -79,11 +79,18 @@ Mac:    Meanwhile: The weather finished (it worked). Say "show me the weather" t
         1. 2026-10-25, tomorrow: lagos trip
 ```
 
-## What the model should know
+## What the model needs to know
 
-- A run (a script, a flow) waits for the person at the Mac to click Run. Say so to them; the
-  model agreeing never stands in for that click.
-- It never polls: what changed comes at the start of the next answer ("Meanwhile: …").
+Nothing more. It never has to tell a script from a note, or know that some things wait for an OK
+on the Mac: every answer says what happened in words it can pass on as they are.
+
+- Something that takes a while is "asked for"; how it went comes at the start of a later answer
+  ("Meanwhile: the weather finished"), and "what happened to the weather" says where it is,
+  with whatever detail there is ("it hasn't started yet: it's waiting for someone at the Mac to
+  OK it. Nothing has run.").
 - A long answer ends with "say more for the rest".
 - A question back ("Did you mean …? Say yes to go ahead, or no.") comes only when the match was
   uncertain and it would change something.
+
+The person's OK stays theirs: what runs on the Mac waits for them there, on a card that says
+what it does and why (in the model's own words), and nothing the model says stands in for it.

@@ -401,9 +401,10 @@ public enum APIClient: String, CaseIterable, Sendable {
         # Send the model's text as is; ?client= names your app on the Mac's cards (and gives it its own conversation).
         # The answer is plain text: hand it back to the model as the tool's result. No ids, no polling, no JSON.
         curl -s\(auth) '\(base)/api/say?client=My+Assistant' -H 'Content-Type: text/plain' --data-binary "what's the weather in Lagos"
-        # This needs the person at the Mac to click Run. I'll tell you when they do.
+        # Asked for the weather. I'll tell you how it goes.
 
-        # A run still waits for the person's click on the Mac; the card shows why, in the model's own words.
+        # A run still waits for the person's OK on the Mac (the card shows why, in the model's own words),
+        # but neither the model nor your app has to know: the answers say what happened, in words to pass on.
         # What changed comes at the start of the next answer ("Meanwhile: …"). Start over: POST \(base)/api/say/reset?client=My+Assistant
         """
     }

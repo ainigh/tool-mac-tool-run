@@ -205,9 +205,10 @@ Rules:
 - Large results are cut down by fixed rules: a count, the first lines, then "say 'more' for the rest".
 - Lists are numbered, so the client can say "the second one".
 - A failure is a plain sentence plus the template that fixes it.
-- The person's consent stays separate and is said plainly. When something waits for the Mac, the
-  reply says: "This needs the person at the Mac to click Run. I'll tell you when they do." The
-  client agreeing to something never stands in for that click.
+- The person's consent stays separate, and the client doesn't have to know about it. Something
+  that waits for the Mac is "asked for" ("Asked for the nightly backup. I'll tell you how it
+  goes."); the news says when it was turned down, and "what happened to …" says it's waiting for
+  an OK and that nothing has run. The client agreeing to something never stands in for that click.
 
 ### When the adapter asks first
 
@@ -243,7 +244,7 @@ Adapter: Remembered under EVENT-DATES: Lagos trip.
 
 Client:  run the nightly backup
 
-Adapter: This needs the person at the Mac to click Run. I'll tell you when they do.
+Adapter: Asked for the nightly backup. I'll tell you how it goes.
          You can also say: what happened to {something you asked for}
 
          … later …
@@ -319,6 +320,14 @@ through them.
   templates that fit as well, the one it has used more is offered (and taken) first.
 
 ## Gaps closed on the way
+
+- **The client doesn't need to know about consent either.** The first version answered a run with
+  "This needs the person at the Mac to click Run", which asks the client to understand scripts,
+  flows and permissions. Now a run is just *asked for* ("Asked for the nightly backup. I'll tell
+  you how it goes."). The detail comes when it matters: in the news when it was turned down or not
+  OK'd in time, and in "what happened to …" ("it hasn't started yet: it's waiting for someone at
+  the Mac to OK it. Nothing has run."). The person's OK is unchanged: the card on the Mac still
+  says what it does and why, and nothing the client says stands in for it.
 
 - **Yes and no** are built-in forms (a question asked first needs an answer), and so is `start
   over`. A question with two choices is answered by number.
