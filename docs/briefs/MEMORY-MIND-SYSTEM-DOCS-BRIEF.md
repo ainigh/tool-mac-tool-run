@@ -27,6 +27,10 @@ ship to main at each point. dont wait for builds in other branches
   notation's parser, graph, canonical form, queries and layout; the mind's append-only log
   (MIND/mind.txt, with an Archive for compaction); MEMORY with its nine files, each a node of the
   mind; SYSTEM-DOCS, written by the app and read-only
-- [ ] 2 · The API: /api/memory, /api/mind, /api/system-docs, /api/present, /api/clipboard, /api/browser
+- [x] 2 · The API: /api/memory (the library's routes, plus remember, recall, categories, members,
+  upcoming), /api/mind (ask it in plain fields or the notation's queries; add in plain fields or
+  the notation; check, prompt, context), /api/system-docs (read only), /api/present and
+  /api/clipboard ("present": true and "copy": true on any answer), /api/browser (Chrome's page:
+  url, tabs, page, has, find, highlight, outline). Each has its switch in the panel
 - [ ] 3 · The boards: Memory, Mind (a picture, and the text), System Docs; the Present window
 - [ ] 4 · The docs (SYSTEM-DOCS' prompts, recipes and exchanges), scripts and guides

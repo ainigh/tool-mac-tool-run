@@ -133,6 +133,10 @@ public protocol RunHost: AnyObject, Sendable {
     /// Tags the request's item as its `automation` says (the person allowed it): how it's
     /// automated now. Throws an `HTTPError` when the item is gone.
     func automate(_ request: RunRequest) async throws -> AutomationEntry
+    /// Shows something to the person: a window in front of everything, with copy buttons.
+    func present(_ p: Presentation) async throws
+    /// Puts text on the clipboard.
+    func copy(_ text: String) async throws
 }
 
 extension RunHost {
@@ -141,6 +145,46 @@ extension RunHost {
 
     public func automate(_ request: RunRequest) async throws -> AutomationEntry {
         throw HTTPError(status: 500, code: "failed", message: "automation isn't available here")
+    }
+
+    /// A host with no screen: nothing can be shown.
+    public func present(_ p: Presentation) async throws {
+        throw HTTPError(status: 501, code: "not_available", message: "showing things needs the Tool Mac Tool Run app on a Mac")
+    }
+
+    public func copy(_ text: String) async throws {
+        throw HTTPError(status: 501, code: "not_available", message: "the clipboard needs the Tool Mac Tool Run app on a Mac")
+    }
+}
+
+/// Something to show the person (POST /api/present, or "present": true on a read): its title,
+/// its text and how to show it, where it's from, and who asked.
+public struct Presentation: Sendable, Equatable {
+    public enum Format: String, CaseIterable, Sendable {
+        case markdown, text, json, mind
+    }
+
+    public var title: String
+    public var text: String
+    public var format: Format
+    /// Where it's from, in words: "MEMORY/PEOPLE.md", "the mind", "Chrome: Cloudflare".
+    public var source: String?
+    /// The shelf and name it is, when it's a file (the window offers to open it on its board).
+    public var shelf: Shelf?
+    public var name: String?
+    public var client: String
+    public var why: String?
+
+    public init(title: String, text: String, format: Format = .markdown, source: String? = nil, shelf: Shelf? = nil, name: String? = nil,
+                client: String = "An app", why: String? = nil) {
+        self.title = title
+        self.text = text
+        self.format = format
+        self.source = source
+        self.shelf = shelf
+        self.name = name
+        self.client = client
+        self.why = why
     }
 }
 
@@ -153,19 +197,28 @@ public final class RunAPI: @unchecked Sendable {
     public let requests = RequestLedger()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
-    /// The file library it serves (LIBRARY (in TOOL-MAC-RUN on the Desktop)).
+    /// The file library it serves (LIBRARY, in TOOL-MAC-RUN on the Desktop).
     let library: @Sendable () -> FileLibrary
+    /// MEMORY, the mind and SYSTEM-DOCS.
+    let shelves: @Sendable () -> Shelves
+    /// The page in front of Chrome.
+    let chrome: ChromePage
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
 
     public init(host: RunHost, version: String, library: @escaping @Sendable () -> FileLibrary = { FileLibrary() },
+                shelves: @escaping @Sendable () -> Shelves = { Shelves() }, chrome: ChromePage = ChromePage(),
                 settings: @escaping @Sendable () -> APISettings) {
         self.host = host
         self.version = version
         self.library = library
+        self.shelves = shelves
+        self.chrome = chrome
         self.settings = settings
     }
+
+    func settingsNow() -> APISettings { settings() }
 
     public func handle(_ req: HTTPRequest) async -> HTTPResponse {
         let s = settings()
@@ -197,7 +250,10 @@ public final class RunAPI: @unchecked Sendable {
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
         if path.hasPrefix("/api/requests/") { return try await requestRoute(req, path: path, s) }
         if path == "/api/automation" { return try await automationRoute(req, s) }
-        if path == "/api/library" || path.hasPrefix("/api/library/") { return try await libraryRoute(req, path: path, s) }
+        for shelf in Shelf.allCases where path == shelf.apiPath || path.hasPrefix(shelf.apiPath + "/") { return try await shelfRoute(shelf, req, path: path, s) }
+        if path == "/api/mind" || path.hasPrefix("/api/mind/") { return try await mindRoute(req, path: path, s) }
+        if path == "/api/browser" || path.hasPrefix("/api/browser/") { return try await browserRoute(req, path: path, s) }
+        if path == "/api/present" || path == "/api/clipboard" { return try await screenRoute(req, path: path, s) }
         if path == "/api/straw" || path.hasPrefix("/api/straw/") { return try await strawRoute(req, path: path, s) }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (GET /api/endpoints lists every route)")
@@ -438,9 +494,16 @@ public final class RunAPI: @unchecked Sendable {
         } else {
             out["folder"] = NSNull()
         }
-        let lib = library()
-        out["library"] = ["folder": lib.root.path, "notes": lib.list().count, "approval": "none (answered at once)"] as [String: Any]
+        // Each switch, by its name; and the shelves, where they are.
         for e in APIEndpoint.allCases { out[e.rawValue] = s.isOn(e) }
+        let sh = shelves()
+        out["home"] = Home.root.path
+        out["shelves"] = [
+            "library": ["folder": library().root.path, "notes": library().list().count, "approval": "none (answered at once)"] as [String: Any],
+            "memory": ["folder": sh.memory.files.root.path, "files": sh.memory.files.list().count, "approval": "none (answered at once)"] as [String: Any],
+            "system-docs": ["folder": sh.systemDocs.root.path, "docs": sh.systemDocs.list().count, "approval": "none (read only)"] as [String: Any],
+            "mind": ["file": sh.mind.file.path, "nodes": sh.mind.graph().nodes.count, "approval": "none (append only)"] as [String: Any],
+        ]
         return out
     }
 

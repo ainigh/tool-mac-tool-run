@@ -20,7 +20,11 @@ final class LibraryAPITests: XCTestCase {
         host = FakeRunHost(folder: folder, scripts: lib.scripts(), flows: lib.flows())
         settings = APISettings()
         let root = notes!
-        api = RunAPI(host: host, version: "0.1.9", library: { FileLibrary(root: root) }) { [unowned self] in self.settings }
+        let home = folder!
+        api = RunAPI(host: host, version: "0.1.9", library: { FileLibrary(root: root) },
+                     shelves: { Shelves(memory: Memory(files: FileLibrary(root: home.appendingPathComponent("MEMORY"), shelf: .memory), mind: MindStore(root: home.appendingPathComponent("MIND"))),
+                                        systemDocs: FileLibrary(root: home.appendingPathComponent("SYSTEM-DOCS"), shelf: .systemDocs)) },
+                     chrome: ChromePage { _, _ in "TMR_NOT_RUNNING" }) { [unowned self] in self.settings }
         api.poll = 5_000_000
     }
 
@@ -156,7 +160,7 @@ final class LibraryAPITests: XCTestCase {
         let (r, d) = await api.send("GET", "/api/endpoints")
         XCTAssertEqual(r.status, 200)
         let groups = json(d)["groups"] as? [[String: Any]] ?? []
-        XCTAssertEqual(groups.compactMap { $0["id"] as? String }, ["about", "scripts", "straw", "library", "automation", "runs"])
+        XCTAssertEqual(groups.compactMap { $0["id"] as? String }, ["about", "scripts", "straw", "library", "memory", "mind", "system-docs", "screen", "browser", "automation", "runs"])
         XCTAssertEqual(json(d)["count"] as? Int, APIRoutes.all.count)
         let (_, one) = await api.send("GET", "/api?group=library")
         XCTAssertEqual((json(one)["groups"] as? [[String: Any]])?.count, 1)

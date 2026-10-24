@@ -248,11 +248,14 @@ public enum LibraryAPI {
     }
 }
 
-/// Every library operation, by its id, while the app runs (the latest 500): what it was, who
-/// asked, and how it went.
+/// Every operation that doesn't run anything (the shelves', the mind's, showing, copying, reading
+/// Chrome's page), by its id, while the app runs (the latest 500): what it was, who asked, and how
+/// it went.
 public actor LibraryLog {
     public struct Entry: Sendable {
         public let id: UUID
+        /// What it was done to: library, memory, system-docs, mind, present, clipboard, browser.
+        public var kind: String = "library"
         public let op: String
         public let name: String?
         public let client: String
@@ -289,9 +292,9 @@ public actor LibraryLog {
 
     static func json(_ e: Entry) -> [String: Any] {
         var out: [String: Any] = [
-            "request": e.id.uuidString, "kind": "library", "op": e.op, "ok": e.ok, "status": e.status, "state": e.ok ? "done" : "failed",
+            "request": e.id.uuidString, "kind": e.kind, "op": e.op, "ok": e.ok, "status": e.status, "state": e.ok ? "done" : "failed",
             "client": e.client, "from": e.from, "asked": JSON.date(e.at), "seconds": JSON.round(e.seconds), "summary": e.summary,
-            "url": "/api/library/operations/\(e.id.uuidString)",
+            "url": ["library", "memory", "system-docs", "mind", "browser"].contains(e.kind) ? "/api/\(e.kind)/operations/\(e.id.uuidString)" : "/api/requests/\(e.id.uuidString)",
         ]
         if let n = e.name { out["name"] = n }
         if let c = e.code { out["code"] = c }
@@ -300,130 +303,3 @@ public actor LibraryLog {
     }
 }
 
-extension RunAPI {
-    /// /api/library and everything under it.
-    func libraryRoute(_ req: HTTPRequest, path: String, _ s: APISettings) async throws -> HTTPResponse {
-        guard s.isOn(.library) else {
-            throw HTTPError(status: 503, code: "endpoint_off", message: "\(APIEndpoint.library.title.lowercased()) is turned off in Tool Mac Tool Run")
-        }
-        let parts = path.split(separator: "/").map(String.init).dropFirst(2)  // after "api", "library"
-        let rest = Array(parts)
-        let lib = library()
-        var fields: [String: Any] = [:]
-        for (k, v) in req.query { fields[k] = v }
-        if !req.body.isEmpty {
-            if req.contentType.hasPrefix("text/") {
-                fields["text"] = String(decoding: req.body, as: UTF8.self)
-            } else if let body = JSON.object(req.body) {
-                fields.merge(body) { _, b in b }
-            } else {
-                throw HTTPError(status: 400, code: "bad_request", message: "send a JSON object (Content-Type: application/json), or the note's text as text/plain or text/markdown")
-            }
-        }
-        let method = req.method == "HEAD" ? "GET" : req.method
-        let op: String
-        switch (method, rest.first, rest.count) {
-        case ("GET", nil, _):
-            return JSON.response(libraryOverview(lib))
-        case ("POST", nil, _):
-            guard let named = RunAPI.text(fields["op"] ?? fields["operation"]), !named.isEmpty else {
-                throw HTTPError(status: 400, code: "missing_op", message: "send {\"op\": \"<one of \(LibraryAPI.names)>\", …} (GET /api/library says what each takes)")
-            }
-            op = named.lowercased().replacingOccurrences(of: "-", with: "_")
-        case ("GET", "files", 1): op = "list"
-        case ("POST", "files", 1): op = "create"
-        case (_, "files", 2):
-            fields["name"] = rest[1]
-            switch method {
-            case "GET": op = req.query["format"] == "text" || req.query["format"] == "raw" ? "raw" : "read"
-            case "PUT": op = "write"
-            case "DELETE": op = "delete"
-            case "POST": op = "create"
-            default: throw HTTPError(status: 405, code: "bad_request", message: "a note takes GET (read), PUT (write) or DELETE (to the Trash)")
-            }
-        case (_, "files", 3):
-            fields["name"] = rest[1]
-            let action = rest[2]
-            let reads = ["outline", "backlinks", "exists"]
-            guard ["append", "rename", "copy"].contains(action) || reads.contains(action) else {
-                throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (a note's routes: append, rename, copy, outline, backlinks, exists)")
-            }
-            guard method == (reads.contains(action) ? "GET" : "POST") else {
-                throw HTTPError(status: 405, code: "bad_request", message: "\(req.path) takes \(reads.contains(action) ? "GET" : "POST")")
-            }
-            op = action
-        case ("GET", "names", 1): op = "names"
-        case ("GET", "search", 1): op = "search"
-        case ("GET", "find", 1): op = "find"
-        case ("GET", "recent", 1): op = "recent"
-        case ("GET", "stats", 1): op = "stats"
-        case ("GET", "trash", 1): op = "trash"
-        case ("POST", "trash", 2) where rest[1] == "restore": op = "restore"
-        case ("POST", "trash", 2) where rest[1] == "empty": op = "empty_trash"
-        case ("GET", "operations", 1):
-            let limit = min(500, max(1, Int(req.query["limit"] ?? "") ?? 20))
-            return JSON.response(["operations": await libraryLog.recent(limit).map(LibraryLog.json)])
-        case ("GET", "operations", 2):
-            guard let id = UUID(uuidString: rest[1]), let e = await libraryLog.entry(id) else {
-                throw HTTPError(status: 404, code: "unknown_request", message: "no library operation \(rest[1]) (the latest \(libraryLog.capacity) are kept while the app runs)")
-            }
-            return JSON.response(LibraryLog.json(e), headers: [("X-Request-Id", id.uuidString)])
-        default:
-            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (GET /api/library lists the library's routes)")
-        }
-        return await libraryOperation(op, LibraryAPI.Fields(values: fields), lib, req)
-    }
-
-    /// Does it, logs it under a new id, and answers.
-    private func libraryOperation(_ op: String, _ fields: LibraryAPI.Fields, _ lib: FileLibrary, _ req: HTTPRequest) async -> HTTPResponse {
-        let id = UUID()
-        let started = Date()
-        let client = Self.client(req, fields.values)
-        let from = Self.from(req)
-        let tagged: [(String, String)] = [("X-Request-Id", id.uuidString)]
-        do {
-            // The note's text alone, as Markdown (for a page, or curl > file.md).
-            if op == "raw" {
-                let r = try lib.read(try fields.name())
-                await libraryLog.add(.init(id: id, op: "read", name: r.note.name, client: client, from: from, at: started, seconds: Date().timeIntervalSince(started),
-                                           ok: true, status: 200, code: nil, error: nil, summary: "read \(r.note.name)"))
-                return HTTPResponse(status: 200, contentType: "text/markdown; charset=utf-8", data: Data(r.text.utf8), headers: tagged)
-            }
-            guard LibraryAPI.byName[op] != nil else {
-                throw LibraryError(.badName, "There's no library operation called \(op).", fix: "The operations: \(LibraryAPI.names)")
-            }
-            var out = try LibraryAPI.perform(op, fields, library: lib)
-            let summary = LibraryAPI.summary(op, out)
-            await libraryLog.add(.init(id: id, op: op, name: out["name"] as? String ?? fields.text("name"), client: client, from: from, at: started,
-                                       seconds: Date().timeIntervalSince(started), ok: true, status: 200, code: nil, error: nil, summary: summary))
-            out["ok"] = true
-            out["op"] = op
-            out["request"] = id.uuidString
-            return JSON.response(out, headers: tagged)
-        } catch {
-            let e = error as? LibraryError ?? LibraryError(.failed, "\(error)")
-            let code = e.code == .badName && e.message.hasPrefix("There's no library operation") ? "unknown_op" : e.code.rawValue
-            await libraryLog.add(.init(id: id, op: op == "raw" ? "read" : op, name: fields.text("name"), client: client, from: from, at: started,
-                                       seconds: Date().timeIntervalSince(started), ok: false, status: e.status, code: code, error: e.message, summary: "\(op): \(e.message)"))
-            var out: [String: Any] = ["ok": false, "op": op, "code": code, "error": e.message, "request": id.uuidString]
-            if let fix = e.fix { out["fix"] = fix }
-            return JSON.response(out, status: code == "unknown_op" ? 400 : e.status, headers: tagged)
-        }
-    }
-
-    /// GET /api/library: where it is, what's in it, and every operation with what it takes.
-    func libraryOverview(_ lib: FileLibrary) -> [String: Any] {
-        [
-            "ok": true, "folder": lib.root.path, "extension": lib.ext, "exists": FileManager.default.fileExists(atPath: lib.root.path),
-            "notes": lib.list().count, "trashed": lib.trash().count,
-            "approval": "none: the library's calls answer at once, without asking on the Mac (a delete moves the note to the library's Trash)",
-            "names": "a note's name is its file's name without .\(lib.ext): groceries is \(FileLibrary.folderName)/groceries.\(lib.ext)",
-            "how": "POST /api/library {\"op\": \"<operation>\", …its fields}, or the operation's own route",
-            "operations": LibraryAPI.operations.map { o -> [String: Any] in
-                var d: [String: Any] = ["op": o.name, "summary": o.summary, "fields": o.fields, "changes": o.changes]
-                if let r = o.route { d["route"] = r }
-                return d
-            },
-        ]
-    }
-}

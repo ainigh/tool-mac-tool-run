@@ -2,7 +2,9 @@ import Foundation
 
 /// The API's endpoint groups, each of which can be switched off in the menu bar panel.
 public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
-    case run, compose, catalog, runs, library
+    case run, compose, catalog, runs, library, memory, mind
+    case systemDocs = "system_docs"
+    case screen, browser
 
     public var title: String {
         switch self {
@@ -11,6 +13,11 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .catalog: return "List scripts and flows"
         case .runs: return "Runs and their output"
         case .library: return "File library"
+        case .memory: return "Memory"
+        case .mind: return "The mind"
+        case .systemDocs: return "System docs"
+        case .screen: return "Show and copy"
+        case .browser: return "Read Chrome's page"
         }
     }
 
@@ -21,6 +28,11 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .catalog: return "GET /api/scripts · /api/flows"
         case .runs: return "GET /api/runs · /api/requests"
         case .library: return "/api/library (no asking)"
+        case .memory: return "/api/memory (no asking)"
+        case .mind: return "/api/mind (no asking; append only)"
+        case .systemDocs: return "/api/system-docs (read only)"
+        case .screen: return "POST /api/present · /api/clipboard"
+        case .browser: return "GET /api/browser/… (reads, never clicks)"
         }
     }
 
@@ -32,6 +44,11 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .catalog: return "Other apps can see the names, languages and descriptions of your scripts and flows (not what's in them)."
         case .runs: return "Other apps can read the runs and their requests (how they went and what they printed) and stop one (a run you started asks you first)."
         case .library: return "Other apps can list, read, write, search and delete the notes in LIBRARY (in TOOL-MAC-RUN on your Desktop), without asking you each time. A delete moves the note to the library's own Trash, where it can be restored."
+        case .memory: return "Other apps can read and write what's remembered in MEMORY (in TOOL-MAC-RUN on your Desktop), without asking you each time. A delete moves the file to MEMORY's own Trash."
+        case .mind: return "Other apps can ask the mind (what's linked to what) and add to it, without asking you each time. It's append only: what was there stays in its log."
+        case .systemDocs: return "Other apps can read the docs on how this app works (SYSTEM-DOCS), with prompts and recipes for models. Nobody can change them."
+        case .screen: return "Other apps can show you something in a window in front of everything (a file, a result), with copy buttons, and put text on your clipboard."
+        case .browser: return "Other apps can see the page in front of Chrome (its title, address and text), whether some words are on it, and where something is on it, and ring it in red to show you. They can't click or type."
         }
     }
 }
