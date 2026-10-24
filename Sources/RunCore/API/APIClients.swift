@@ -362,6 +362,8 @@ public enum APIClient: String, CaseIterable, Sendable {
         POST /api/runs/{id}/stop          stops a run you asked for (one the user started asks them first)
         POST /api/library                 {"op": "list"|"names"|"read"|"read_many"|"write"|"create"|"append"|"rename"|"copy"|"delete"|"restore"|"trash"|"search"|"find"|"recent"|"stats"|"outline"|"backlinks", "name"?, "text"?, "q"?, …}: the notes, answered at once
                                           e.g. {"op": "search", "q": "bank"} → {"results": [{"name", "score", "lines": [{"line", "text"}]}]}; {"op": "read", "name": "groceries"} → {"text", …}
+        Chrome: to OPEN a page or SEARCH, run a browser script: POST /api/run {"script": "browser/open-page.sh", "args": ["<address>"]}, {"script": "browser/google.sh", "args": ["<question>"]} (gives back Google's answer), {"script": "browser/site-search.sh", "args": ["youtube <words>"]}; to click and type, Straw (below).
+        GET  /api/browser/page            the page ALREADY in front of Chrome: its text (also /url, /has?text=, /find?text=). Reads only: it can't open or go anywhere
         GET  /api/straw                   Straw's words and the Straw scripts (Straw drives Chrome by what's on the page)
         POST /api/straw/check             {"source": "<Straw code>"} → what it would do, or its mistake; runs nothing
         POST /api/straw/run               {"script": "<name>"} or {"source": "<Straw code>"}, with "client" and "why": runs it in Chrome once the user clicks Run

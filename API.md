@@ -786,6 +786,29 @@ lines found, the names, or else the JSON.
 
 ### Chrome's page: `/api/browser`
 
+**Which Chrome tool is which.** `/api/browser` only *reads* the page already in front; it can't
+open anything. Opening, going to an address and searching are scripts, run like any other:
+
+| To | Use | Asks on the Mac |
+|---|---|---|
+| open a page, go to an address | `POST /api/run {"script": "browser/open-page.sh", "args": ["example.com"]}` | yes (Run) |
+| search Google and get the answer | `POST /api/run {"script": "browser/google.sh", "args": ["how tall is Kilimanjaro"]}` | yes (Run) |
+| search a site (YouTube, Amazon, GitHub, Maps, 40 more) | `POST /api/run {"script": "browser/site-search.sh", "args": ["youtube lofi hip hop"]}` | yes (Run) |
+| click, type, fill, several steps | Straw: `POST /api/straw/run {"source": "open example.com\nclick \"More\""}` | yes (Run) |
+| see what's on the page already in front | `/api/browser/url`, `/page`, `/has`, `/find`, `/outline` | no |
+| show the person where something is | `POST /api/browser/highlight {"text"}` | no |
+
+An address or words sent to a read (`/api/browser/url?text=https://www.google.com`) aren't
+opened: the answer is the tab in front as always, with `"not_opened"`, a `"note"` saying so, and
+`next` giving the call that opens it (or searches Google for the words). An action that isn't
+one (`/api/browser/search`, `/open`, `/navigate`, `/click`…) is `400 browser_reads_only`, saying
+the same.
+
+A search knows the difference: `GET /api/search?q=open+a+url` finds `browser/open-page.sh` and
+Straw, and `/api/browser`'s routes say what they aren't for (`"not_for": ["open", "navigate",
+…]`) and point to `open-page.sh` in `next` (as do `chrome_not_open` and `no_window`). A route's
+tag written `!word` is a word it's not for: a search with that word puts it lower.
+
 To guide the person through a site, an app can see the tab in front of Google Chrome — not a
 picture, the page: its address and title, its text, whether words are on it, and where a thing is.
 **It only reads**: it never clicks, types, opens a page or opens Chrome (Straw does that, after a
@@ -850,6 +873,7 @@ instead, such as a search for a route that isn't one):
 | 409 | `still_waiting`, `still_running` | a request can't be cleared yet: its caller is still waiting on it, or it's running (stop it first) |
 | 409 | `already_exists` | a library note of that name is there already (`create`, `rename`, `copy`, `restore`) |
 | 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
+| 400 | `browser_reads_only` | `/api/browser/search`, `/open`, `/navigate`…: Chrome's page only reads; `error` and `next` say what opens or searches (`browser/open-page.sh`, `browser/google.sh`, Straw) |
 | 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (it's never opened for you) |
 | 413 | `too_large` | a body over 8 MB |
 | 501 | `not_available` | showing or the clipboard asked of something that isn't the app on a Mac |

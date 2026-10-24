@@ -120,7 +120,7 @@ public enum APIDoc {
 
         ## Chrome's page: to guide the person through a site
 
-        It reads the tab in front of Google Chrome; it never clicks, types, or opens Chrome. GET /api/browser/url → {"title", "url"} (needs nothing switched on); /tabs; /page → {"title", "url", "text", "selection", "scroll"} (?max=20000); /has?text=Compute → {"present": true|false, "count", "lines"}; /find?text=Compute → each match's "kind", "clickable", "where" (in view, above, below, or inside a closed menu to open first), "in", and "lines" (each a sentence to say); POST /api/browser/highlight {"text"} rings it in red on the page for a few seconds; /outline (headings, navigation, buttons, fields). Errors: 409 chrome_not_open | no_window | no_chrome, 403 javascript_off (fix: Chrome's View > Developer > Allow JavaScript from Apple Events) | not_allowed. Never tell the person something is on the page unless has or find said so; read again after each step.
+        It READS the tab already in front of Google Chrome; it never opens a page, goes to an address, searches, clicks, types, or opens Chrome. To open a page: POST /api/run {"script": "browser/open-page.sh", "args": ["<address>"]}; to search Google: browser/google.sh ["<question>"] (it gives back the answer itself); a site's own search: browser/site-search.sh ["youtube lofi"]; to click and type: Straw (below). Those wait for Run on the Mac; then read the page here. GET /api/browser/url → {"title", "url"} (needs nothing switched on); /tabs; /page → {"title", "url", "text", "selection", "scroll"} (?max=20000); /has?text=Compute → {"present": true|false, "count", "lines"}; /find?text=Compute → each match's "kind", "clickable", "where" (in view, above, below, or inside a closed menu to open first), "in", and "lines" (each a sentence to say); POST /api/browser/highlight {"text"} rings it in red on the page for a few seconds; /outline (headings, navigation, buttons, fields). Errors: 409 chrome_not_open | no_window | no_chrome, 403 javascript_off (fix: Chrome's View > Developer > Allow JavaScript from Apple Events) | not_allowed. Never tell the person something is on the page unless has or find said so; read again after each step.
 
         ## Straw: Chrome by what's on the page
 
@@ -174,6 +174,7 @@ public enum APIDoc {
         400 bad_lines                                               lines for the mind have mistakes ("problems": each line, error and fix); nothing was written
         403 read_only                                               SYSTEM-DOCS can't be changed
         409 already_exists                                          a library note of that name is there already
+        400 browser_reads_only                                      /api/browser/search, /open, /navigate…: it only reads; "error" and "next" say what opens or searches
         409 chrome_not_open | no_window | no_chrome                 Chrome isn't there to read; 403 javascript_off | not_allowed: what to switch on
         409 no_folder                                               no scripts folder is chosen yet
         409 still_waiting | still_running                           a request that can't be cleared yet (its caller waits on it; it's running)
