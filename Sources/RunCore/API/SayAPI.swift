@@ -227,7 +227,7 @@ extension RunAPI {
                 await sayLog.with(ctx.client) { $0.pending = SayLog.Pending(choices: two.map { ($0.form.title, $0.filled, text) }) }
                 return SayReply(answer: "Did you mean:\n" + SayWords.numbered(two.map { Self.described($0.form, $0.filled) }) + "\nSay its number.")
             }
-            if top.score < SayMatch.clean, top.form.changes, top.form.kind != "builtin" {
+            if top.score < SayMatch.certain(top.form), top.form.changes, top.form.kind != "builtin" {
                 return await sayConfirm(top.form, top.filled, text, ctx)
             }
             return await sayAct(top.form, top.filled, said: text, ctx)
@@ -269,7 +269,7 @@ extension RunAPI {
         let shaped = Self.labeledForm(form)
         switch SayMatch.labeled(l, shaped, titleScore: titleScore) {
         case let .filled(filled, score):
-            if score < SayMatch.clean, form.changes { return await sayConfirm(form, filled, text, ctx) }
+            if score < SayMatch.certain(form), form.changes { return await sayConfirm(form, filled, text, ctx) }
             return await sayAct(form, filled, said: text, ctx)
         case let .incomplete(filled, missing, _):
             if filled.values.values.allSatisfy(\.isEmpty) { return SayReply(answer: "Fill in the blanks and say it back:\n\n" + form.template) }
@@ -337,8 +337,16 @@ extension RunAPI {
     func sayOffer(_ text: String, _ ctx: SayContext) async -> SayReply {
         let used = await sayLog.with(ctx.client) { $0.used }
         var picked = SayForms.search(text, in: ctx.forms, used: used, limit: 8)
-        // The web answers most questions: offered too, when little else fits.
-        if picked.count < 3, let web = ctx.form("Search the web"), !picked.contains(where: { $0.title == web.title }) { picked.append(web) }
+        // The web answers most questions: offered second for a question (after the best fit, if
+        // there's one), and last when little else fits.
+        if let web = ctx.form("Search the web") {
+            if Self.isQuestion(text) {
+                picked.removeAll { $0.title == web.title }
+                picked.insert(web, at: min(1, picked.count))
+            } else if picked.count < 3, !picked.contains(where: { $0.title == web.title }) {
+                picked.append(web)
+            }
+        }
         guard !picked.isEmpty else {
             return SayReply(answer: "I don't know how to do that yet.", next: ctx.forms(["What can you do"]))
         }
@@ -353,6 +361,14 @@ extension RunAPI {
             more = ["More that can do that:\n" + Self.offered(rest, from: 4)]
         }
         return SayReply(answer: answer, more: more)
+    }
+
+    /// A question about the world ("when does the louvre open?"), not a request to do something.
+    static func isQuestion(_ text: String) -> Bool {
+        let words = SayText.words(text)
+        guard let first = words.first else { return false }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
+            || ["when", "where", "who", "whom", "whose", "why", "how", "which", "what", "whats", "is", "are", "was", "were", "does", "do", "did"].contains(first)
     }
 
     /// Templates in a numbered list, each indented under its number.
