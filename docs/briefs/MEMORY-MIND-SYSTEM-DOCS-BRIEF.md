@@ -37,4 +37,7 @@ ship to main at each point. dont wait for builds in other branches
   read only, laid out, with copy buttons); the Present window (in front of everything, copy
   buttons on the whole, each section, each piece of code); SYSTEM-DOCS installed and MEMORY made at
   launch; SYSTEM-DOCS' first docs (prompts, recipes, exchanges, guides)
-- [ ] 4 · The docs (SYSTEM-DOCS' prompts, recipes and exchanges), scripts and guides
+- [x] 4 · Scripts and docs: browser.sh page, has (true or false) and find (where a thing is),
+  without the app; utilities/tmr.py (and remember, recall, upcoming, mind-link, mind-ask, show)
+  speaking to the app's API from a terminal or a flow; the API's one page (/api/doc), API.md,
+  the README and the agents guide

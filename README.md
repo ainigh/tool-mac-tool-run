@@ -130,7 +130,7 @@ the API offers by hand. Each section's tiles are under their topics (the utiliti
 Finding files, Date and time, This Mac…; the browser's Straw, Searching sites, Chrome; the
 functions' Text, Lists, System…), and its **Library** section runs the file library's operations.
 
-**The Library board** (⌘7) is your notes: a folder called **LIBRARY** on your Desktop, each note a
+**The Library board** (⌘7) is your notes: a folder called **LIBRARY** in TOOL-MAC-RUN on your Desktop, each note a
 Markdown file known by its name alone (`groceries` is `LIBRARY/groceries.md`). A tile each, the
 latest changed first; click one to read and edit it beside them (⌘S saves); **New Note** (⌘N),
 a search across every note's text (each match with the lines it's on), right-click to rename,
@@ -250,6 +250,40 @@ actions, step by step, for a shortcut Siri can run), **AI Agent** (the rules and
 for an assistant's instructions), and the **Address**. Each lists the scripts, runs one with
 `client` and `why`, keeps the request id and handles Don't Run. **Allow other devices** listens
 on the network too; callers from elsewhere need the token shown there.
+
+## TOOL-MAC-RUN: Library, Memory, Mind and System Docs
+
+The app keeps its own shelves in one folder, **TOOL-MAC-RUN on your Desktop**, each with its board
+(from the panel, or ⌘7 to ⌘0 on any board) and its API:
+
+- **Library** (⌘7, `/api/library`): your notes, Markdown files known by their names.
+- **Memory** (⌘8, `/api/memory`): what's remembered, a file for each kind of thing — PEOPLE,
+  ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS — each a
+  node of the mind. Apps `remember` (a line in the file, and links in the mind) and `recall`
+  (everything known about a name), and ask what's `upcoming`.
+- **Mind** (⌘9, `/api/mind`): what links to what, in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
+  (`| ada lovelace - works at | acme`): a picture to move around in, or its text. It's only ever
+  added to. Apps ask it in plain fields (about, neighbours, path, find, dates) or in the notation's
+  own queries (`| x - works at | acme`), and add to it the same two ways; a model's reply can be
+  appended as it is, checked first.
+- **System Docs** (⌘0, `/api/system-docs`): how the app works, for you and for models — the
+  guides, the API, prompts (PROMPT-ASSISTANT, PROMPT-MIND-KEEPER, PROMPT-SITE-GUIDE), recipes and
+  example exchanges. The app writes it each time it starts; nobody changes it. The sources are
+  [docs/system](docs/system).
+
+None of them asks you each time: they're notes, not programs, and nothing is deleted for good
+without asking (a deleted file waits in its shelf's Trash; the mind keeps its log).
+
+Two more things apps can do for you: **show** something in a window that comes in front of
+everything, with copy buttons (`POST /api/present`: a file, a node of the mind, any text), and
+**copy** to your clipboard (`POST /api/clipboard`, or `"copy": true` on any answer). And to guide
+you through a website, they can **see the page in Chrome** (`/api/browser`): its address, its
+text, whether some words are on it, where a thing is (in view, above, below, inside a closed menu),
+and ring it in red so you see it. It only reads: it never clicks or types.
+
+From a terminal or a flow, `utilities/tmr.py` speaks to all of it (`tmr.py remember PEOPLE "Ada
+Lovelace" met at the conference`, `tmr.py recall ada`, `tmr.py show memory PEOPLE`, `tmr.py has
+Compute`), and `browser/browser.sh page | has TEXT | find TEXT` reads Chrome's page without the app.
 
 ## Install (and update)
 

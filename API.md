@@ -87,6 +87,18 @@ curl -s localhost:8768/api/library -d '{"op": "write", "name": "groceries", "tex
 curl -s localhost:8768/api/library -d '{"op": "search", "q": "milk"}'
 curl -s localhost:8768/api/library/files/groceries?format=text
 
+# remember someone, and recall them (MEMORY, and the mind that links it: answered at once)
+curl -s localhost:8768/api/memory/remember -d '{"category": "PEOPLE", "about": "Ada Lovelace", "text": "Met at the conference", "client": "My App"}'
+curl -s "localhost:8768/api/memory/recall?name=ada"
+
+# show something on the Mac, in front of everything, with copy buttons; copy to the clipboard
+curl -s localhost:8768/api/present -d '{"shelf": "memory", "name": "PEOPLE", "why": "To check the details"}'
+curl -s localhost:8768/api/clipboard -d '{"text": "ssh me@example.com"}'
+
+# what's on the page in Chrome: true or false, and where a thing is
+curl -s "localhost:8768/api/browser/has?text=Compute"
+curl -s "localhost:8768/api/browser/find?text=Compute"
+
 # every route, in its groups
 curl -s localhost:8768/api/endpoints
 ```
@@ -463,7 +475,7 @@ send `client` and `why` in the body as for a run. It answers like a run request:
 
 ### The file library: `/api/library`
 
-**LIBRARY**, on the person's Desktop, holds their notes: Markdown files, each known by its name
+**LIBRARY**, in TOOL-MAC-RUN on the person's Desktop, holds their notes: Markdown files, each known by its name
 without `.md` (`groceries` is `LIBRARY/groceries.md`). A name is a key and its text the value.
 **Nothing here shows a card or waits for a click**: the library's calls answer at once. Deleting
 a note only moves it to the library's own Trash folder, numbered (`groceries (1).md`, `groceries
@@ -525,6 +537,142 @@ and accents don't matter when one is looked up. A name that isn't there is **404
 with `fix` naming the notes near it; **400** `bad_name`, `missing_op`, `unknown_op`; **409**
 `already_exists`. The `library` switch turns them all off (**503** `endpoint_off`).
 
+### MEMORY: `/api/memory`
+
+**MEMORY**, in TOOL-MAC-RUN beside LIBRARY, is an opinionated library: it comes with a file for
+each kind of thing worth remembering — `PEOPLE`, `ORGANIZATIONS`, `EVENT-DATES`, `BIRTHDAYS`,
+`LOCATIONS`, `IDEAS`, `LEVERAGE`, `STRATEGIES`, `OTHERS` — and **every file is a node of the mind**
+(below), in its root scope. Every library operation and route works here too, with `/api/memory`
+for `/api/library` (`GET /api/memory/files/PEOPLE`, `POST /api/memory/files/PEOPLE/append`…); a
+file written, made, copied, restored or renamed keeps its node in step (the answer's `mind` says
+what was added). Nothing asks on the Mac. Its own operations:
+
+| op | route | fields | gives back |
+|---|---|---|---|
+| `remember` | `POST /api/memory/remember` | `category` (a file: `PEOPLE`…), `about` (the name), `text`?, `links`? (`[{label?, to, category?}]`), `notes`? (`["birthday 03-14"]`) | `file`, `node`, `added_to_file`, `added_to_mind`: a line in the file (`- Ada Lovelace: …`), and in the mind `\| PEOPLE \| ada lovelace`, its links (filed under their category too) and notes |
+| `recall` | `GET /api/memory/recall?name=…` | `name` | `found`, `nodes`, `about` (each node's `notes` and `links`), `categories` (the files it's under), `mentions` (lines in the files), `lines` (all of it, as text) |
+| `categories` | `GET /api/memory/categories` | | each file: `default` (one MEMORY comes with), `members` (how many the mind files under it) |
+| `members` | `GET /api/memory/categories/{name}/members` | `name` | what the mind files under it |
+| `upcoming` | `GET /api/memory/upcoming` | `days` (30) | `upcoming`: `[{day, in_days, what, source, yearly}]`: dated notes in the mind, and lines in the files that start with a day (`2026-11-03`; `03-14` comes round every year, as does any day in BIRTHDAYS) |
+| `sync` | `POST /api/memory/sync` | | makes each file a node (the ones that aren't) |
+| `defaults` | `POST /api/memory/defaults` | | puts back any of the nine files that isn't there |
+
+A memory file's name is a node's name too: words, with no `@` and no `-`, `|` or `=` after a space
+(`EVENT-DATES` is fine), else **400** `bad_name`. Deleting a file moves it to MEMORY's Trash; its
+node stays in the mind. [docs/system/MEMORY-GUIDE.md](docs/system/MEMORY-GUIDE.md) has more.
+
+```bash
+curl -s localhost:8768/api/memory/remember -d '{"category": "PEOPLE", "about": "Ada Lovelace", "text": "Met at the conference",
+  "links": [{"label": "works at", "to": "Acme", "category": "ORGANIZATIONS"}], "notes": ["birthday 03-14"], "client": "My App"}'
+curl -s "localhost:8768/api/memory/recall?name=ada"
+curl -s "localhost:8768/api/memory/upcoming?days=30"
+```
+
+### The mind: `/api/mind`
+
+The mind is `MIND/mind.txt` in TOOL-MAC-RUN: lines in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
+that compile to a graph (things, and directed or undirected links with labels and notes, in
+scopes). **It's only ever added to**: every change, even a rename (`| old = new`) or a forget
+(`| old =`), is a line appended; the log is the record. Nothing asks on the Mac. MEMORY's files
+are its root nodes. The Mind board (⌘9) draws it.
+
+**Asking, without the notation** (names are looked up as a person means them: case, spaces, "the",
+plurals, a few letters off):
+
+| route | gives back |
+|---|---|
+| `GET /api/mind/nodes/{name}` | its `notes`, its `links` (`[{node, direction: out·in·both·undirected, labels, notes}]`), `lines`; and `memory_text` for a MEMORY file |
+| `GET /api/mind/nodes/{name}/neighbors?depth=2&direction=out·in·both` | the nodes around it, the nearest first |
+| `GET /api/mind/path?from=…&to=…` | the shortest way: `nodes`, `lines` (`found`: false when there's none) |
+| `GET /api/mind/find?q=…` | nodes with the words in their name, notes or links' labels |
+| `GET /api/mind/edges?label=works at` | the edges with that label (`&contains=true`: with it in it) |
+| `GET /api/mind/notes?kind=date` | the notes of a kind (`@date 2026-11-03`), on nodes and edges |
+| `GET /api/mind/dates?days=30&past=0` | the days coming up in the notes |
+| `POST /api/mind/context {"text"}` | the part of the mind the text is about (the nodes named in it, one step out), as `lines`: what to give a model with a conversation |
+| `GET /api/mind/nodes`, `/scopes`, `/graph`, `/stats`, `/layout`, `/problems` | the rest of it |
+| `GET /api/mind/log`, `/canonical` | the log as written, and in its shortest form (one line a fact), as `text/plain` (`?format=json`: lines) |
+
+**Asking in the notation**: `POST /api/mind/query {"q": "| sam | x"}`. A name that isn't in the mind
+is a variable: `| sam | x` (every edge from sam), `| x - reviews | y`, `| paper @x` (its notes),
+`| paper @date` (its notes of that kind), `| @ talk` (the scope). The answer: `lines` (every line
+that matched), and `answers` (each query line's `matches`, with `bindings`).
+
+**Adding, without the notation**: `POST /api/mind/add {"from", "label"?, "to"?, "undirected"?,
+"notes"?}` or `{"facts": [those]}`; `POST /api/mind/note {"name", "note"}`, `/rename {"name", "to"}`,
+`/forget {"name"}`, `/comment {"text"}`. A name the mind has (the same but for case) is used as it
+is; a new one is written in lower case (`"keep_case": true` keeps it). Text that would read as a
+symbol (` - ` in a note) is made safe, and `rewritten` says so.
+
+**Adding in the notation**: `POST /api/mind/append {"lines": ["| sam - writes | paper"]}`, or
+`{"text": "<a model's reply>"}` (the lines of its ```` ```mm ```` block that start with `|`), with
+`scope`? and `comment`?. Every line is checked against the mind first; **one mistake and nothing is
+written**: **400** `bad_lines` with `problems: [{line, text, error, fix}]` (`"partial": true`
+writes the others). Lines that add nothing are left out (`known`). Each addition is stamped with a
+comment line (when, and the `client`). Deleting or merging a scope is refused: it's the person's
+(the board asks them). `POST /api/mind/check` answers the same without writing (`would_add`,
+`known`, `problems`). `POST /api/mind/prompt {"messages"}` gives the notation's prompt for a small
+model, filled in with the part of the mind the messages touch, and its `grammar` (GBNF): send the
+model's reply to `append`. `POST /api/mind/compact` rewrites the log in its shortest form, keeping
+the old one in `MIND/Archive`.
+
+```bash
+curl -s localhost:8768/api/mind/add -d '{"facts": [{"from": "sam", "label": "writes", "to": "the paper"}, {"from": "ana", "label": "reviews", "to": "the paper"}]}'
+curl -s localhost:8768/api/mind/nodes/sam
+curl -s localhost:8768/api/mind/query -d '{"q": "| x - reviews | y"}'
+curl -s localhost:8768/api/mind/append -d '{"lines": ["| sam - moved to | lagos", "| sam @date 2026-10-17 moved"]}'
+```
+
+### SYSTEM-DOCS: `/api/system-docs`
+
+How the app works, for people and for models, as a shelf the app writes (each time it starts) and
+nobody changes: `START-HERE`, `PROMPT-ASSISTANT` (a system prompt for a model using the app),
+`PROMPT-MIND-KEEPER`, `PROMPT-SITE-GUIDE`, `RECIPES`, `EXCHANGES`, `MEMORY-GUIDE`, `MIND-GUIDE`,
+`BROWSER-GUIDE`, `PRESENT-AND-COPY`, `TOOL-MAC-RUN`, the Flow, Straw and agents guides, this
+document, the notation (`MIND-NOTATION`), and docs made from the app itself (`API-REFERENCE`,
+`API-ROUTES`, `FLOW-FUNCTIONS`, `STRAW-WORDS`). The library's reading routes answer here
+(`GET /api/system-docs/files/{name}`, `/search`, `/names`, `/files/{name}/outline`); a write is
+**403** `read_only`. The sources are [docs/system](docs/system).
+
+### Showing and copying: `POST /api/present`, `POST /api/clipboard`
+
+`POST /api/present` shows something on the Mac in a window that comes in front of everything,
+with copy buttons (the whole, each section, each piece of code; for the mind, each line) and the
+things shown before it: a file (`{"shelf": "memory", "name": "PEOPLE"}`; shelves `library`,
+`memory`, `system-docs`), a node of the mind (`{"mind": "ada lovelace"}`; `""`: the whole mind), or
+any text (`{"title", "text", "format": "markdown"·"text"·"json"}`). `why` is shown under the title;
+`"copy": true` copies it too. `POST /api/clipboard` puts `{"text"}` (or a file, or a node) on the
+clipboard. Neither asks first; the **Show and copy** switch turns them off. The clipboard isn't
+read.
+
+**On any answer**: every library, memory, system-docs, mind and browser call takes `"copy": true`
+(or `?copy=true`) to put its answer's text on the clipboard (`"copied": true`), and
+`"present": true` to show it in that window (`"presented": true`). The text is a file's text, the
+lines found, the names, or else the JSON.
+
+### Chrome's page: `/api/browser`
+
+To guide the person through a site, an app can see the tab in front of Google Chrome — not a
+picture, the page: its address and title, its text, whether words are on it, and where a thing is.
+**It only reads**: it never clicks, types, opens a page or opens Chrome (Straw does that, after a
+click on Run). Nothing asks on the Mac; the **Read Chrome's page** switch turns it off.
+
+| route | gives back |
+|---|---|
+| `GET /api/browser` | `chrome` (`open`, or what's wrong), `front` (`{title, url}`), `javascript` (whether pages can be read, and the fix) |
+| `GET /api/browser/url` | `title`, `url`, `loading` (needs nothing switched on in Chrome) |
+| `GET /api/browser/tabs` | `tabs`: `[{window, index, active, title, url}]` (`?all=true`: every window) |
+| `GET /api/browser/page` | `title`, `url`, `host`, `text` (`?max=20000` characters; `chars`, `truncated`), `selection`, `description`, `scroll`, `focused` (`?outline=true` adds `outline`) |
+| `GET /api/browser/has?text=Compute` | `present` (true·false), `answer` (yes·no), `count`, `hidden` (times in what isn't shown), `lines` (`?case_sensitive`, `?whole_words`) |
+| `GET /api/browser/find?text=Compute` | `found`: `[{text, kind, clickable, exact, shown, where, side, in, href, box}]` — `where` is `in view`, `above (scroll up)`, `below (scroll down)`, or `inside “Workers & Pages”, which is closed: open it first`; `lines`: each as a sentence to say |
+| `POST /api/browser/highlight {"text", "seconds"?}` | scrolls to it and rings it in red, with a label (or the closed menu it's inside); `said`: what to tell the person |
+| `GET /api/browser/outline` | `headings`, `landmarks`, `navigation`, `buttons`, `fields`, `links` |
+
+The first time, macOS asks whether the app may control Chrome. Reading inside a page needs
+Chrome's **View > Developer > Allow JavaScript from Apple Events** (the address and title don't).
+Errors: **409** `chrome_not_open` · `no_window` · `no_chrome`; **403** `javascript_off` ·
+`not_allowed` (System Settings > Privacy & Security > Automation); **504** `timed_out`. Each has its
+`fix`. [docs/system/BROWSER-GUIDE.md](docs/system/BROWSER-GUIDE.md) walks through guiding someone.
+
 ### Straw: `GET /api/straw`, `POST /api/straw/check`, `POST /api/straw/run`
 
 [Straw](docs/STRAW-GUIDE.md) scripts drive Google Chrome by naming what's on the page (`open
@@ -553,15 +701,22 @@ Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
 | 400 | `flow_mistake` | the Flow code has a mistake (with `line` and `fix`) |
 | 400 | `straw_mistake` | the Straw code has a mistake (with `line` and `fix`) |
 | 400 | `missing_op`, `unknown_op`, `bad_name` | a file library call that isn't right (`fix` says how) |
+| 400 | `bad_lines` | lines for the mind have mistakes: `problems` has each line, its error and fix; nothing was written |
+| 400 | `unknown_shelf` | `/api/present` or `/api/clipboard` named a shelf that isn't one (`library`, `memory`, `system-docs`) |
 | 401 | `unauthorized` | sharing on the network is on and the request didn't send the token |
 | 403 | `denied`, `not_answered` | it didn't run: Don't Run, or no answer in time |
 | 403 | `forbidden` | a browser page from another site, a `Host` that isn't this Mac, or another machine while sharing is off |
+| 403 | `read_only` | SYSTEM-DOCS can't be changed |
+| 403 | `javascript_off`, `not_allowed` | Chrome doesn't let apps read inside pages yet, or macOS hasn't let the app control Chrome (`fix` says the switch) |
 | 404 | `not_found`, `unknown_script`, `unknown_flow`, `unknown_run`, `unknown_request` | no such route, script, flow, run or request |
 | 409 | `no_folder` | no scripts folder is chosen yet |
 | 409 | `already_exists` | a library note of that name is there already (`create`, `rename`, `copy`, `restore`) |
 | 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
+| 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (it's never opened for you) |
 | 413 | `too_large` | a body over 8 MB |
+| 501 | `not_available` | showing or the clipboard asked of something that isn't the app on a Mac |
 | 503 | `endpoint_off` | that group is switched off in the app |
+| 504 | `timed_out` | Chrome didn't answer in 30 seconds (macOS may be asking whether the app may control it) |
 | 500 | `failed` | anything else; `error` says what |
 
 ## Access

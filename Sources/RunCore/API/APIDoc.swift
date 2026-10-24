@@ -82,6 +82,36 @@ public enum APIDoc {
         Names: any words but / and :, not starting with a dot; "groceries.md" is groceries; case and accents don't matter when one is found. 404 not_found says the names near it ("fix"). 400 bad_name, unknown_op; 409 already_exists.
         Raw text works too: PUT /api/library/files/groceries with the text as the body (text/plain or text/markdown) writes it; GET /api/library/files/groceries?format=text gives the text alone.
 
+        ## MEMORY: what's remembered, answered at once
+
+        MEMORY, in TOOL-MAC-RUN beside LIBRARY, is a library with a file for each kind of thing worth remembering: PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS (and any others made). Each file is a node of the mind (below). Every library operation and route works on it, at /api/memory (POST /api/memory {"op"}, /api/memory/files/{name}…). Its own:
+        - remember {"category": "PEOPLE", "about": "Ada Lovelace", "text"?, "links"?: [{"label"?, "to", "category"?}], "notes"?: ["birthday 03-14"]} → a line in the file, and in the mind the file linked to it, its links and notes → {"file", "node", "added_to_file", "added_to_mind"}
+        - recall {"name"} (GET /api/memory/recall?name=ada) → {"found", "nodes", "about": [{"notes", "links"}], "categories", "mentions", "lines"}: look here before answering about a person, place or plan
+        - categories → each file, whether it's one MEMORY comes with, how many things the mind files under it            members {"name"} (GET /api/memory/categories/PEOPLE/members)
+        - upcoming {"days"?: 30} → {"upcoming": [{"day", "in_days", "what", "source", "yearly"}], "lines"}: dated notes in the mind, and lines in the files that start with a day (2026-11-03; 03-14 every year)
+        - sync (each file a node)            defaults (puts back the nine files)
+        A memory file's name is also a node's name: words, no @, and no -, | or = after a space (400 bad_name otherwise).
+
+        ## The mind: what links to what, append only
+
+        The mind is MIND/mind.txt in TOOL-MAC-RUN: lines in the text mind-map notation (GET /api/system-docs/files/MIND-NOTATION has every rule; MIND-GUIDE how to use it). "| ada lovelace - works at | acme" links two things; "| paper @date 2026-11-03" is a note; "| old = new" merges; "| old =" forgets; "| @ work" starts a scope. MEMORY's files are nodes in the root scope. NOTHING ASKS ON THE MAC, and nothing is ever taken out of the log: every change is a line added at the end.
+        Ask it without the notation: GET /api/mind/nodes/{name} (all about a thing, looked up as a person means it), /nodes/{name}/neighbors?depth=2, /path?from=&to=, /find?q=, /edges?label=, /notes?kind=date, /dates?days=30, POST /api/mind/context {"text"} (the part of the mind a conversation touches, as lines), /stats, /graph, /canonical (one line a fact), /log.
+        Ask it in the notation: POST /api/mind/query {"q": "| sam | x"}: a name not in the mind is a variable (| x - reviews | y, | paper @x, | @ talk) → {"lines", "answers": [{"matches": [{"bindings", "lines"}]}]}.
+        Add without the notation: POST /api/mind/add {"from", "label"?, "to"?, "undirected"?, "notes"?} or {"facts": [those]}; note {"name", "note"}; rename {"name", "to"}; forget {"name"}. Names are matched to the mind's (case, spaces); new ones are written in lower case.
+        Add in the notation: POST /api/mind/append {"lines": [...]} or {"text": "<a model's reply with a mm block>"}; check (the same, nothing written). Any mistake writes nothing (400 bad_lines, with "problems": [{"line", "text", "error", "fix"}]; "partial": true writes the rest). Lines already known are left out ("known"). A scope delete or merge is refused: it's the person's. POST /api/mind/prompt {"messages"} gives the notation's prompt for a model, filled in, with its grammar.
+
+        ## SYSTEM-DOCS: how this app works, read only
+
+        GET /api/system-docs/files/START-HERE, then PROMPT-ASSISTANT (a system prompt for you), RECIPES, EXCHANGES, MEMORY-GUIDE, MIND-GUIDE, BROWSER-GUIDE, PRESENT-AND-COPY, the guides, this API. The library's reading routes, at /api/system-docs (search, names, outline…); a write is 403 read_only.
+
+        ## Showing and copying
+
+        POST /api/present shows something on the Mac in a window in front of everything, with copy buttons: {"shelf": "memory", "name": "PEOPLE"}, {"mind": "ada lovelace"}, or {"title", "text", "format"?: "markdown"|"text"|"json"}; "why" is shown with it, "copy": true copies it too. POST /api/clipboard {"text"} (or a file, or "mind") puts it on the clipboard. On ANY library, memory, system-docs, mind or browser call, "copy": true puts the answer's text on the clipboard ("copied": true) and "present": true shows it ("presented": true). The clipboard isn't read.
+
+        ## Chrome's page: to guide the person through a site
+
+        It reads the tab in front of Google Chrome; it never clicks, types, or opens Chrome. GET /api/browser/url → {"title", "url"} (needs nothing switched on); /tabs; /page → {"title", "url", "text", "selection", "scroll"} (?max=20000); /has?text=Compute → {"present": true|false, "count", "lines"}; /find?text=Compute → each match's "kind", "clickable", "where" (in view, above, below, or inside a closed menu to open first), "in", and "lines" (each a sentence to say); POST /api/browser/highlight {"text"} rings it in red on the page for a few seconds; /outline (headings, navigation, buttons, fields). Errors: 409 chrome_not_open | no_window | no_chrome, 403 javascript_off (fix: Chrome's View > Developer > Allow JavaScript from Apple Events) | not_allowed. Never tell the person something is on the page unless has or find said so; read again after each step.
+
         ## Straw: Chrome by what's on the page
 
         Straw scripts (.straw, in the browser folder) drive Google Chrome by naming what's on the page: open news.ycombinator.com, click "More", type "Search" "cats", read all css ".titleline > a". GET /api/straw lists the 25 words (each with what it takes, what it does and an example) and the Straw scripts in the folder. POST /api/straw/check {"source": "<Straw code>"} checks it without running anything → {"ok": true, "steps", "plan": [lines]} or {"ok": false, "code": "straw_mistake", "line", "error", "fix"}. POST /api/straw/run {"script": "hacker-news"} runs one, or {"source": "<Straw code>", "name"?} runs code you send (checked first: a mistake is 400 and nothing is asked); it waits for Run on the Mac like /api/run (the card shows your code in full), and takes the same "args", "why", "wait", "async" and "stream". What a Straw script reads is its output; what it's doing (a line a step) is its stderr.
@@ -125,7 +155,10 @@ public enum APIDoc {
         400 missing_op | unknown_op | bad_name                       a library call that isn't right (see The file library)
         400 straw_mistake                                           the Straw code has a mistake (with "line" and "fix")
         404 not_found | unknown_script | unknown_flow | unknown_run | unknown_request
+        400 bad_lines                                               lines for the mind have mistakes ("problems": each line, error and fix); nothing was written
+        403 read_only                                               SYSTEM-DOCS can't be changed
         409 already_exists                                          a library note of that name is there already
+        409 chrome_not_open | no_window | no_chrome                 Chrome isn't there to read; 403 javascript_off | not_allowed: what to switch on
         409 no_folder                                               no scripts folder is chosen yet
         413 too_large                                               a body over 8 MB
         503 endpoint_off                                            that group is switched off in the app
@@ -148,6 +181,12 @@ public enum APIDoc {
         curl -s \(baseURL)/api/library -d '{"op": "search", "q": "milk"}'
         curl -s \(baseURL)/api/library/files/groceries?format=text
         curl -s -X DELETE \(baseURL)/api/library/files/groceries      # to the library's Trash
+        curl -s \(baseURL)/api/memory/remember -d '{"category": "PEOPLE", "about": "Ada Lovelace", "text": "Met at the conference", "client": "My App"}'
+        curl -s "\(baseURL)/api/memory/recall?name=ada"
+        curl -s \(baseURL)/api/mind/add -d '{"from": "ada lovelace", "label": "works at", "to": "acme"}'
+        curl -s \(baseURL)/api/mind/query -d '{"q": "| x - works at | acme"}'
+        curl -s \(baseURL)/api/present -d '{"shelf": "memory", "name": "PEOPLE", "why": "To check the details"}'
+        curl -s "\(baseURL)/api/browser/has?text=Compute"
         curl -s \(baseURL)/api/straw/check -d '{"source": "open example.com\\nread title"}'
         curl -s \(baseURL)/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
         """

@@ -3530,6 +3530,256 @@ extension Examples {
         # library.py, beside it, does the work (the same rules as the Library board and /api/library).
         exec python3 "$(dirname "$0")/library.py" open "$@"
         """# + "\n"),
+        ("utilities/tmr.py", #"""
+        #!/usr/bin/env python3
+        # Tool Mac Tool Run's own API, from a script or a flow: remember and recall, the mind, the docs, show and copy, Chrome's page
+        #
+        # Input (optional): What to do, then its words (with nothing, what it can do)
+        #
+        #   tmr.py remember PEOPLE "Ada Lovelace" met at the conference   a line in MEMORY/PEOPLE, linked in the mind
+        #   tmr.py recall ada                  what's known about a name (its links and notes, the lines that mention it)
+        #   tmr.py upcoming 30                 the birthdays and dates in the next 30 days
+        #   tmr.py members PEOPLE              what the mind files under a MEMORY file
+        #   tmr.py about acme                  all the mind knows about a thing
+        #   tmr.py link sam "works at" acme    a link in the mind (from, label, to)
+        #   tmr.py note sam "todo call back"   a note on a thing
+        #   tmr.py query "| x - works at | acme"   the notation's own query (a name not in the mind is a variable)
+        #   tmr.py append "| a - knows | b"    lines of the notation, added (or the input: a model's reply)
+        #   tmr.py find rocket · tmr.py dates 30 · tmr.py path sam lagos · tmr.py mind (it all, one line a fact)
+        #   tmr.py doc RECIPES                 a doc from SYSTEM-DOCS (tmr.py docs: their names)
+        #   tmr.py show memory PEOPLE          a file in a window in front of everything (library, memory, system-docs)
+        #   tmr.py show "Title" some text      any text in that window (or the input)
+        #   tmr.py copy some text              onto the clipboard (or the input)
+        #   tmr.py url · page · has Compute · where Compute · ring Compute   Chrome's page (ring: rings it in red)
+        #   tmr.py get /api/mind/stats · tmr.py post /api/mind/add '{"from": "a", "to": "b"}'
+        #
+        # The app has to be running, with its API on (TMR_API sets the address: http://127.0.0.1:8768 unless set).
+        import json
+        import os
+        import sys
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        API = os.environ.get("TMR_API", "http://127.0.0.1:8768").rstrip("/")
+        CLIENT = os.environ.get("TMR_CLIENT", "tmr.py")
+
+
+        class Problem(Exception):
+            pass
+
+
+        def call(method, path, body=None):
+            data = None
+            headers = {"X-Client": CLIENT}
+            if body is not None:
+                body.setdefault("client", CLIENT)
+                data = json.dumps(body).encode()
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(API + path, data=data, method=method, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    raw = r.read().decode("utf-8", "replace")
+                    kind = r.headers.get("Content-Type", "")
+            except urllib.error.HTTPError as e:
+                raw = e.read().decode("utf-8", "replace")
+                try:
+                    d = json.loads(raw)
+                except ValueError:
+                    raise Problem(f"The app said {e.code}: {raw[:300]}")
+                raise Problem(d.get("error", raw) + (("\n" + d["fix"]) if d.get("fix") else "")
+                              + "".join(f"\n  line {p.get('line')}: {p.get('error')} {p.get('fix', '')}" for p in d.get("problems", [])))
+            except urllib.error.URLError:
+                raise Problem(f"Tool Mac Tool Run isn't answering at {API}.\nFix: open the app, and switch its API on (the panel's API section).")
+            if not kind.startswith("application/json"):
+                return raw
+            return json.loads(raw)
+
+
+        def q(s):
+            return urllib.parse.quote(s, safe="")
+
+
+        def lines(d, key="lines"):
+            out = d.get(key) if isinstance(d, dict) else None
+            if isinstance(out, list):
+                return "\n".join(str(x) for x in out) if out else "(nothing)"
+            return json.dumps(d, indent=2, ensure_ascii=False)
+
+
+        def stdin_text():
+            return "" if sys.stdin.isatty() else sys.stdin.read()
+
+
+        def main(argv):
+            if not argv:
+                head = []
+                for line in open(__file__).read().splitlines()[1:]:
+                    if not line.startswith("#"):
+                        break
+                    head.append(line[2:] if line.startswith("# ") else line[1:])
+                print("\n".join(head).strip())
+                return 0
+            cmd, rest = argv[0].lower(), argv[1:]
+            words = " ".join(rest)
+            need = lambda n, how: (_ for _ in ()).throw(Problem(how)) if len(rest) < n else None
+            if cmd == "remember":
+                need(2, "Remember what? tmr.py remember PEOPLE \"Ada Lovelace\" met at the conference")
+                text = " ".join(rest[2:]) or stdin_text().strip() or None
+                d = call("POST", "/api/memory/remember", {"category": rest[0], "about": rest[1], "text": text})
+                print(f"Remembered {d['node']} in {d['file']}" + ("".join("\n  " + l for l in d.get("added_to_mind", []))))
+            elif cmd == "recall":
+                need(1, "Recall whom or what? tmr.py recall ada")
+                d = call("GET", "/api/memory/recall?name=" + q(words))
+                print(lines(d) if d.get("found") else f"Nothing is known about {words}.")
+            elif cmd == "upcoming":
+                print(lines(call("GET", "/api/memory/upcoming?days=" + q(rest[0] if rest else "30"))))
+            elif cmd == "members":
+                need(1, "Which file? tmr.py members PEOPLE")
+                print(lines(call("GET", f"/api/memory/categories/{q(rest[0])}/members"), "members"))
+            elif cmd == "about":
+                need(1, "About what? tmr.py about acme")
+                print(lines(call("GET", "/api/mind/nodes/" + q(words))))
+            elif cmd == "link":
+                need(3, "tmr.py link FROM LABEL TO (tmr.py link sam \"works at\" acme)")
+                d = call("POST", "/api/mind/add", {"from": rest[0], "label": rest[1], "to": " ".join(rest[2:])})
+                print(lines(d, "added") if d.get("added") else "Known already.")
+            elif cmd == "note":
+                need(2, "tmr.py note THING NOTE (tmr.py note sam \"todo call back\")")
+                d = call("POST", "/api/mind/note", {"name": rest[0], "note": " ".join(rest[1:])})
+                print(lines(d, "added") if d.get("added") else "Known already.")
+            elif cmd == "query":
+                print(lines(call("POST", "/api/mind/query", {"q": words or stdin_text()})))
+            elif cmd == "append":
+                text = words or stdin_text()
+                d = call("POST", "/api/mind/append", {"text": text if "```" in text else "```mm\n" + text + "\n```"})
+                print(lines(d, "added") if d.get("added") else "Nothing new: the mind knew all of that.")
+            elif cmd == "find":
+                print(lines(call("GET", "/api/mind/find?q=" + q(words)), "names"))
+            elif cmd == "dates":
+                print(lines(call("GET", "/api/mind/dates?days=" + q(rest[0] if rest else "30"))))
+            elif cmd == "path":
+                need(2, "tmr.py path FROM TO")
+                d = call("GET", f"/api/mind/path?from={q(rest[0])}&to={q(' '.join(rest[1:]))}")
+                print(lines(d) if d.get("found") else f"No way from {rest[0]} to {' '.join(rest[1:])}.")
+            elif cmd == "mind":
+                print(call("GET", "/api/mind/canonical"), end="")
+            elif cmd == "docs":
+                print(lines(call("GET", "/api/system-docs/names"), "names"))
+            elif cmd == "doc":
+                print(call("GET", "/api/system-docs/files/" + q(words or "START-HERE") + "?format=text"), end="")
+            elif cmd == "show":
+                shelves = {"library", "memory", "system-docs", "docs"}
+                if rest and rest[0].lower() in shelves and len(rest) > 1:
+                    d = call("POST", "/api/present", {"shelf": rest[0], "name": " ".join(rest[1:])})
+                else:
+                    text = " ".join(rest[1:]) or stdin_text()
+                    if not text.strip():
+                        raise Problem("Show what? tmr.py show memory PEOPLE, or tmr.py show \"Title\" some text (or the input)")
+                    d = call("POST", "/api/present", {"title": rest[0] if rest else "From a script", "text": text})
+                print(f"Showing {d.get('title')}")
+            elif cmd == "copy":
+                text = words or stdin_text()
+                d = call("POST", "/api/clipboard", {"text": text})
+                print(f"Copied {d.get('chars')} characters")
+            elif cmd == "url":
+                d = call("GET", "/api/browser/url")
+                print(f"{d.get('title')}\n{d.get('url')}")
+            elif cmd == "page":
+                print(call("GET", "/api/browser/page").get("text", ""))
+            elif cmd == "has":
+                need(1, "Has what? tmr.py has Compute")
+                print("true" if call("GET", "/api/browser/has?text=" + q(words)).get("present") else "false")
+            elif cmd in ("where", "find-on-page"):
+                need(1, "Where's what? tmr.py where Compute")
+                print(lines(call("GET", "/api/browser/find?text=" + q(words))))
+            elif cmd in ("ring", "highlight"):
+                need(1, "Ring what? tmr.py ring Compute")
+                print(call("POST", "/api/browser/highlight", {"text": words}).get("said", ""))
+            elif cmd in ("get", "post"):
+                need(1, "tmr.py get /api/… or tmr.py post /api/… '{json}'")
+                body = json.loads(" ".join(rest[1:]) or "{}") if cmd == "post" else None
+                d = call(cmd.upper(), rest[0], body)
+                print(d if isinstance(d, str) else json.dumps(d, indent=2, ensure_ascii=False))
+            else:
+                raise Problem(f"tmr.py doesn't know \"{cmd}\". Run it with nothing to see what it does.")
+            return 0
+
+
+        if __name__ == "__main__":
+            try:
+                sys.exit(main(sys.argv[1:]))
+            except Problem as p:
+                print(p, file=sys.stderr)
+                sys.exit(1)
+        """# + "\n"),
+        ("utilities/remember.sh", #"""
+        #!/bin/bash
+        # Remembers something in MEMORY (and links it in the mind): which file, who or what it's about, and what to keep
+        #
+        # Input: Which file (PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS)
+        # Input: Who or what it's about
+        # Input (optional): What to remember about it
+        # Why: A line goes in the file, and links in the mind (nothing is replaced)
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" remember "$@"
+        """# + "\n"),
+        ("utilities/recall.sh", #"""
+        #!/bin/bash
+        # What's known about a name: its links and notes in the mind, the MEMORY files it's in, the lines that mention it
+        #
+        # Input: The name (a person, a place, an organization, anything)
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" recall "$@"
+        """# + "\n"),
+        ("utilities/upcoming.sh", #"""
+        #!/bin/bash
+        # The birthdays and dates coming up: from MEMORY's files (EVENT-DATES, BIRTHDAYS) and the mind's notes
+        #
+        # Input (optional): How many days ahead (30 unless set)
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" upcoming "$@"
+        """# + "\n"),
+        ("utilities/mind-link.sh", #"""
+        #!/bin/bash
+        # Links two things in the mind, with a label that reads left to right (sam, works at, acme)
+        #
+        # Input: The first thing
+        # Input: The label (works at, knows, is in…)
+        # Input: The second thing
+        # Why: A line is added to the mind (it's only ever added to)
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" link "$@"
+        """# + "\n"),
+        ("utilities/mind-ask.sh", #"""
+        #!/bin/bash
+        # All the mind knows about a thing: its notes, and everything it links to
+        #
+        # Input: The thing's name
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" about "$@"
+        """# + "\n"),
+        ("utilities/show.sh", #"""
+        #!/bin/bash
+        # Shows a file (or any text) in a window in front of everything, with copy buttons
+        #
+        # Input: A shelf and a file's name (memory PEOPLE, library groceries, system-docs RECIPES), or a title
+        # Input (optional): The text to show, with a title (or its input, from a flow)
+        set -euo pipefail
+
+        # tmr.py, beside it, asks the app (its API must be on).
+        exec python3 "$(dirname "$0")/tmr.py" show "$@"
+        """# + "\n"),
     ]
 
     /// Scripts that drive Google Chrome. `browser.sh` does the driving (through AppleScript); the
@@ -3545,6 +3795,10 @@ extension Examples {
         #                                back (the page's text if none is given), prints it, closes the tab
         #   browser.sh url | title | text | tabs     the page in front: its address, title or text; every tab
         #                                (of the front window; tabs --all: of every window)
+        #   browser.sh page              the page in front as JSON: title, url, text, what's selected
+        #   browser.sh has TEXT          true or false: whether TEXT is on the page in front (case and accents aside)
+        #   browser.sh find TEXT         where TEXT is on the page in front: a line for each thing it names
+        #                                (a link, a button…): in view, above, below, or inside a closed menu
         #   browser.sh close-duplicates  closes every tab showing the same address as one before it
         #   browser.sh js 'JS'           runs JavaScript in the page in front and prints what it gives back
         #   browser.sh js-in PART 'JS'   the same, in the first tab whose address has PART in it (music.youtube.com)
@@ -3947,6 +4201,52 @@ extension Examples {
         JXA
         }
 
+        # TEXT as a JavaScript string ("…", every quote and line break escaped).
+        js_string() {
+          osascript -l JavaScript - "$1" <<'JXA'
+        function run(argv) { return JSON.stringify(argv[0]) }
+        JXA
+        }
+
+        # The page's words folded: no case, no accents, one space.
+        FOLD='const fold = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();'
+
+        page_json() {
+          id=$(tab_id) || exit 1
+          js_in_tab "$id" '({title: document.title, url: location.href, text: document.body ? document.body.innerText : "", selection: String(getSelection() || "")})'
+        }
+
+        page_has() {
+          local want id
+          want=$(js_string "$1") || exit 1
+          id=$(tab_id) || exit 1
+          js_in_tab "$id" "$FOLD"' return fold(document.body ? document.body.innerText : "").includes(fold('"$want"')) ? "true" : "false";'
+        }
+
+        page_find() {
+          local want id
+          want=$(js_string "$1") || exit 1
+          id=$(tab_id) || exit 1
+          js_in_tab "$id" "$FOLD"'
+        const want = fold('"$want"');
+        const nameOf = el => (el.getAttribute("aria-label") || el.innerText || el.value || el.placeholder || el.title || el.alt || "").trim();
+        const shown = el => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
+        const out = [];
+        for (const el of document.body ? document.body.querySelectorAll("a, button, [role=button], [role=link], [role=menuitem], [role=tab], [role=treeitem], summary, label, input, select, textarea, h1, h2, h3, h4, li") : []) {
+          const n = nameOf(el);
+          if (!fold(n).includes(want)) continue;
+          if ([...el.children].some(c => fold(nameOf(c)).includes(want) && c.matches("a, button, [role=button], [role=link], [role=menuitem], li"))) continue;
+          const r = el.getBoundingClientRect();
+          let where = "hidden";
+          if (shown(el)) where = r.bottom < 0 ? "above (scroll up)" : r.top > innerHeight ? "below (scroll down)" : "in view";
+          else { const d = el.closest("details:not([open])"); if (d) where = "inside \u201c" + nameOf(d.querySelector("summary") || d).split("\n")[0] + "\u201d, which is closed"; }
+          const kind = el.getAttribute("role") || ({A: "link", BUTTON: "button", INPUT: "field", TEXTAREA: "field", SELECT: "menu", SUMMARY: "disclosure", LI: "item", LABEL: "label"})[el.tagName] || "heading";
+          out.push(kind + " \u201c" + n.split("\n")[0].slice(0, 60) + "\u201d: " + where);
+          if (out.length >= 10) break;
+        }
+        return out.length ? out.join("\n") : "Nothing on the page is called that.";'
+        }
+
         status() {
           local where running
           if ! where=$(osascript -e "POSIX path of (path to application id \"$CHROME\")" 2>/dev/null); then
@@ -3996,6 +4296,9 @@ extension Examples {
           url|title) tab_property "$command" ;;
           text) id=$(tab_id) || exit 1; js_in_tab "$id" 'document.body ? document.body.innerText : ""' ;;
           tabs) list_tabs "${1:-}" ;;
+          page) page_json ;;
+          has) need "What text? browser.sh has 'Compute'" "$*"; page_has "$*" ;;
+          find) need "What text? browser.sh find 'Compute'" "$*"; page_find "$*" ;;
           close-duplicates) closed=$(close_duplicates) || exit 1; echo "Closed ${closed} duplicate tab(s)." ;;
           js) need "Which JavaScript? browser.sh js 'document.title'" "$*"; id=$(tab_id) || exit 1; js_in_tab "$id" "$*" ;;
           js-in) need "Which tab, and what JavaScript? browser.sh js-in music.youtube.com 'document.title'" "${2:-}"
@@ -4008,7 +4311,7 @@ extension Examples {
           encode) need "What text? browser.sh encode 'two words'" "$*"; encode "$*" ;;
           *)
             echo "browser.sh doesn't know \"$command\"." >&2
-            echo "It knows: open, read, url, title, text, tabs, close-duplicates, js, js-in, focus, go, wait and encode (the top of browser.sh says how each goes)." >&2
+            echo "It knows: open, read, url, title, text, tabs, page, has, find, close-duplicates, js, js-in, focus, go, wait and encode (the top of browser.sh says how each goes)." >&2
             exit 1 ;;
         esac
         """# + "\n"),
