@@ -10,7 +10,7 @@ the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serve
 - **Read** the runs, and stop one. **Every request has an id** you get back at once and can ask
   about any time later (`/api/requests/{id}`): still waiting for the click, denied, running, done.
 - **Automate**: tag a script or a flow to run by itself, on a schedule or when something happens.
-- **Keep notes** in the person's file library (LIBRARY on their Desktop): Markdown notes by name,
+- **Keep notes** in the person's file library (LIBRARY (in TOOL-MAC-RUN on their Desktop)): Markdown notes by name,
   like keys and values. List, read, write, append, search the full text, delete to the library's
   own Trash and restore. **These answer at once, without a card**: they're notes, not programs.
 - **Drive Chrome with Straw**: its words, check Straw code, run a Straw script or code you send.

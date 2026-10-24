@@ -421,10 +421,10 @@ extension Builtin {
 
     // MARK: the file library
 
-    /// The notes in LIBRARY on the Desktop, by name (no .md): the same library the Library board
+    /// The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no .md): the same library the Library board
     /// shows and the API serves.
     static let library: [Builtin] = [
-        Builtin("libraryNames", "unit -> string list", "Library", "The names of the notes in LIBRARY on the Desktop, A to Z.", "libraryNames () |> each print", arity: 1) { _, _, _ in
+        Builtin("libraryNames", "unit -> string list", "Library", "The names of the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), A to Z.", "libraryNames () |> each print", arity: 1) { _, _, _ in
             .list(FileLibrary().names().map(Value.str))
         },
         Builtin("libraryRead", "string -> string", "Library", "A note's text, by its name (without .md).", "let list = libraryRead \"groceries\"", arity: 1) { _, a, pos in

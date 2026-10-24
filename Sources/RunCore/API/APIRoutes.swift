@@ -47,7 +47,7 @@ public enum APIRoutes {
             Route("POST", "/api/straw/check", "check Straw code without running it {\"source\"}: what it would do, or its mistake, line and fix"),
             Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome", asks: true),
         ]),
-        Group(id: "library", title: "File library", about: "The notes in LIBRARY on the Desktop, by name (no extension): answered at once, without asking on the Mac",
+        Group(id: "library", title: "File library", about: "The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no extension): answered at once, without asking on the Mac",
               endpoint: .library, routes: [
             Route("GET", "/api/library", "where it is, how many notes, and every operation with what it takes"),
             Route("POST", "/api/library", "any operation, by name: {\"op\": \"read\", \"name\": \"groceries\"} (list, read, write, create, append, rename, copy, delete, search, find…)"),

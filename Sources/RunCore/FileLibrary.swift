@@ -1,7 +1,7 @@
 import Foundation
 
-/// The file library: a folder of notes (LIBRARY, on the Desktop), each a Markdown file, and each
-/// known by its name alone: `groceries` is LIBRARY/groceries.md. A name is a key and the file's
+/// The file library: a folder of notes (LIBRARY, in TOOL-MAC-RUN on the Desktop), each a Markdown
+/// file, and each known by its name alone: `groceries` is LIBRARY/groceries.md. A name is a key and the file's
 /// text its value: list them, read one, write one (created or replaced), create one (only if it
 /// isn't there), append to one, rename, copy, and delete one, which moves it to the library's own
 /// Trash folder as `groceries (1).md`, `groceries (2).md`… so several of the same name can wait
@@ -9,31 +9,40 @@ import Foundation
 ///
 /// The Library board shows it, the HTTP API serves it (`/api/library`, without asking on the Mac
 /// each time: it's notes, not programs), and flows reach it with `libraryRead` and the rest.
+///
+/// MEMORY and SYSTEM-DOCS are shelves of the same kind (`Shelf`): MEMORY's names are nodes of the
+/// mind too, so a name can't be one the mind's notation can't write; SYSTEM-DOCS can't be changed.
 public struct FileLibrary: Sendable {
     public let root: URL
     /// The extension its files have (without the dot): `md`.
     public let ext: String
+    /// Which shelf it is (its words, and what it allows).
+    public let shelf: Shelf
 
     public static let defaultExtension = "md"
-    /// The folder's name on the Desktop.
+    /// The folder's name, in TOOL-MAC-RUN.
     public static let folderName = "LIBRARY"
     /// Where deleted notes go, inside the library: a folder of its own, never listed as a note.
     public static let trashName = "Trash"
 
-    /// ~/Desktop/LIBRARY, or `TMR_LIBRARY` when it's set (a test, or a library kept elsewhere).
-    public static var defaultRoot: URL {
-        if let path = ProcessInfo.processInfo.environment["TMR_LIBRARY"], !path.isEmpty {
-            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Desktop", isDirectory: true)
-            .appendingPathComponent(folderName, isDirectory: true)
-    }
+    /// ~/Desktop/TOOL-MAC-RUN/LIBRARY, or `TMR_LIBRARY` when it's set (a test, or a library kept
+    /// elsewhere; `TMR_HOME` moves TOOL-MAC-RUN itself).
+    public static var defaultRoot: URL { Shelf.library.root }
 
-    public init(root: URL = FileLibrary.defaultRoot, ext: String = FileLibrary.defaultExtension) {
+    public init(root: URL = FileLibrary.defaultRoot, ext: String = FileLibrary.defaultExtension, shelf: Shelf = .library) {
         self.root = root
         self.ext = ext.hasPrefix(".") ? String(ext.dropFirst()) : ext
+        self.shelf = shelf
     }
+
+    /// A shelf, where it is (in TOOL-MAC-RUN, unless its variable says otherwise).
+    public init(shelf: Shelf) {
+        self.init(root: shelf.root, shelf: shelf)
+    }
+
+    /// "the library", "MEMORY", "SYSTEM-DOCS".
+    var place: String { shelf.place }
+    private var Place: String { place.prefix(1).uppercased() + place.dropFirst() }
 
     public var trashFolder: URL { root.appendingPathComponent(Self.trashName, isDirectory: true) }
     private var trashIndex: URL { trashFolder.appendingPathComponent(".index.json") }
@@ -68,9 +77,10 @@ public struct FileLibrary: Sendable {
     /// Makes the folder (and its Trash) if it isn't there.
     public func ensure() throws {
         do {
-            try FileManager.default.createDirectory(at: trashFolder, withIntermediateDirectories: true)
+            // A shelf that can't be changed has nothing to put in a Trash.
+            try FileManager.default.createDirectory(at: shelf.readOnly ? root : trashFolder, withIntermediateDirectories: true)
         } catch {
-            throw LibraryError(.failed, "Couldn't make the library folder \(root.path): \(error.localizedDescription)")
+            throw LibraryError(.failed, "Couldn't make the \(shelf.folderName) folder \(root.path): \(error.localizedDescription)")
         }
     }
 
@@ -102,7 +112,7 @@ public struct FileLibrary: Sendable {
     /// The note with this name: exactly, else the one whose name is the same but for case and
     /// accents (on a Mac, `Groceries` and `groceries` are the same file). Nil when there's none.
     public func find(_ name: String) -> Note? {
-        guard let key = try? Self.key(name, ext: ext) else { return nil }
+        guard let key = try? self.key(name) else { return nil }
         // From the folder's own list, so the name is the file's (on a Mac, GROCERIES.md is
         // groceries.md too, and would come back as typed).
         let all = list()
@@ -137,10 +147,11 @@ public struct FileLibrary: Sendable {
     /// Writes a note: (the note, whether it was created).
     @discardableResult
     public func write(_ name: String, _ text: String, mode: WriteMode = .write) throws -> (note: Note, created: Bool) {
-        let key = try Self.key(name, ext: ext)
+        try writable()
+        let key = try self.key(name)
         let found = find(key)
         if mode == .create, let found {
-            throw LibraryError(.exists, "There's already a note called \(found.name).", fix: "Pick another name, or write it to replace what's in it.")
+            throw LibraryError(.exists, "There's already a \(shelf.noun) called \(found.name).", fix: "Pick another name, or write it to replace what's in it.")
         }
         if mode == .replace, found == nil { _ = try existing(key) }
         try ensure()
@@ -152,7 +163,8 @@ public struct FileLibrary: Sendable {
     /// Adds text to the end of a note (on a line of its own), creating it if it isn't there.
     @discardableResult
     public func append(_ name: String, _ text: String) throws -> (note: Note, created: Bool) {
-        let key = try Self.key(name, ext: ext)
+        try writable()
+        let key = try self.key(name)
         guard let found = find(key) else { return try write(key, text.hasSuffix("\n") ? text : text + "\n", mode: .create) }
         var now = try read(found.name).text
         if !now.isEmpty, !now.hasSuffix("\n") { now += "\n" }
@@ -166,12 +178,13 @@ public struct FileLibrary: Sendable {
     /// which moves the one there to the Trash first).
     @discardableResult
     public func rename(_ name: String, to newName: String, overwrite: Bool = false) throws -> Note {
+        try writable()
         let from = try existing(name)
-        let key = try Self.key(newName, ext: ext)
+        let key = try self.key(newName)
         let target = root.appendingPathComponent(key + "." + ext)
         if let there = find(key), there.url.standardizedFileURL != from.url.standardizedFileURL {
             guard overwrite else {
-                throw LibraryError(.exists, "There's already a note called \(there.name).", fix: "Pick another name, or send \"overwrite\": true to move that one to the Trash first.")
+                throw LibraryError(.exists, "There's already a \(shelf.noun) called \(there.name).", fix: "Pick another name, or send \"overwrite\": true to move that one to the Trash first.")
             }
             try delete(there.name)
         }
@@ -200,6 +213,7 @@ public struct FileLibrary: Sendable {
     /// Moves a note to the library's Trash, numbered after any of the same name already there.
     @discardableResult
     public func delete(_ name: String) throws -> Trashed {
+        try writable()
         let n = try existing(name)
         try ensure()
         var index = loadIndex()
@@ -252,17 +266,18 @@ public struct FileLibrary: Sendable {
     /// own name, or `as` another. Throws `exists` when a note has that name now.
     @discardableResult
     public func restore(_ name: String, number: Int? = nil, as newName: String? = nil) throws -> Note {
-        let folded = Self.fold((try? Self.key(name, ext: ext)) ?? name)
+        try writable()
+        let folded = Self.fold((try? self.key(name)) ?? name)
         let candidates = trash().filter { Self.fold($0.name) == folded }
         guard let pick = number.map({ n in candidates.first { $0.number == n } }) ?? candidates.first else {
             let what = number.map { "\(name) (\($0))" } ?? name
             let there = trash().prefix(20).map { "\($0.name) (\($0.number))" }
-            throw LibraryError(.notFound, "There's no \(what) in the library's Trash.",
+            throw LibraryError(.notFound, "There's no \(what) in \(place)'s Trash.",
                                fix: there.isEmpty ? "The Trash is empty." : "In the Trash: " + there.joined(separator: ", "))
         }
-        let key = try Self.key(newName ?? pick.name, ext: ext)
+        let key = try self.key(newName ?? pick.name)
         if let there = find(key) {
-            throw LibraryError(.exists, "There's a note called \(there.name) now.", fix: "Restore it as another name (\"as\": \"\(key) restored\").")
+            throw LibraryError(.exists, "There's a \(shelf.noun) called \(there.name) now.", fix: "Restore it as another name (\"as\": \"\(key) restored\").")
         }
         let target = root.appendingPathComponent(key + "." + ext)
         do {
@@ -280,6 +295,7 @@ public struct FileLibrary: Sendable {
     /// `olderThan` seconds ago. Returns how many.
     @discardableResult
     public func emptyTrash(olderThan: TimeInterval? = nil) throws -> Int {
+        try writable()
         let cutoff = olderThan.map { Date().addingTimeInterval(-$0) }
         var index = loadIndex()
         var removed = 0
@@ -439,6 +455,26 @@ public struct FileLibrary: Sendable {
         return key
     }
 
+    /// A name as a key on this shelf: on MEMORY, also one the mind can have as a node (its spaces
+    /// one each, no @, no symbol after a space), since each memory file is one.
+    public func key(_ name: String) throws -> String {
+        var key = try Self.key(name, ext: ext)
+        if shelf == .memory {
+            key = MindNotation.collapse(key)
+            if let why = MindNotation.nameProblem(key) {
+                throw LibraryError(.badName, why, fix: "A memory file's name is a node of the mind too: words, with no @ and no -, | or = after a space (such as PEOPLE or Trip ideas).")
+            }
+        }
+        return key
+    }
+
+    /// Throws `read_only` on a shelf that can't be changed.
+    func writable() throws {
+        guard shelf.readOnly else { return }
+        throw LibraryError(.readOnly, "\(shelf.folderName) can't be changed: the app writes it, from what it ships with.",
+                           fix: "Read it, search it, copy from it; to keep your own version of a doc, copy its text into the library (/api/library).")
+    }
+
     /// The same for comparing: no case, no accents, the same Unicode form.
     static func fold(_ s: String) -> String {
         s.precomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
@@ -486,12 +522,12 @@ public struct FileLibrary: Sendable {
     // MARK: inside
 
     private func existing(_ name: String) throws -> Note {
-        let key = try Self.key(name, ext: ext)
+        let key = try self.key(name)
         if let n = find(key) { return n }
         let all = names()
         let near = Self.near(key, in: all)
-        throw LibraryError(.notFound, "There's no note called \(key).",
-                           fix: near.isEmpty ? (all.isEmpty ? "The library is empty." : "The notes: " + all.prefix(20).joined(separator: ", ") + (all.count > 20 ? ", …" : ""))
+        throw LibraryError(.notFound, "There's no \(shelf.noun) called \(key).",
+                           fix: near.isEmpty ? (all.isEmpty ? "\(Place) is empty." : "The \(shelf.noun)s: " + all.prefix(20).joined(separator: ", ") + (all.count > 20 ? ", …" : ""))
                                               : "Near it: " + near.joined(separator: ", "))
     }
 
@@ -590,6 +626,7 @@ public struct LibraryError: Error, Equatable, Sendable, CustomStringConvertible 
         case notFound = "not_found"
         case exists = "already_exists"
         case badName = "bad_name"
+        case readOnly = "read_only"
         case failed
     }
 
@@ -611,6 +648,7 @@ public struct LibraryError: Error, Equatable, Sendable, CustomStringConvertible 
         case .notFound: 404
         case .exists: 409
         case .badName: 400
+        case .readOnly: 403
         case .failed: 500
         }
     }

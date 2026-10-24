@@ -22,4 +22,11 @@ ship to main at each point. dont wait for builds in other branches
 
 ## Shipped
 
-- [ ] This brief
+- [x] This brief
+- [x] 1 · The core: TOOL-MAC-RUN on the Desktop holds every shelf (LIBRARY moved into it); the mind
+  notation's parser, graph, canonical form, queries and layout; the mind's append-only log
+  (MIND/mind.txt, with an Archive for compaction); MEMORY with its nine files, each a node of the
+  mind; SYSTEM-DOCS, written by the app and read-only
+- [ ] 2 · The API: /api/memory, /api/mind, /api/system-docs, /api/present, /api/clipboard, /api/browser
+- [ ] 3 · The boards: Memory, Mind (a picture, and the text), System Docs; the Present window
+- [ ] 4 · The docs (SYSTEM-DOCS' prompts, recipes and exchanges), scripts and guides

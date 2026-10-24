@@ -31,7 +31,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .compose: return "Other apps can ask to run a flow, or send Flow code to run. Each run waits for you to click Run on this Mac."
         case .catalog: return "Other apps can see the names, languages and descriptions of your scripts and flows (not what's in them)."
         case .runs: return "Other apps can read the runs and their requests (how they went and what they printed) and stop one (a run you started asks you first)."
-        case .library: return "Other apps can list, read, write, search and delete the notes in LIBRARY on your Desktop, without asking you each time. A delete moves the note to the library's own Trash, where it can be restored."
+        case .library: return "Other apps can list, read, write, search and delete the notes in LIBRARY (in TOOL-MAC-RUN on your Desktop), without asking you each time. A delete moves the note to the library's own Trash, where it can be restored."
         }
     }
 }

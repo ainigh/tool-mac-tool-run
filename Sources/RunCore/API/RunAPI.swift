@@ -153,7 +153,7 @@ public final class RunAPI: @unchecked Sendable {
     public let requests = RequestLedger()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
-    /// The file library it serves (LIBRARY on the Desktop).
+    /// The file library it serves (LIBRARY (in TOOL-MAC-RUN on the Desktop)).
     let library: @Sendable () -> FileLibrary
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
