@@ -368,8 +368,9 @@ public enum Examples {
         // the Google and YouTube scripts use. 2nd: its AppleScript named Chrome only as it ran
         // (tell application id (item 1 of argv)), so Chrome's words (active tab, execute) were a
         // syntax error as it compiled. 3rd: it took JavaScript with a "; return" anywhere in it for statements,
-        // so items.map(v => { const t = …; return t }) gave back nothing.
-        "browser/browser.sh": [0xc47a_ff9c_213a_2f07, 0x050a_0b97_2fcd_f82f, 0x47a8_ec9e_ea51_4d96, 0xb4dd_15b2_0cb4_cc78],
+        // so items.map(v => { const t = …; return t }) gave back nothing. 5th: it had no page,
+        // has or find (the page as JSON; whether words are on it; where a thing named is).
+        "browser/browser.sh": [0xc47a_ff9c_213a_2f07, 0x050a_0b97_2fcd_f82f, 0x47a8_ec9e_ea51_4d96, 0xb4dd_15b2_0cb4_cc78, 0x6652_9c19_11bc_9e7b],
         // straw.py, 1st: before first (the first of several), read links THING and js's lists a line each;
         // it dropped every backslash in a text, so JavaScript's \n and \s lost theirs.
         "browser/straw.py": [0xb9f9_b023_4e1a_783f],

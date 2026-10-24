@@ -266,7 +266,7 @@ the why in chat is fine, inventing a different one is not.
 
 ## The file library: memory that needs no click
 
-The person's notes, **LIBRARY** on their Desktop, are a key-value store an agent can use without
+The person's notes, **LIBRARY** in TOOL-MAC-RUN on their Desktop, are a key-value store an agent can use without
 a card: a note is a name (no `.md`) and its text. Everything is one endpoint, answered at once:
 
 ```bash
@@ -285,6 +285,35 @@ curl -s localhost:8768/api/library -d '{"op": "search", "q": "\"flight on\""}'  
   undone; still, replace or delete only what the user asked about. Prefer `append` for adding to
   a note over `write`, which replaces it.
 - `GET /api/library` lists every operation with the fields it takes.
+
+## MEMORY and the mind: remembering without a click
+
+Beyond the library, **MEMORY** (a file for each kind of thing: PEOPLE, ORGANIZATIONS, EVENT-DATES,
+BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS) and **the mind** (what links to what,
+append only) answer at once too. An agent's habit:
+
+```bash
+curl -s "localhost:8768/api/memory/recall?name=ada"                       # before answering about anyone
+curl -s localhost:8768/api/memory/remember -d '{"category": "PEOPLE", "about": "Ada Lovelace", "text": "Lead engineer at Acme", "client": "My Agent"}'
+curl -s localhost:8768/api/mind/add -d '{"from": "ada lovelace", "label": "works at", "to": "acme"}'
+curl -s "localhost:8768/api/memory/upcoming?days=14"                      # what's coming up
+```
+
+- Recall first; remember only what the user said (the mind's log keeps every line).
+- `POST /api/mind/append {"text": "<a model's reply>"}` takes a ```` ```mm ```` block as it is;
+  one bad line writes nothing, and `problems` says each fix. `POST /api/mind/check` first, if unsure.
+- `GET /api/system-docs/files/PROMPT-ASSISTANT` is a system prompt for exactly this; `RECIPES` and
+  `EXCHANGES` show the calls for the usual questions.
+
+## Showing, copying, and guiding through a site
+
+- `POST /api/present {"title", "text", "why"}` (or `{"shelf": "memory", "name": "PEOPLE"}`, or
+  `{"mind": "ada"}`) puts it in a window in front of everything, with copy buttons. `"present": true`
+  on any read does the same with its answer; `"copy": true` puts it on the clipboard.
+- `GET /api/browser/url`, `/page`, `/has?text=…` (true or false), `/find?text=…` (where it is, as a
+  sentence), `POST /api/browser/highlight {"text"}` (a red ring on the page): the page in Chrome,
+  read only. Look again after each step; never say something is on the page that `has` or `find`
+  didn't find. `PROMPT-SITE-GUIDE` in SYSTEM-DOCS is the prompt for it.
 
 ## Straw: driving Chrome
 

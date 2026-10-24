@@ -201,7 +201,7 @@ public enum APICatalog {
     ]
 
     /// The topics a section's tiles are shown under, in order.
-    public static let topicOrder = ["Library", "Finding files", "Date and time", "Looking things up", "This Mac", "Sound and speech",
+    public static let topicOrder = ["Library", "Memory and mind", "Finding files", "Date and time", "Looking things up", "This Mac", "Sound and speech",
                                     "Text and data", "Network and code", "Straw", "Searching sites", "Chrome", "Your own"]
 
     /// What a script is about, for the board: the examples' topics; a Straw script is Straw.
@@ -221,6 +221,7 @@ public enum APICatalog {
     }
 
     static let utilityTopics: [(String, Set<String>)] = [
+        ("Memory and mind", ["tmr", "remember", "recall", "upcoming", "mind-link", "mind-ask", "show"]),
         ("Finding files", ["find-file", "spotlight", "find-text", "file-info", "recent-downloads", "screenshots", "large-files", "find-duplicates", "open-file"]),
         ("Date and time", ["today", "now", "format-date", "days-until", "month", "stopwatch", "sunrise", "holidays", "world-clock", "timer", "alarm"]),
         ("Looking things up", ["weather", "news", "cloud-status", "wikipedia", "define", "currency", "public-ip", "site-check"]),
