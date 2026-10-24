@@ -49,6 +49,28 @@ public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
         return found
     }
 
+    /// The words a header's `Tags:` lines give (`# Tags: weather, forecast rain`), in order,
+    /// lowercased, each once. Only the comment lines at its top count.
+    public static func declaredTags(in contents: String) -> [String] {
+        var found: [String] = []
+        for raw in contents.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).prefix(60) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#!") { continue }
+            guard let marker = ["//", "#", "--"].first(where: { line.hasPrefix($0) }) else { break }
+            for tag in parseTags(line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)) ?? [] where !found.contains(tag) {
+                found.append(tag)
+            }
+        }
+        return found
+    }
+
+    /// "Tags: weather, forecast rain" → ["weather", "forecast", "rain"], or nil.
+    public static func parseTags(_ said: String) -> [String]? {
+        guard let colon = said.firstIndex(of: ":"), said[..<colon].lowercased().trimmingCharacters(in: .whitespaces) == "tags" else { return nil }
+        let tags = said[said.index(after: colon)...].lowercased().split { $0 == "," || $0.isWhitespace }.map(String.init)
+        return tags.isEmpty ? nil : tags
+    }
+
     /// "Why: …" (the line explaining the input above it), or nil.
     public static func parseWhy(_ said: String) -> String? {
         guard let colon = said.firstIndex(of: ":"), said[..<colon].lowercased().trimmingCharacters(in: .whitespaces) == "why" else { return nil }

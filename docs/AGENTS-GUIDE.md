@@ -28,7 +28,16 @@ curl -s localhost:8768/api/requests/2A7C4B19-5E0D-4F3A-9C2B-7D1E8F6A0B34
 # {"request":"2A7C4B19-…","state":"denied","ok":false,"code":"denied","error":"backup.sh didn't run: the person at the Mac chose Don't Run"}
 ```
 
-Three things an agent must know, and nothing else is a surprise:
+```bash
+# 3. Lost track? What you've asked for and not collected yet, oldest first
+curl -s localhost:8768/api/requests/open
+# {"count":2,"waiting":1,"running":0,"ready":1,"requests":[{"position":1,"request":"2A7C…","state":"succeeded","delivery":"ready",…},…]}
+
+# 4. Don't know the route? Ask by a few words; every answer's "next" says what usually comes after it
+curl -s "localhost:8768/api/search?q=remember+a+birthday"
+```
+
+Four things an agent must know, and nothing else is a surprise:
 
 1. **Nothing runs without the person's click.** Every run request puts a card on the Mac; the
    person clicks **Run** or **Don't Run**, and no click in two minutes is Don't Run. The agent
@@ -40,6 +49,27 @@ Three things an agent must know, and nothing else is a surprise:
    moment the request arrives, whether it was allowed or not. It is the handle for everything
    after: the agent's turn can end, the connection can drop, another process can take over, and
    `GET /api/requests/{id}` still answers for it.
+4. **Each result is handed over once.** Once the request is over, the first read of
+   `GET /api/requests/{id}` carries the result (`"delivery": "delivered"`, with `run`) and clears
+   it; read again, it says how it ended without the output. So use the output the first time you
+   get it. `GET /api/requests/open` is everything not collected yet, oldest first.
+
+## Finding your way without the whole contract
+
+An agent with a short context shouldn't load `/api/endpoints` (over a hundred routes) or
+`/api/doc`. Two things make that unnecessary:
+
+- **`GET /api/search?q=<a few words>`** answers only the routes, scripts and flows that match, the
+  best first. Routes are found by their tags too (the words someone would say: "status", "job",
+  "cancel", "birthday"), and scripts by their header's `# Tags:` line. A script or flow comes
+  back with `"run"`: the request that runs it, its inputs as `<placeholders>`. `?in=scripts`,
+  `?group=memory` and `?limit` narrow it.
+- **`"next"` on every JSON answer**: a few `{"method", "path", "why"}` calls that usually follow,
+  with ids filled in. After a 202, it's where to ask about the request and how to take it back;
+  after a run, the run and the open requests; after a 404, a search for the path's words.
+
+`GET /api/endpoints?brief=true` (the groups, each with its route count and words) is the fallback
+when a search finds nothing.
 
 ## The request id
 
@@ -84,12 +114,29 @@ Then `GET /api/requests/{id}` answers for it for as long as the app runs (the la
 | `stopped` | someone stopped it (the agent, or the person in Runs) | says it was stopped |
 | `could_not_start` | allowed, but it couldn't start (a missing `python3`, a flow that doesn't check…); `error`/`run.problem` says why and the fix | relays the fix |
 | `automated` | an automation request was allowed; nothing ran now | says it's tagged |
+| `withdrawn` | the agent took it back (`DELETE /api/requests/{id}`) before the click | nothing ran; says so if asked |
 | `gone` | the run was cleared from the app's history (Clear Finished) | treats it as finished with an unknown result |
 
 `ok` is present only once it's over: `true` for `succeeded` and `automated`, `false` for the
 rest. So the loop is: **while `ok` is absent, it's still going.**
 
 A request that didn't run keeps answering the same way: `denied` stays `denied`.
+
+### `delivery`: collecting the result once
+
+Beside `state`, every answer about a request says where its result is:
+
+| `delivery` | it means | the agent |
+|---|---|---|
+| `pending` | waiting for the click, or running | asks again later; `run.output` is what it has printed so far |
+| `delivered` | this answer is the result, handed over once; it's cleared now | uses it now (relays `run.output`, keeps what it needs) |
+| `cleared` | handed over before (or cleared without it) | has it already; `state`/`ok` still say how it ended; `run_url` still has the run while the app keeps it |
+| `ready` | over, not collected (in `/api/requests/open`, or read with `?peek=true`) | reads its `url` to collect it |
+
+A waited-for, streamed or refused request is `delivered` in its own answer, so it never shows in
+`/api/requests/open`. An async one stays there until the agent collects it, or clears it without
+reading (`DELETE /api/requests/{id}`, or `POST /api/requests/clear` for all that are over). A
+`DELETE` on one still waiting for the click takes it back: the card goes, nothing runs.
 
 ### Lifecycle
 
@@ -215,6 +262,8 @@ case "check_request":
     case "not_answered": return "It didn't run: no one clicked Run within two minutes. Ask the user before sending it again."
     case "automated": return "Allowed: it's tagged to run by itself now."
     case "gone": return "It ran, but the run has been cleared from Tool Mac Tool Run's history, so its output is gone."
+    case _ where json["delivery"] as? String == "cleared":
+        return "\(state): its result was handed over already (it's given once)."
     default:
         if let run = json["run"] as? [String: Any] { return outcome(run) }   // running, succeeded, failed, stopped, could_not_start
         return "\(state): \((json["error"] as? String) ?? "")"
@@ -222,7 +271,9 @@ case "check_request":
 ```
 
    `outcome(run)` is the function the client already has: it writes the state, exit code, time,
-   run id and output for the model. While `running`, it shows the output so far.
+   run id and output for the model. While `running`, it shows the output so far. Once it's over,
+   `run` comes once: the read that hands it over (`"delivery": "delivered"`); so if the harness
+   polls too, it's the harness that keeps the output on the job record for the model.
 
 3. **`trouble` knows `unknown_request`**, and the timeout can come down:
 
@@ -248,6 +299,7 @@ The model talks; these are the sentences that match each state and never claim m
 - `not_answered`: "Nobody clicked Run within two minutes, so it didn't run. Want me to send it again?"
 - `could_not_start`: "It couldn't start: python3 isn't installed. The fix: brew install python."
 - `gone`: "It ran, but its output has been cleared from the app's history."
+- `withdrawn`: "I took that back before you clicked, so nothing ran."
 
 The card already told the person *who* asked (`client`) and *why* (`why`); the agent repeating
 the why in chat is fine, inventing a different one is not.
@@ -341,9 +393,15 @@ curl -si localhost:8768/api/run -d '{"script": "backup.sh", "async": true, "clie
 curl -si localhost:8768/api/compose -d '{"flow": "morning.flow", "async": true, "client": "My Agent", "why": "…"}'
 curl -si localhost:8768/api/compose -d '{"source": "run \"hello.sh\" [] |> print", "name": "Say hi", "async": true, "client": "My Agent", "why": "…"}'
 
-# where is it (poll this)
+# where is it (poll this; once it's over, the first read hands over the result)
 curl -s localhost:8768/api/requests/<request id>
-curl -s localhost:8768/api/requests?limit=20
+curl -s "localhost:8768/api/requests/<request id>?peek=true"   # look without taking it
+curl -s localhost:8768/api/requests/open                       # not collected yet, oldest first
+curl -s -X DELETE localhost:8768/api/requests/<request id>     # clear it; still waiting for the click: take it back
+curl -s localhost:8768/api/requests?limit=20                   # history, cleared or not
+
+# find the call (or the script) for something, by a few words
+curl -s "localhost:8768/api/search?q=weather&in=scripts"
 
 # the run itself, and stopping it
 curl -s localhost:8768/api/runs/<run_id>
@@ -359,7 +417,7 @@ curl -s localhost:8768/api/library -d '{"op": "write", "name": "Agent notes", "t
 curl -s localhost:8768/api/library -d '{"op": "read", "name": "Agent notes"}'
 curl -s localhost:8768/api/library -d '{"op": "find", "q": "flight"}'
 
-# every route, in its groups; the whole contract in one page, with this Mac's address
+# every route, in its groups (?brief=true: the groups alone); the whole contract in one page, with this Mac's address
 curl -s localhost:8768/api/endpoints
 curl -s localhost:8768/api/doc
 ```

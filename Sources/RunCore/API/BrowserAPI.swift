@@ -15,6 +15,18 @@ extension RunAPI {
         ("GET", "/api/browser/outline", "the page's outline: headings, landmarks, navigation, buttons, fields, links"),
     ]
 
+    /// The words each is found by (`GET /api/search`), beyond its path and summary.
+    static let browserTags: [String: String] = [
+        "/api/browser": "status open javascript front",
+        "/api/browser/url": "url address title current front tab",
+        "/api/browser/tabs": "tabs windows list open",
+        "/api/browser/page": "page text read content selection scroll",
+        "/api/browser/has": "has contains present check words text there",
+        "/api/browser/find": "find where locate button link element",
+        "/api/browser/highlight": "highlight point show ring mark where",
+        "/api/browser/outline": "outline headings structure navigation buttons fields",
+    ]
+
     func browserRoute(_ req: HTTPRequest, path: String, _ s: APISettings) async throws -> HTTPResponse {
         guard s.isOn(.browser) else {
             throw HTTPError(status: 503, code: "endpoint_off", message: "\(APIEndpoint.browser.title.lowercased()) is turned off in Tool Mac Tool Run")

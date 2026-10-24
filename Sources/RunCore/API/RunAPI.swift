@@ -233,13 +233,15 @@ public final class RunAPI: @unchecked Sendable {
         } catch {
             response = failure(HTTPError(status: 500, code: "failed", message: "\(error)"))
         }
+        // What to call next, on every JSON answer that doesn't say already.
+        APINext.add(to: &response, for: req)
         response.headers += cors
         return response
     }
 
     private static let routes: [String: String] = [
         "/": "GET", "/index.html": "GET", "/favicon.ico": "GET", "/api/health": "GET", "/api/doc": "GET",
-        "/api": "GET", "/api/endpoints": "GET",
+        "/api": "GET", "/api/endpoints": "GET", "/api/search": "GET",
         "/api/scripts": "GET", "/api/flows": "GET", "/api/runs": "GET", "/api/requests": "GET",
         "/api/run": "POST", "/api/compose": "POST", "/api/check": "POST",
     ]
@@ -266,7 +268,22 @@ public final class RunAPI: @unchecked Sendable {
             return HTTPResponse(status: 204)
         case "/api/health":
             return JSON.response(await health(s))
+        case "/api/search":
+            return try await search(req, s)
         case "/api", "/api/endpoints":
+            // Words to look for: only what matches (the same as /api/search, routes alone).
+            if let q = req.query["q"], !q.trimmingCharacters(in: .whitespaces).isEmpty {
+                var r = req
+                r.query["in"] = r.query["in"] ?? "routes"
+                return try await search(r, s)
+            }
+            // The groups alone, without their routes: small, for a client to look deeper from.
+            if Self.flag(req.query["brief"]) {
+                return JSON.response(["ok": true, "version": version, "count": APIRoutes.all.count, "doc": "/api/doc",
+                                      "groups": APISearch.brief(settings: s),
+                                      "next": [APINext.search.json,
+                                               APINext.Hint("GET", "/api/endpoints?group={id}", "one group's routes").json]])
+            }
             // Every route, in its groups (?group=library: one of them).
             var groups = APIRoutes.groups
             if let wanted = req.query["group"] {
@@ -356,10 +373,12 @@ public final class RunAPI: @unchecked Sendable {
             do {
                 try await approve(request)
             } catch let e as HTTPError {
-                return refused(e, request)
+                return await refused(e, request)
             }
             await requests.set(request.id, .stopped(id))
-            return JSON.response(["ok": true, "stopping": await host.stop(id), "request": request.id.uuidString],
+            await requests.clear(request.id, .delivered)
+            return JSON.response(["ok": true, "stopping": await host.stop(id), "request": request.id.uuidString,
+                                  "next": [APINext.Hint("GET", "/api/runs/\(id.uuidString)", "the run, with what it printed before it stopped").json]],
                                  headers: [("X-Request-Id", request.id.uuidString)])
         }
         try allow(req, "GET", path)
@@ -369,13 +388,24 @@ public final class RunAPI: @unchecked Sendable {
         return JSON.response(out)
     }
 
-    /// GET /api/requests/{id}: where a request is, from the moment it arrived.
+    /// /api/requests/open, /api/requests/clear, and /api/requests/{id}: where a request is, from
+    /// the moment it arrived. Once it's over, the first read hands over its result and clears
+    /// it; read again, it says how it ended, without the output.
     private func requestRoute(_ req: HTTPRequest, path: String, _ s: APISettings) async throws -> HTTPResponse {
         try need(.runs, s)
         let parts = path.dropFirst("/api/requests/".count).split(separator: "/").map(String.init)
-        guard parts.count == 1, let id = UUID(uuidString: parts[0]) else {
-            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (a request is /api/requests/<its id>)")
+        if parts == ["open"] {
+            try allow(req, "GET", path)
+            return JSON.response(await openRequests())
         }
+        if parts == ["clear"] {
+            try allow(req, "POST", path)
+            return try await clearRequests(req)
+        }
+        guard parts.count == 1, let id = UUID(uuidString: parts[0]) else {
+            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (a request is /api/requests/<its id>; the open ones are /api/requests/open)")
+        }
+        if req.method == "DELETE" { return try await dismiss(id) }
         try allow(req, "GET", path)
         guard let e = await requests.entry(id) else {
             // A library operation's id answers here too.
@@ -383,7 +413,153 @@ public final class RunAPI: @unchecked Sendable {
             throw HTTPError(status: 404, code: "unknown_request",
                             message: "no request \(id.uuidString) (the latest \(requests.capacity) are kept while the app runs)")
         }
-        return JSON.response(await requestJSON(e), headers: [("X-Request-Id", id.uuidString)])
+        let peek = Self.flag(req.query["peek"])
+        var out = await requestJSON(e, run: e.cleared == nil)
+        let delivery = await delivery(e)
+        out["delivery"] = delivery
+        switch delivery {
+        case "ready" where !peek:
+            await requests.clear(id, .collected)
+            out["delivery"] = "delivered"
+            out["note"] = "This is its result, handed over once: it's cleared now. Asked about again, it says how it ended, without the output."
+        case "ready":
+            out["note"] = "Over, and ready to collect: read it without ?peek=true to take it (it's cleared then)."
+        case "cleared":
+            if let cleared = e.cleared { out["cleared"] = JSON.date(cleared) }
+            out["cleared_by"] = e.clearedBy?.rawValue
+            out["note"] = (e.clearedBy == .dismissed
+                ? "Cleared without being read: this is how it ended, without the output."
+                : "Its result was handed over already, so it's cleared: this is how it ended, without the output.")
+                + (e.runID != nil ? " The run itself is at run_url while the app keeps it." : "")
+        default:
+            break
+        }
+        out["next"] = await requestNext(e, delivery: out["delivery"] as? String ?? delivery).map(\.json)
+        return JSON.response(out, headers: [("X-Request-Id", id.uuidString)])
+    }
+
+    /// Where a request's result is: `pending` (waiting or running: nothing to collect yet),
+    /// `ready` (over, not collected), or `cleared` (handed over, or cleared without it).
+    func delivery(_ e: RequestLedger.Entry) async -> String {
+        if e.cleared != nil { return "cleared" }
+        switch e.outcome {
+        case .waiting: return "pending"
+        case let .running(id):
+            guard let r = await host.record(id) else { return "ready" }
+            return r.state.finished ? "ready" : "pending"
+        default: return "ready"
+        }
+    }
+
+    /// GET /api/requests/open: the requests not cleared yet, in the order they came, each with
+    /// where it is; what's ready to collect, counted.
+    private func openRequests() async -> [String: Any] {
+        var list: [[String: Any]] = []
+        var waiting = 0, running = 0, ready = 0
+        var next: [APINext.Hint] = []
+        for (k, e) in await requests.open().enumerated() {
+            var out = await requestJSON(e, run: false)
+            let delivery = await delivery(e)
+            out["position"] = k + 1
+            out["delivery"] = delivery
+            let state = out["state"] as? String ?? ""
+            if delivery == "ready" {
+                ready += 1
+                if next.count < 3 { next.append(APINext.Hint("GET", "/api/requests/\(e.id.uuidString)", "collect \(e.request.name)'s result (\(state)): it's handed over once, then cleared")) }
+            } else if state == "waiting" {
+                waiting += 1
+            } else {
+                running += 1
+            }
+            list.append(out)
+        }
+        if waiting + running > 0 {
+            next.append(APINext.Hint("GET", "/api/requests/open", "ask again in a few seconds: \(waiting) waiting for a click on the Mac, \(running) running"))
+        }
+        if ready > 1 { next.append(APINext.Hint("POST", "/api/requests/clear", "clear every one that's over without reading them")) }
+        if list.isEmpty { next.append(APINext.Hint("GET", "/api/search?q={words}", "nothing open: find something to run, by a few words")) }
+        return ["ok": true, "count": list.count, "waiting": waiting, "running": running, "ready": ready, "requests": list,
+                "order": "oldest first", "next": next.map(\.json)]
+    }
+
+    /// DELETE /api/requests/{id}: cleared without being read; one still waiting for the click
+    /// (sent with "async": true) is taken back, and the card goes.
+    private func dismiss(_ id: UUID) async throws -> HTTPResponse {
+        guard let e = await requests.entry(id) else {
+            throw HTTPError(status: 404, code: "unknown_request", message: "no request \(id.uuidString) (the latest \(requests.capacity) are kept while the app runs)")
+        }
+        let tagged = [("X-Request-Id", id.uuidString)]
+        switch await delivery(e) {
+        case "pending":
+            if case .waiting = e.outcome {
+                guard await requests.withdraw(id) else {
+                    throw HTTPError(status: 409, code: "still_waiting",
+                                    message: "\(e.request.name) is waiting for a click on the Mac, and the call that sent it is still waiting on it: hang that call up to take it back")
+                }
+                return JSON.response(["ok": true, "request": id.uuidString, "state": "withdrawn", "delivery": "cleared",
+                                      "note": "Taken back: the card is gone from the Mac and nothing runs.",
+                                      "next": [APINext.Hint("GET", "/api/requests/open", "the requests still open").json]], headers: tagged)
+            }
+            let stop = e.runID.map { "/api/runs/\($0.uuidString)/stop" } ?? "/api/runs"
+            throw HTTPError(status: 409, code: "still_running", message: "\(e.request.name) is running: stop it first (POST \(stop)), or collect it once it's over")
+        default:
+            // "ok" stays the request's own (how it ended); "cleared" says this worked.
+            await requests.clear(id, .dismissed)
+            let now = await requests.entry(id) ?? e
+            var out = await requestJSON(now, run: false)
+            out["delivery"] = "cleared"
+            if let cleared = now.cleared { out["cleared"] = JSON.date(cleared) }
+            out["cleared_by"] = now.clearedBy?.rawValue
+            out["next"] = [APINext.Hint("GET", "/api/requests/open", "the requests still open").json]
+            return JSON.response(out, headers: tagged)
+        }
+    }
+
+    /// POST /api/requests/clear: every request that's over and not collected (or the ones
+    /// named, {"requests": [ids]}), cleared without being read.
+    private func clearRequests(_ req: HTTPRequest) async throws -> HTTPResponse {
+        let fields = try body(req)
+        let named = (fields["requests"] as? [Any] ?? fields["ids"] as? [Any])?.compactMap { Self.text($0).flatMap(UUID.init(uuidString:)) }
+        var cleared: [String] = [], left: [[String: Any]] = []
+        for e in await requests.open() where named == nil || named!.contains(e.id) {
+            if await delivery(e) == "ready" {
+                await requests.clear(e.id, .dismissed)
+                cleared.append(e.id.uuidString)
+            } else {
+                left.append(["request": e.id.uuidString, "name": e.request.name, "why": "not over yet"])
+            }
+        }
+        return JSON.response(["ok": true, "cleared": cleared, "count": cleared.count, "still_open": left,
+                              "next": [APINext.Hint("GET", "/api/requests/open", "the requests still open").json]])
+    }
+
+    /// What to call after reading a request, by where it is.
+    func requestNext(_ e: RequestLedger.Entry, delivery: String) async -> [APINext.Hint] {
+        let url = "/api/requests/\(e.id.uuidString)"
+        var out: [APINext.Hint] = []
+        switch delivery {
+        case "pending":
+            if case .waiting = e.outcome {
+                out.append(APINext.Hint("GET", url, "ask again in a few seconds: it's on the Mac, waiting for the person to click (no click in two minutes is Don't Run)"))
+                if await requests.holds(e.id) { out.append(APINext.Hint("DELETE", url, "take it back: the card goes, nothing runs")) }
+            } else {
+                out.append(APINext.Hint("GET", url, "ask again in a few seconds: it's running (run.output is what it has printed so far)"))
+                if let run = e.runID { out.append(APINext.Hint("POST", "/api/runs/\(run.uuidString)/stop", "stop it")) }
+            }
+        case "ready":
+            out.append(APINext.Hint("GET", url, "take its result: it's handed over once, then cleared"))
+        default:
+            if let run = e.runID { out.append(APINext.Hint("GET", "/api/runs/\(run.uuidString)", "the run again, with everything it printed, while the app keeps it")) }
+            switch e.outcome {
+            case .denied, .notAnswered, .withdrawn:
+                out.append(APINext.Hint("POST", "/api/\(e.via == "automation" ? "automation" : e.via == "stop" ? "runs/{id}/stop" : e.via)", "ask again, only if the person wants it (say why, in \"why\")"))
+            case .automated:
+                out.append(APINext.Hint("GET", "/api/automation", "what runs by itself now"))
+            default: break
+            }
+        }
+        out.append(APINext.Hint("GET", "/api/requests/open", "every request not collected yet, oldest first"))
+        return out
     }
 
     /// A request as the API gives it: its state (`waiting`, `denied`, `not_answered`, `running`,
@@ -414,6 +590,8 @@ public final class RunAPI: @unchecked Sendable {
             out["run_url"] = "/api/runs/\(id.uuidString)"
         case let .failed(err):
             out["state"] = "could_not_start"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
+        case .withdrawn:
+            out["state"] = "withdrawn"; out["ok"] = false; out["error"] = "\(r.name) was taken back by the app that asked, before anyone clicked"
         case let .running(id):
             out["run_id"] = id.uuidString
             out["run_url"] = "/api/runs/\(id.uuidString)"
@@ -479,6 +657,60 @@ public final class RunAPI: @unchecked Sendable {
         return c
     }
 
+    // MARK: Search
+
+    /// GET /api/search?q=words: the routes, scripts and flows that match, the best first, each
+    /// with how to call it (?in=routes,scripts,flows; ?group=memory; ?limit=10, at most 50).
+    private func search(_ req: HTTPRequest, _ s: APISettings) async throws -> HTTPResponse {
+        guard let q = (req.query["q"] ?? req.query["query"])?.trimmingCharacters(in: .whitespaces), !q.isEmpty else {
+            throw HTTPError(status: 400, code: "missing_query",
+                            message: "send ?q= and a few words of what you want to do (?q=remember a birthday, ?q=run a script, ?q=status of a request)")
+        }
+        var scopes = Set(APISearch.Scope.allCases)
+        if let wanted = req.query["in"] {
+            let named = wanted.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            scopes = Set(named.compactMap(APISearch.Scope.init(rawValue:)))
+            guard scopes.count == named.count, !scopes.isEmpty else {
+                throw HTTPError(status: 400, code: "bad_request", message: "?in= takes \(APISearch.Scope.allCases.map(\.rawValue).joined(separator: ", ")) (one, or several with commas)")
+            }
+        }
+        let group = req.query["group"]?.lowercased()
+        if let group, !APIRoutes.groups.contains(where: { $0.id == group }) {
+            throw HTTPError(status: 400, code: "unknown_group", message: "there's no group called \(group); the groups: \(APIRoutes.groups.map(\.id).joined(separator: ", "))")
+        }
+        let limit = min(50, max(1, Int(req.query["limit"] ?? "") ?? 10))
+        // Scripts and flows only while the catalog is on and a folder is chosen; routes always.
+        let catalog = s.isOn(.catalog) && (scopes.contains(.scripts) || scopes.contains(.flows)) ? await host.catalog() : nil
+        let (hits, total) = APISearch.search(q, scopes: scopes, group: group, catalog: catalog, limit: limit)
+        let results: [[String: Any]] = hits.map { h in
+            var out = h.json
+            out["kind"] = h.kind
+            out["matched"] = h.matched
+            out["score"] = h.score
+            return out
+        }
+        var next: [APINext.Hint] = []
+        if let top = hits.first {
+            if top.kind == "route", let path = top.json["path"] as? String, let method = top.json["method"] as? String {
+                next.append(APINext.Hint(method, path, "the best match: \(top.json["summary"] as? String ?? "")"))
+                if let g = top.json["group"] as? String { next.append(APINext.Hint("GET", "/api/endpoints?group=\(g)", "the rest of its group's routes")) }
+            } else if let run = top.json["run"] as? [String: Any], let path = run["path"] as? String {
+                next.append(APINext.Hint("POST", path, "run the best match, \(top.json["name"] as? String ?? ""), with the body its \"run\" gives (it waits for Run on the Mac; send \"async\": true and keep the request id)"))
+            }
+        } else {
+            next.append(APINext.Hint("GET", "/api/endpoints?brief=true", "nothing matched: the groups, each with the words it's found by"))
+        }
+        if total > hits.count { next.append(APINext.Hint("GET", "/api/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q)&limit=\(min(50, total))", "all \(total) matches")) }
+        return JSON.response(["ok": true, "q": q, "words": APISearch.query(q), "count": results.count, "total": total,
+                              "results": results, "next": next.map(\.json)])
+    }
+
+    /// A query's true or false: "true", "1", "yes" (or there with nothing after it).
+    static func flag(_ value: String?) -> Bool {
+        guard let v = value?.lowercased() else { return false }
+        return ["", "true", "1", "yes"].contains(v)
+    }
+
     // MARK: Health
 
     private func health(_ s: APISettings) async -> [String: Any] {
@@ -496,6 +728,15 @@ public final class RunAPI: @unchecked Sendable {
         }
         // Each switch, by its name; and the shelves, where they are.
         for e in APIEndpoint.allCases { out[e.rawValue] = s.isOn(e) }
+        // The requests not collected yet: what a client coming back has to pick up.
+        var waiting = 0, running = 0, ready = 0
+        for e in await requests.open() {
+            switch await delivery(e) {
+            case "ready": ready += 1
+            default: if case .waiting = e.outcome { waiting += 1 } else { running += 1 }
+            }
+        }
+        out["requests"] = ["open": waiting + running + ready, "waiting": waiting, "running": running, "ready": ready, "list": "/api/requests/open"]
         let sh = shelves()
         out["home"] = Home.root.path
         out["shelves"] = [
@@ -635,37 +876,56 @@ public final class RunAPI: @unchecked Sendable {
                     throw e
                 }
                 await requests.set(request.id, .automated)
+                await requests.clear(request.id, .delivered)
                 var out = Self.automationJSON(entry)
                 out["ok"] = true
                 out["automated"] = true
                 out["request"] = id
+                out["next"] = [APINext.Hint("GET", "/api/automation", "what runs by itself now").json]
                 return JSON.response(out, headers: tagged)
             } catch let e as HTTPError {
-                return refused(e, request)
+                return await refused(e, request)
             }
         }
         if fields["stream"] as? Bool == true { return stream(request) }
+        let url = "/api/requests/\(id)"
         if fields["async"] as? Bool == true {
             // Answered now; the card stays on the Mac, and the run (if allowed) goes on without the
-            // caller: a task of its own, which the caller hanging up doesn't cancel.
-            Task { [self] in _ = try? await self.approveAndStart(request) }
-            return JSON.response(["request": id, "state": "waiting", "url": "/api/requests/\(id)",
-                                  "message": "On the Mac, waiting for Run; GET /api/requests/\(id) says how it goes"],
+            // caller: a task of its own, which the caller hanging up doesn't cancel (but taking
+            // the request back, DELETE /api/requests/{id}, does).
+            let asking = Task { [self] in
+                _ = try? await self.approveAndStart(request)
+                await self.requests.release(request.id)
+            }
+            await requests.hold(request.id, asking)
+            return JSON.response(["request": id, "state": "waiting", "url": url, "delivery": "pending",
+                                  "message": "On the Mac, waiting for Run; GET \(url) says how it goes",
+                                  "note": "Keep the request id: ask about it any time. Once it's over, the first read hands over its result and clears it.",
+                                  "next": [APINext.Hint("GET", url, "where it is: ask every few seconds; once it's over, this hands over the result (once)").json,
+                                           APINext.Hint("DELETE", url, "take it back while it waits: the card goes, nothing runs").json,
+                                           APINext.Hint("GET", "/api/requests/open", "every request not collected yet, oldest first").json]],
                                  status: 202, headers: tagged)
         }
         let runID: UUID
         do {
             runID = try await approveAndStart(request)
         } catch let e as HTTPError {
-            return refused(e, request)
+            return await refused(e, request)
         }
         if fields["wait"] as? Bool == false {
-            return JSON.response(["id": runID.uuidString, "request": id, "state": "running", "url": "/api/runs/\(runID.uuidString)"],
+            return JSON.response(["id": runID.uuidString, "request": id, "state": "running", "url": "/api/runs/\(runID.uuidString)", "delivery": "pending",
+                                  "next": [APINext.Hint("GET", url, "where it is; once it's over, this hands over the result (once)").json,
+                                           APINext.Hint("POST", "/api/runs/\(runID.uuidString)/stop", "stop it").json]],
                                  status: 202, headers: tagged)
         }
         let (run, steps) = try await finish(runID)
+        // The result goes back in this answer: handed over, so it's cleared.
+        await requests.clear(request.id, .delivered)
         var out = Self.runJSON(run, steps: steps)
         out["request"] = id
+        out["delivery"] = "delivered"
+        out["next"] = [APINext.Hint("GET", "/api/runs/\(runID.uuidString)", "this run again, while the app keeps it").json,
+                       APINext.Hint("GET", "/api/requests/open", "every request not collected yet, oldest first").json]
         return JSON.response(out, headers: tagged)
     }
 
@@ -701,9 +961,13 @@ public final class RunAPI: @unchecked Sendable {
 
     /// A request that didn't run (or wasn't automated), with its id still: the app can ask
     /// `/api/requests/{id}` later and get the same answer.
-    private func refused(_ e: HTTPError, _ request: RunRequest) -> HTTPResponse {
-        JSON.response(["error": e.message, "code": e.code, "request": request.id.uuidString], status: e.status,
-                      headers: [("X-Request-Id", request.id.uuidString)])
+    private func refused(_ e: HTTPError, _ request: RunRequest) async -> HTTPResponse {
+        // Said here and now: handed over, so it's cleared.
+        await requests.clear(request.id, .delivered)
+        var next = [APINext.Hint("GET", "/api/requests/open", "every request not collected yet, oldest first")]
+        if e.code == "not_answered" { next.insert(APINext.Hint("POST", "/api/\(request.isStop ? "runs/{id}/stop" : request.automation != nil ? "automation" : request.isScript ? "run" : "compose")", "send it again, if the person still wants it: they have two minutes to click"), at: 0) }
+        return JSON.response(["error": e.message, "code": e.code, "request": request.id.uuidString, "delivery": "delivered", "next": next.map(\.json)],
+                             status: e.status, headers: [("X-Request-Id", request.id.uuidString)])
     }
 
     static func denied(_ r: RunRequest) -> HTTPError {
@@ -744,9 +1008,11 @@ public final class RunAPI: @unchecked Sendable {
                 id = try await self.approveAndStart(request)
             } catch let e as HTTPError where e.code == "denied" || e.code == "not_answered" {
                 try await out.write(JSON.line(["type": "denied", "request": rq, "code": e.code, "message": e.message]))
+                await self.requests.clear(request.id, .delivered)
                 return
             } catch {
                 try await out.write(JSON.line(["type": "error", "request": rq, "message": (error as? HTTPError)?.message ?? "\(error)"]))
+                await self.requests.clear(request.id, .delivered)
                 return
             }
             try await out.write(JSON.line(["type": "started", "id": id.uuidString, "request": rq, "name": request.name]))
@@ -777,7 +1043,9 @@ public final class RunAPI: @unchecked Sendable {
                     }
                 }
                 if run.state.finished {
-                    try await out.write(JSON.line(["type": "done", "request": rq].merging(Self.runJSON(run, steps: steps)) { a, _ in a }))
+                    try await out.write(JSON.line(["type": "done", "request": rq, "delivery": "delivered"].merging(Self.runJSON(run, steps: steps)) { a, _ in a }))
+                    // Handed over in the stream: cleared.
+                    await self.requests.clear(request.id, .delivered)
                     return
                 }
                 try await Task.sleep(nanoseconds: poll)
@@ -917,6 +1185,7 @@ public final class RunAPI: @unchecked Sendable {
                                   "language_name": s.language.title, "asks_for_input": s.asksForInput,
                                   "dangers": s.dangers, "uses_epa": s.usesEPA, "inputs": inputsJSON(s.inputs)]
         if let summary = s.summary { out["summary"] = summary }
+        if !s.tags.isEmpty { out["tags"] = s.tags }
         return out
     }
 
@@ -944,6 +1213,7 @@ public final class RunAPI: @unchecked Sendable {
     static func flowJSON(_ f: ScriptItem) -> [String: Any] {
         var out: [String: Any] = ["name": f.id, "title": f.title, "uses_epa": f.usesEPA, "inputs": inputsJSON(f.inputs)]
         if let summary = f.summary { out["summary"] = summary }
+        if !f.tags.isEmpty { out["tags"] = f.tags }
         return out
     }
 

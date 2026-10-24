@@ -25,11 +25,16 @@ final class FakeRunHost: RunHost, @unchecked Sendable {
 
     func catalog() async -> Catalog? { lock.withLock { catalogValue } }
 
+    /// The card stays on the Mac, unanswered, while this is true (a cancelled ask is Don't Run).
+    var holdApprovals = false
+
     func approve(_ request: RunRequest) async -> Approval {
-        lock.withLock {
-            asked.append(request)
-            return answer
+        lock.withLock { asked.append(request) }
+        while lock.withLock({ holdApprovals }) {
+            if Task.isCancelled { return .denied }
+            try? await Task.sleep(nanoseconds: 2_000_000)
         }
+        return lock.withLock { answer }
     }
 
     func start(_ request: RunRequest) async throws -> UUID {
@@ -445,9 +450,11 @@ final class APITests: XCTestCase {
         XCTAssertEqual(status["run_url"] as? String, "/api/runs/\(runID)")
         XCTAssertEqual(status["url"] as? String, "/api/requests/\(id)")
         XCTAssertNotNil(status["asked"]); XCTAssertNotNil(status["answered"])
-        let run = status["run"] as? [String: Any]
-        XCTAssertEqual(run?["output"] as? String, "hi\n")
-        XCTAssertEqual(run?["request"] as? String, id)
+        // Its result went back in the answer itself: handed over, so it's cleared here.
+        XCTAssertEqual(json(d)["delivery"] as? String, "delivered")
+        XCTAssertEqual(status["delivery"] as? String, "cleared")
+        XCTAssertEqual(status["cleared_by"] as? String, "delivered")
+        XCTAssertNil(status["run"], "the output isn't handed over twice")
         // The run knows its request too, alone and in the list.
         let (_, rd) = await api.send("GET", "/api/runs/\(runID)")
         XCTAssertEqual(json(rd)["request"] as? String, id)
