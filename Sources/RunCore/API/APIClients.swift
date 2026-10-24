@@ -6,7 +6,7 @@ import Foundation
 /// copy. Each one lists the scripts, runs one with `client` and `why`, keeps the request id, and
 /// handles Don't Run: the things every caller has to get right.
 public enum APIClient: String, CaseIterable, Sendable {
-    case curl, python, javascript, swift, shortcuts, agent
+    case curl, python, javascript, swift, shortcuts, agent, smallModel
 
     /// The button's word.
     public var title: String {
@@ -17,6 +17,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         case .swift: "Swift"
         case .shortcuts: "Shortcuts"
         case .agent: "AI Agent"
+        case .smallModel: "Small Model"
         }
     }
 
@@ -29,6 +30,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         case .swift: "swift"
         case .shortcuts: "square.stack.3d.up"
         case .agent: "sparkles"
+        case .smallModel: "text.bubble"
         }
     }
 
@@ -41,6 +43,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         case .swift: "Copy a Swift helper (URLSession, async): for a Mac app or a command-line tool"
         case .shortcuts: "Copy the steps for a shortcut in Apple's Shortcuts that runs a script here"
         case .agent: "Copy instructions for an AI agent (Claude, ChatGPT, a local model): the rules, the endpoints, the request id"
+        case .smallModel: "Copy what a small model needs to talk to it in plain words: one line for its instructions, one tool (say), and how the app passes it on"
         }
     }
 
@@ -54,6 +57,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         case .swift: return Self.swift(baseURL, token)
         case .shortcuts: return Self.shortcuts(baseURL, token)
         case .agent: return Self.agent(baseURL, token)
+        case .smallModel: return Self.smallModel(baseURL, token)
         }
     }
 
@@ -379,6 +383,28 @@ public enum APIClient: String, CaseIterable, Sendable {
         {"script": "utilities/weather.py", "args": ["Lagos"], "async": true, "client": "Assistant", "why": "You asked what the weather is in Lagos"}
         → 202 {"request": "2A7C…", "delivery": "pending", "next": [{"method": "GET", "path": "/api/requests/2A7C…", …}]}
         GET  \(base)/api/requests/2A7C…   (again until "delivery" is "delivered": then "run.output" is the answer)
+        """
+    }
+
+    private static func smallModel(_ base: String, _ token: String?) -> String {
+        let auth = token.map { " -H 'Authorization: Bearer \($0)'" } ?? ""
+        return """
+        # A model that only knows how to talk: one line for its instructions, one tool.
+
+        ## The instructions
+        To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and say it back.
+
+        ## The tool
+        {"name": "say", "description": "Talk to the Mac's tools in plain words. Say what you want; if it answers with templates, fill one in and say it back.", "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "what you want, or a template filled in"}}, "required": ["text"]}}
+
+        ## Passing a call on (your app, not the model)
+        # Send the model's text as is; ?client= names your app on the Mac's cards (and gives it its own conversation).
+        # The answer is plain text: hand it back to the model as the tool's result. No ids, no polling, no JSON.
+        curl -s\(auth) '\(base)/api/say?client=My+Assistant' -H 'Content-Type: text/plain' --data-binary "what's the weather in Lagos"
+        # This needs the person at the Mac to click Run. I'll tell you when they do.
+
+        # A run still waits for the person's click on the Mac; the card shows why, in the model's own words.
+        # What changed comes at the start of the next answer ("Meanwhile: …"). Start over: POST \(base)/api/say/reset?client=My+Assistant
         """
     }
 }
