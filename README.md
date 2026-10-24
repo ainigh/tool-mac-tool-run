@@ -176,6 +176,12 @@ printed (live while it runs), the command to run it yourself in a terminal, Stop
 
 **Every route, in its groups**: `GET /api/endpoints` lists them (About the API, Scripts and flows,
 Straw, File library, Automation, Runs and requests), and so do `/api/doc` and the API's own page.
+**Or only what's wanted**: `GET /api/search?q=remember a birthday` answers just the routes,
+scripts and flows that match a few words, each with how to call it (every route has tags, the
+words someone would say for it; a script's header can give its own: `# Tags: weather forecast`).
+Every JSON answer carries `next`, the calls that usually come after it, ids filled in. And each
+request's result is handed over once: `GET /api/requests/open` lists what an app hasn't
+collected yet, oldest first.
 **Straw has routes of its own**: `GET /api/straw` (its words and scripts), `POST /api/straw/check`
 (Straw code checked, nothing run) and `POST /api/straw/run` (a Straw script, or Straw code an app
 sends, run in Chrome once you click Run; the card shows the code).

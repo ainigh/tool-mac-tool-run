@@ -1,6 +1,27 @@
 # Recipes
 
-The calls for what's asked most, ready to paste. `$API` is the API's address (`API=http://127.0.0.1:8768`). Every call answers with JSON (`"ok"`, `"request"`, and on a mistake `"code"`, `"error"`, `"fix"`); none of these asks on the Mac.
+The calls for what's asked most, ready to paste. `$API` is the API's address (`API=http://127.0.0.1:8768`). Every call answers with JSON (`"ok"`, `"request"`, and on a mistake `"code"`, `"error"`, `"fix"`); none of these asks on the Mac, but running a script or flow (it waits for Run).
+
+## Finding the call for something
+
+| To | Call |
+|---|---|
+| Find the route for anything, by a few words | `curl -s "$API/api/search?q=remember+a+birthday"` |
+| Find a script or flow by what it does | `curl -s "$API/api/search?q=weather&in=scripts,flows"` (each comes with `"run"`: the request that runs it) |
+| The groups of routes, small | `curl -s "$API/api/endpoints?brief=true"` |
+| One group's routes | `curl -s "$API/api/endpoints?group=memory"` |
+
+Every answer has `"next"`: the calls that usually come after it, ids filled in.
+
+## Running, and collecting the result
+
+```sh
+curl -s $API/api/run -H 'Content-Type: application/json' -d '{"script": "backup.sh", "async": true, "client": "My Assistant", "why": "You asked for a backup before the trip"}'
+# {"request": "2A7C…", "state": "waiting", "delivery": "pending", "next": [...]}   it waits for Run on the Mac
+curl -s $API/api/requests/2A7C…        # pending while waiting or running; once over, this hands over the result, once
+curl -s $API/api/requests/open         # everything not collected yet, oldest first
+curl -s -X DELETE $API/api/requests/2A7C…   # clear it; still waiting for the click: take it back
+```
 
 ## Remembering
 

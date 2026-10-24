@@ -530,8 +530,12 @@ right under an `Input:` line says what the answer is for: it's shown under the f
 app asks, so whoever types knows what they're deciding (say it whenever it isn't obvious). In a
 flow, the answers are its `args`. The API board asks for each before a click runs it (with the
 last answers already in), and `GET /api/scripts` and `/api/flows` list them for other apps
-(`why` with each). The summary on a cell is the first comment line that isn't an `Input:` or
-`Why:` line.
+(`why` with each). The summary on a cell is the first comment line that isn't an `Input:`,
+`Why:` or `Tags:` line.
+
+A `Tags:` line gives the words it's found by, beside its name and summary, when another app
+searches (`GET /api/search?q=umbrella`): `# Tags: weather, forecast rain umbrella` (commas or
+spaces; several `Tags:` lines add up). `GET /api/scripts` and `/api/flows` list them as `tags`.
 
 ### Asking the person running it
 

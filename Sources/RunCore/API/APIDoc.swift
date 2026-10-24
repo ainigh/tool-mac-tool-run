@@ -33,10 +33,20 @@ public enum APIDoc {
 
         NOTHING RUNS WITHOUT THE PERSON'S CLICK (the file library aside: see below). Every run request shows a card on the Mac naming your app and what would run; your request waits until the person clicks Run (or Don't Run; no click in two minutes is Don't Run). Send "client": "Your App's Name" so the card says who's asking.
         EVERY REQUEST HAS AN ID you can depend on: it comes back at once (the X-Request-Id header, and "request" in the JSON of every answer, refusals included), and GET /api/requests/{id} says where it is any time later: waiting for the click, denied, running, how it ended. Send "async": true to get the id now and not wait at all.
+        EACH RESULT IS HANDED OVER ONCE: in the answer itself when you waited, else by the first read of /api/requests/{id} once it's over; after that it's cleared (how it ended, without the output). GET /api/requests/open lists what you haven't collected yet, oldest first.
+        YOU DON'T HAVE TO READ ALL OF THIS: GET /api/search?q=<a few words> answers only the routes, scripts and flows that match, each with how to call it, and every JSON answer has "next": the calls that usually come after it, with its ids filled in.
 
         ## Endpoints, by group
 
-        GET /api/endpoints gives this list as JSON ({"groups": [{"id", "title", "about", "routes": [{"method", "path", "summary", "asks_on_the_mac"}]}]}).
+        GET /api/endpoints gives this list as JSON ({"groups": [{"id", "title", "about", "routes": [{"method", "path", "summary", "asks_on_the_mac"}]}]}); ?group=memory one group; ?brief=true the groups alone (each with its route count and words); ?q=words a search of the routes.
+
+        ## Finding your way: search, and "next"
+
+        GET /api/search?q=remember a birthday → {"q", "words", "count", "total", "results": [...], "next"}: the best matches first. A route: {"kind": "route", "method", "path", "call", "summary", "group", "asks_on_the_mac", "tags", "matched", "score"}. A script or flow: {"kind": "script"|"flow", "name", "summary", "tags", "inputs", "run": {"method", "path", "body"}}: the request that runs it, its inputs as <placeholders>.
+        - ?in=routes,scripts,flows (all by default), ?group=memory (one group's routes), ?limit=10 (at most 50). Words like "how", "a", "the" are left out; the rest compare by stem ("birthdays" = "birthday").
+        - Routes are found by their path, summary, group and tags (the words someone looking for one would say: "status", "result", "job" find /api/requests/{id}). Scripts and flows by their name, first comment, topic, and their header's "# Tags: weather forecast" line.
+        - Nothing matched: "count": 0, and "next" points to /api/endpoints?brief=true. No ?q=: 400 missing_query.
+        Every JSON answer (errors too) carries "next": [{"method", "path", "why"}], the calls that usually follow, with the path's values ({name}, {id}) and the request's ids filled in; a placeholder like {words} is for you to fill. ?next=false leaves it out.
 
         \(APIRoutes.text)
 
@@ -123,7 +133,12 @@ public enum APIDoc {
         - state: waiting (on the Mac, no click yet) | denied | not_answered | running | succeeded | failed | stopped | could_not_start | automated | gone (the run was cleared from the app's history). A stop request ("kind": "stop") that was allowed is stopped.
         - ok: once it's over (true for succeeded and automated); absent while waiting or running.
         - run: once started, the run itself with everything it printed, as /api/runs/{id} gives it. code, error: when it didn't run.
-        Poll it as often as you like (nothing runs for the asking). GET /api/requests?limit=20 lists the latest, without "run". An unknown id is 404 unknown_request. Runs carry "request" too.
+        Poll it as often as you like (nothing runs for the asking). GET /api/requests?limit=20 lists the latest (cleared or not), without "run". An unknown id is 404 unknown_request. Runs carry "request" too.
+        - state also: withdrawn (your app took it back before the click).
+        - delivery: pending (waiting or running: nothing to collect yet) | delivered (this answer is the result, handed over once; it's cleared now) | cleared (handed over before, or cleared without it: how it ended, without "run"; "cleared", "cleared_by": delivered | collected | dismissed | withdrawn) | ready (over, not collected: in the open list, or read with ?peek=true).
+        - A waited-for, streamed or refused request is delivered in its own answer. An async one is collected by the first read of /api/requests/{id} once it's over; ?peek=true looks without taking it. Once cleared, the run is still at run_url while the app keeps it.
+        GET /api/requests/open → {"count", "waiting", "running", "ready", "order": "oldest first", "requests": [{"position", "request", "name", "state", "delivery", "url", …}], "next"}: what you've asked for and not collected, in the order you sent it. GET /api/health counts them too ("requests").
+        DELETE /api/requests/{id}: clear one that's over without reading it; one sent with "async": true and still waiting for the click is taken back (the card goes, nothing runs: state withdrawn). 409 still_running (stop it first) | still_waiting (its caller is still on the line). POST /api/requests/clear {"requests"?: [ids]} clears every one that's over and not collected.
 
         ## Automation
 
@@ -145,8 +160,9 @@ public enum APIDoc {
 
         ## Errors
 
-        {"error": "what went wrong", "code": "…"}
+        {"error": "what went wrong", "code": "…", "next": [where to look instead]}
         400 missing_script | missing_flow | bad_args | bad_request    the request isn't right
+        400 missing_query | unknown_group                            a search without ?q=, or a group that isn't one
         400 unknown_tag                                             no such automation tag ("error" lists them)
         400 flow_mistake                                            the Flow code has a mistake (with "line" and "fix")
         401 unauthorized                                            sharing on the network is on and no token was sent
@@ -160,6 +176,7 @@ public enum APIDoc {
         409 already_exists                                          a library note of that name is there already
         409 chrome_not_open | no_window | no_chrome                 Chrome isn't there to read; 403 javascript_off | not_allowed: what to switch on
         409 no_folder                                               no scripts folder is chosen yet
+        409 still_waiting | still_running                           a request that can't be cleared yet (its caller waits on it; it's running)
         413 too_large                                               a body over 8 MB
         503 endpoint_off                                            that group is switched off in the app
         500 failed
@@ -170,12 +187,14 @@ public enum APIDoc {
 
         ## Examples
 
-        curl -s \(baseURL)/api/endpoints
+        curl -s "\(baseURL)/api/search?q=remember+a+birthday"
+        curl -s "\(baseURL)/api/endpoints?brief=true"
         curl -s \(baseURL)/api/scripts
         curl -s \(baseURL)/api/run -d '{"script": "hello.sh", "args": ["world"], "client": "My App", "why": "You pressed Greet"}'
         curl -sN \(baseURL)/api/run -d '{"script": "backup.sh", "stream": true, "client": "My App", "why": "Nightly backup, from the Backup Now button"}'
         curl -si \(baseURL)/api/run -d '{"script": "backup.sh", "async": true, "client": "My App", "why": "Nightly backup"}'   # 202 now, with X-Request-Id
-        curl -s \(baseURL)/api/requests/<the id>
+        curl -s \(baseURL)/api/requests/<the id>                    # once it's over, the first read hands over the result
+        curl -s \(baseURL)/api/requests/open                        # what you haven't collected yet, oldest first
         curl -s \(baseURL)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My App"}'
         curl -s \(baseURL)/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\\n- milk\\n"}'
         curl -s \(baseURL)/api/library -d '{"op": "search", "q": "milk"}'

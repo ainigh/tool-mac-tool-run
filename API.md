@@ -14,7 +14,15 @@ the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serve
   like keys and values. List, read, write, append, search the full text, delete to the library's
   own Trash and restore. **These answer at once, without a card**: they're notes, not programs.
 - **Drive Chrome with Straw**: its words, check Straw code, run a Straw script or code you send.
-- **See every route**, in its groups: `GET /api/endpoints`.
+- **Find what you need by a few words**: `GET /api/search?q=remember a birthday` answers only the
+  routes, scripts and flows that match, each with how to call it, instead of every route at once.
+  Every route has tags (the words someone looking for it would say), and so can a script
+  (`# Tags: weather forecast` in its header). **Every JSON answer says what to call next**
+  (`"next"`), with its ids filled in, so nothing has to be known ahead of time.
+- **Keep track of what you asked for**: `GET /api/requests/open` lists the requests not collected
+  yet, oldest first, each waiting, running or ready. **A result is handed over once**: the first
+  read once it's over takes it, and asked again, the request says how it ended without the output.
+- **See every route**, in its groups: `GET /api/endpoints` (`?brief=true`: the groups alone).
 
 **Nothing runs without the person's say-so** (the file library aside). Every run request shows a large card on the Mac
 naming your app, why it wants the run (your `why`, in your words; the card says when you gave
@@ -27,7 +35,9 @@ This document is the contract for client apps. New fields may be added to respon
 listed here changes meaning. **You can depend on the request id**: every answer to `/api/run`,
 `/api/compose` and `/api/automation` carries it (the `X-Request-Id` header and `request` in the
 JSON, on success and on refusal alike), and `GET /api/requests/{id}` answers for it for as long as
-the app runs (the latest 500).
+the app runs (the latest 500). **A result is handed over once** (in the answer itself when you
+waited for it, or the first read of `/api/requests/{id}` once it's over); after that the request
+still says how it ended, without the output.
 
 ```
 Base URL   http://127.0.0.1:8768
@@ -52,7 +62,10 @@ the scripts, runs one with `client` and `why`, keeps the request id, and handles
 ## In one minute
 
 ```bash
-# is it there, and what's on?
+# what you need, by a few words: only the routes, scripts and flows that match, each with how to call it
+curl -s "localhost:8768/api/search?q=remember+a+birthday"
+
+# is it there, and what's on? (and how many of your requests are still open)
 curl -s localhost:8768/api/health
 
 # the scripts in the folder
@@ -70,7 +83,11 @@ curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
 curl -si localhost:8768/api/run -d '{"script": "backup.sh", "async": true, "client": "My App", "why": "Nightly backup"}'
 # HTTP/1.1 202 Accepted … X-Request-Id: 2A7C…   {"request":"2A7C…","state":"waiting","url":"/api/requests/2A7C…", …}
 curl -s localhost:8768/api/requests/2A7C…
-# {"request":"2A7C…","state":"succeeded","ok":true,"run_id":"6C1D…","run":{…everything it printed…}, …}
+# {"request":"2A7C…","state":"succeeded","ok":true,"delivery":"delivered","run_id":"6C1D…","run":{…everything it printed…}, …}
+# (handed over once: asked again, it says "delivery":"cleared" and how it ended, without the output)
+
+# what you've asked for and not collected yet, oldest first: waiting, running, or ready
+curl -s localhost:8768/api/requests/open
 
 # run a flow from the folder, or Flow code you send
 curl -s localhost:8768/api/compose -d '{"flow": "morning.flow"}'
@@ -99,7 +116,7 @@ curl -s localhost:8768/api/clipboard -d '{"text": "ssh me@example.com"}'
 curl -s "localhost:8768/api/browser/has?text=Compute"
 curl -s "localhost:8768/api/browser/find?text=Compute"
 
-# every route, in its groups
+# every route, in its groups (long: ?brief=true gives the groups alone, ?group=memory one group)
 curl -s localhost:8768/api/endpoints
 ```
 
@@ -107,20 +124,23 @@ curl -s localhost:8768/api/endpoints
 
 `GET /api/endpoints` (or `GET /api`) lists every route, in these groups, as JSON:
 `{"groups": [{"id", "title", "about", "switch"?, "on"?, "routes": [{"method", "path", "summary",
-"asks_on_the_mac"}]}]}`; `?group=library` gives one. `GET /api/doc` lists them the same way, as text.
+"asks_on_the_mac"}]}]}`; `?group=library` gives one; `?brief=true` gives the groups alone (each
+with how many routes it has and the words it's found by); `?q=words` is a search of the routes.
+`GET /api/doc` lists them the same way, as text. A small client starts with `GET /api/search`.
 
 | group | what's in it |
 |---|---|
-| **About the API** | `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
+| **About the API** | `/api/search`, `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
 | **Scripts and flows** | `/api/scripts`, `/api/flows`, `/api/run`, `/api/compose`, `/api/check` |
 | **Straw** | `/api/straw`, `/api/straw/check`, `/api/straw/run` ([below](#straw-get-apistraw-post-apistrawcheck-post-apistrawrun)) |
 | **File library** | `/api/library` and everything under it ([below](#the-file-library-apilibrary)) |
 | **Automation** | `/api/automation` |
-| **Runs and requests** | `/api/requests`, `/api/runs`, stopping one |
+| **Runs and requests** | `/api/requests/open`, `/api/requests/{id}`, clearing them, `/api/requests`, `/api/runs`, stopping one |
 
 | route | switch | does |
 |---|---|---|
-| `GET  /api/endpoints` | — | every route, in its groups |
+| `GET  /api/search` | — | the routes, scripts and flows that match some words, the best first, each with how to call it |
+| `GET  /api/endpoints` | — | every route, in its groups (`?brief=true`: the groups alone) |
 | `GET  /api/health` | — | whether it's up, which endpoints are on, the folder, the library |
 | `GET  /api/scripts` | `catalog` | the scripts in the folder (and its utilities and browser scripts): name, group, language, description, what they look like they do |
 | `GET  /api/flows` | `catalog` | the flows in the folder's `composer` folder |
@@ -130,6 +150,10 @@ curl -s localhost:8768/api/endpoints
 | `GET  /api/automation` | `catalog` | the automation tags there are, and the items that run by themselves |
 | `POST /api/automation` | `run` / `compose` | tags a script (or a flow) to run by itself, once it's allowed on the Mac |
 | `GET  /api/doc` | — | this contract in one page of text (`text/markdown`), with the address and token filled in |
+| `GET  /api/requests/open` | `runs` | your requests not collected yet, oldest first: waiting, running, or ready |
+| `GET  /api/requests/{id}` | `runs` | where a request is; once it's over, the first read hands over its result |
+| `DELETE /api/requests/{id}` | `runs` | clears one without reading it (one still waiting for the click is taken back) |
+| `POST /api/requests/clear` | `runs` | clears every one that's over and not collected |
 | `GET  /api/runs` | `runs` | the latest runs (yours and the person's), without their output |
 | `GET  /api/runs/{id}` | `runs` | one run, with its output (and a flow's steps) |
 | `POST /api/runs/{id}/stop` | `runs` | stops it |
@@ -144,7 +168,61 @@ the whole server stopped and started) without quitting the app. A call to a grou
 `503 {"error": "run scripts is turned off in Tool Mac Tool Run", "code": "endpoint_off"}`. When the
 server is stopped, connections are refused. `GET /api/health` always says what's on.
 
+**Every JSON answer says what to call next**: `"next": [{"method", "path", "why"}]`, a few calls
+that usually follow the one just made, with its own values filled in (after reading a note: write
+it, add to it, show it; after a run: the run, the open requests; after a 404: a search for the
+words of the path). Answers about a request or a run fill in their ids. `?next=false` leaves it out.
+
 ---
+
+### Finding your way: `GET /api/search`
+
+`/api/endpoints` lists well over a hundred routes; a small client (a model with a short context, a
+phone shortcut) shouldn't have to read them all. Ask for what you want in a few words instead:
+
+```bash
+curl -s "localhost:8768/api/search?q=remember+a+birthday"
+```
+
+```json
+{
+  "ok": true, "q": "remember a birthday", "words": ["remember", "birthday"], "count": 3, "total": 3,
+  "results": [
+    {"kind": "route", "method": "POST", "path": "/api/memory/remember", "call": "POST /api/memory/remember",
+     "summary": "remember something {\"category\": \"PEOPLE\", \"about\": …}", "group": "memory", "asks_on_the_mac": false,
+     "tags": ["remember", "save", "store", "keep", "note", "add", "person", "birthday", "fact", "tell"],
+     "matched": ["remember", "birthday"], "score": 30.2},
+    {"kind": "route", "method": "GET", "path": "/api/memory/upcoming", …}
+  ],
+  "next": [{"method": "POST", "path": "/api/memory/remember", "why": "the best match: …"}, …]
+}
+```
+
+- `q`: the words. Words that say nothing ("how do I", "a", "the") are left out; the rest are
+  compared by their stem ("birthdays", "birthday"), accents and case aside.
+- `in`: `routes`, `scripts`, `flows`, or several with commas (all three when it's left out).
+- `group`: the routes of one group only (`memory`, `library`, `runs`…; `/api/endpoints?brief=true`
+  lists them).
+- `limit`: how many (10; at most 50). `total` says how many matched in all.
+
+A route is found by its path, its summary, its group, and its **tags**: the words someone looking
+for it would say (`/api/requests/{id}` is found by "status", "result", "job", "poll";
+`/api/runs/{id}/stop` by "cancel", "kill"). A word few routes have counts for more than one many
+have, and only what matches about as many of your words as the best match is kept, so a long
+question doesn't bring back everything.
+
+A **script** or a **flow** is found by its name, what its first comment says it does, its topic,
+and the tags its header gives (`# Tags: weather, forecast rain`, beside its `# Input:` lines). Each
+comes back with `"run"`: the request that runs it, its inputs as placeholders to fill:
+
+```json
+{"kind": "script", "name": "utilities/weather.sh", "summary": "The weather now", "tags": ["forecast", "rain"],
+ "run": {"method": "POST", "path": "/api/run", "asks_on_the_mac": true,
+         "body": {"script": "utilities/weather.sh", "args": ["<A city>"], "async": true, "client": "<your app's name>", "why": "<…>"}}}
+```
+
+Nothing matched: `count` is 0 and `next` points to `/api/endpoints?brief=true`, the groups with
+their words. `400 missing_query` without `q`.
 
 ### `GET /api/health`
 
@@ -442,18 +520,75 @@ curl -s localhost:8768/api/requests/2A7C4B19-…
 
 | field | |
 |---|---|
-| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `automated` for an automation request; `stopped` for a stop request that was allowed; `gone` when the run was cleared from the app's history |
+| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `automated` for an automation request; `stopped` for a stop request that was allowed; `withdrawn` when your app took it back before the click; `gone` when the run was cleared from the app's history |
 | `ok` | once it's over: `true` for `succeeded` and `automated`, `false` otherwise (absent while `waiting` or `running`) |
 | `kind`, `name`, `via` | what was asked for (`script`, `flow`, `automation` or `stop`), its name, and the endpoint it came through (`run`, `compose`, `automation`, `stop`) |
 | `client`, `from`, `why` | who asked, from where, and why (as the card showed them) |
 | `asked`, `answered` | when it arrived, and when the person clicked (or the two minutes ran out) |
 | `run_id`, `run_url`, `run` | once started: the run's id, its address, and the run itself with everything it printed (as `/api/runs/{id}` gives it) |
 | `code`, `error` | when it didn't run: `denied`, `not_answered`, or why it couldn't start |
+| `delivery`, `note` | whether its result is still to come, ready, handed over in this answer, or cleared (below), in a sentence |
+| `cleared`, `cleared_by` | once cleared: when, and how (`delivered`, `collected`, `dismissed`, `withdrawn`) |
+| `next` | what to call next: ask again, collect it, stop it, the run, the open requests |
 
 Poll it as often as you like (every second is fine; nothing runs for the asking). `GET
 /api/requests?limit=20` lists the latest requests, newest first, each as above without `run`.
 An id the app doesn't have is `404 unknown_request`. The runs themselves (`/api/runs`,
 `/api/runs/{id}`) carry `request` too, so you can go either way.
+
+#### Each result is handed over once
+
+There's one client, so the app keeps track for it of what it has collected. A request's result is
+**handed over once**, and then it's **cleared**:
+
+- Waited for (the default), streamed, or refused there and then: the answer itself carries the
+  result (`"delivery": "delivered"`), so it's cleared at once.
+- Sent with `"async": true` (or `"wait": false`): while it's `waiting` or `running`, reading
+  `/api/requests/{id}` takes nothing (`"delivery": "pending"`, `run.output` so far). Once it's
+  over, **the first read hands over the result** (`"delivery": "delivered"`, with `run`) and
+  clears it.
+- Asked about again once cleared: `"delivery": "cleared"`, `cleared`, `cleared_by` (`delivered`,
+  `collected`, `dismissed` or `withdrawn`), and how it ended (`state`, `ok`, `code`, `run_id`), but
+  not `run`. The run itself is still at `run_url` while the app keeps it (until Clear Finished).
+- `?peek=true` looks without taking it (`"delivery": "ready"`).
+
+| `delivery` | it means |
+|---|---|
+| `pending` | waiting for the click, or running: nothing to collect yet; ask again in a few seconds |
+| `ready` | over, not collected (in the open list, or read with `?peek=true`) |
+| `delivered` | this answer is the result, handed over once; it's cleared now |
+| `cleared` | handed over before (or cleared without it): how it ended, without the output |
+
+#### `GET /api/requests/open`
+
+The requests not cleared yet, **oldest first** (the order you sent them), each with where it is,
+without the output. It's the way back after a while away: what's still waiting for the person,
+what's running, and what's ready to collect.
+
+```json
+{
+  "ok": true, "count": 3, "waiting": 1, "running": 1, "ready": 1, "order": "oldest first",
+  "requests": [
+    {"position": 1, "request": "2A7C…", "name": "backup.sh", "state": "succeeded", "ok": true, "delivery": "ready", "url": "/api/requests/2A7C…", …},
+    {"position": 2, "request": "9F01…", "name": "report.flow", "state": "running", "delivery": "pending", "run_id": "…", …},
+    {"position": 3, "request": "4B2E…", "name": "speak.sh", "state": "waiting", "delivery": "pending", "message": "On the Mac, waiting for Run", …}
+  ],
+  "next": [{"method": "GET", "path": "/api/requests/2A7C…", "why": "collect backup.sh's result (succeeded): it's handed over once, then cleared"}, …]
+}
+```
+
+`GET /api/health` counts them too (`"requests": {"open", "waiting", "running", "ready"}`).
+
+#### Clearing without reading: `DELETE /api/requests/{id}`, `POST /api/requests/clear`
+
+- `DELETE /api/requests/{id}` on one that's over clears it without handing it over
+  (`"cleared_by": "dismissed"`).
+- On one sent with `"async": true` and still **waiting for the click**, it's **taken back**: the
+  card goes from the Mac, nothing runs, and the request's state is `withdrawn` (`ok: false`). One
+  whose caller is still on the line waiting is `409 still_waiting` (hang up to take it back).
+- On one that's **running**: `409 still_running`; stop it first (`POST /api/runs/{run_id}/stop`).
+- `POST /api/requests/clear` clears every request that's over and not collected
+  (`{"requests": [ids]}`: only those) → `{"cleared": [ids], "still_open": [...]}`.
 
 ### `GET /api/runs`, `GET /api/runs/{id}`, `POST /api/runs/{id}/stop`
 
@@ -692,11 +827,13 @@ news.ycombinator.com`, `click "More"`, `read all css ".titleline > a"`).
 
 ## Errors
 
-Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
+Errors are JSON, `{"error": "what went wrong", "code": "…", "next": [...]}` (`next`: where to look
+instead, such as a search for a route that isn't one):
 
 | status | `code` | when |
 |---|---|---|
 | 400 | `missing_script`, `missing_flow`, `bad_args`, `bad_request` | the request isn't right |
+| 400 | `missing_query`, `unknown_group` | a search without `?q=`, or a group that isn't one (`error` lists them) |
 | 400 | `unknown_tag` | no such automation tag (`error` lists them) |
 | 400 | `flow_mistake` | the Flow code has a mistake (with `line` and `fix`) |
 | 400 | `straw_mistake` | the Straw code has a mistake (with `line` and `fix`) |
@@ -710,6 +847,7 @@ Errors are JSON, `{"error": "what went wrong", "code": "…"}`:
 | 403 | `javascript_off`, `not_allowed` | Chrome doesn't let apps read inside pages yet, or macOS hasn't let the app control Chrome (`fix` says the switch) |
 | 404 | `not_found`, `unknown_script`, `unknown_flow`, `unknown_run`, `unknown_request` | no such route, script, flow, run or request |
 | 409 | `no_folder` | no scripts folder is chosen yet |
+| 409 | `still_waiting`, `still_running` | a request can't be cleared yet: its caller is still waiting on it, or it's running (stop it first) |
 | 409 | `already_exists` | a library note of that name is there already (`create`, `rename`, `copy`, `restore`) |
 | 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
 | 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (it's never opened for you) |

@@ -341,31 +341,40 @@ public enum APIClient: String, CaseIterable, Sendable {
         Rules:
         1. Nothing runs without the user's click. Every run request shows a card on their Mac; they click Run or Don't Run, and no click in two minutes is Don't Run. You can't click for them: say "it's waiting for you to click Run on your Mac".
         2. Send "client" (your name, shown on the card) and "why" (why you want it, in the user's terms, a sentence they read before clicking) with every run.
-        3. Keep the request id: it's in every answer (the X-Request-Id header, and "request" in the JSON). GET \(base)/api/requests/{id} says where it is any time later: waiting, running, succeeded, failed, denied, not_answered.
-        4. Find names before running: GET /api/scripts and GET /api/flows list what there is, with what each asks for ("inputs"). Never guess a name.
-        5. A run that fails is still HTTP 200: read "ok" and "code". 403 means it didn't run (the user said no, or didn't answer); don't ask again unless the user wants you to.
-        6. The user's notes, LIBRARY (in TOOL-MAC-RUN on their Desktop), are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
+        3. Don't load every route. To find the call for something, search by a few words: GET \(base)/api/search?q=<what you want> (?in=scripts,flows for the user's scripts and flows only). It answers only what matches, the best first; a script or flow comes with "run": the request that runs it, its inputs as <placeholders>. Never guess a name.
+        4. Every JSON answer has "next": the calls that usually come after it, with ids filled in. Follow it rather than guessing a path; errors have "fix" and "next" too.
+        5. Send runs with "async": true and keep the request id ("request" in the JSON, and the X-Request-Id header). GET \(base)/api/requests/{id} says where it is: "delivery" is "pending" while it waits for the click or runs (ask again in a few seconds, or later). Once it's over, that read hands over the result ("delivered", with "run": its output) once; asked again, it says how it ended without the output. So use the output when you get it.
+        6. Lost track? GET \(base)/api/requests/open lists every request not collected yet, oldest first, each "pending" or "ready". DELETE /api/requests/{id} takes back one still waiting for the click (nothing runs).
+        7. A run that fails is still over: read "ok" and "run.code"; relay "run.stderr" or "run.problem". 403 (or state denied, not_answered) means it didn't run; don't ask again unless the user wants you to.
+        8. The user's notes, LIBRARY (in TOOL-MAC-RUN on their Desktop), are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
 
         Endpoints:
-        GET  /api/scripts                 the scripts: name, title, summary, inputs (what each asks for), dangers
+        GET  /api/search?q=<words>        only the routes, scripts and flows that match, each with how to call it: START HERE
+        GET  /api/scripts                 the scripts: name, title, summary, tags, inputs (what each asks for), dangers
         GET  /api/flows                   the flows (scripts composed in the Flow language)
-        POST /api/run                     {"script": "<name>", "args": [...], "client": "<you>", "why": "<why>"} → waits for the click, then for it to end: {"ok", "code", "output", "request", …}
-                                          add "async": true to get {"request": id} at once, then poll /api/requests/{id}
+        POST /api/run                     {"script": "<name>", "args": [...], "async": true, "client": "<you>", "why": "<why>"} → 202 {"request": id, "next": […]} at once
+                                          without "async": waits for the click, then for it to end: {"ok", "code", "output", "request", …}
         POST /api/compose                 {"flow": "<name>"} or {"source": "<Flow code>"}, the same fields: runs a flow
         POST /api/check                   {"source": "<Flow code>"} → checks it, runs nothing
-        GET  /api/requests/{id}           where a request is, with its run's output once it has one
+        GET  /api/requests/{id}           where a request is; once it's over, the first read hands over its result (?peek=true: look without taking it)
+        GET  /api/requests/open           every request not collected yet, oldest first: waiting, running, or ready
+        DELETE /api/requests/{id}         clear one without reading it; one still waiting for the click is taken back
         POST /api/runs/{id}/stop          stops a run you asked for (one the user started asks them first)
         POST /api/library                 {"op": "list"|"names"|"read"|"read_many"|"write"|"create"|"append"|"rename"|"copy"|"delete"|"restore"|"trash"|"search"|"find"|"recent"|"stats"|"outline"|"backlinks", "name"?, "text"?, "q"?, …}: the notes, answered at once
                                           e.g. {"op": "search", "q": "bank"} → {"results": [{"name", "score", "lines": [{"line", "text"}]}]}; {"op": "read", "name": "groceries"} → {"text", …}
         GET  /api/straw                   Straw's words and the Straw scripts (Straw drives Chrome by what's on the page)
         POST /api/straw/check             {"source": "<Straw code>"} → what it would do, or its mistake; runs nothing
         POST /api/straw/run               {"script": "<name>"} or {"source": "<Straw code>"}, with "client" and "why": runs it in Chrome once the user clicks Run
-        GET  /api/endpoints               every route, in its groups
-        GET  /api/doc                     every endpoint, field and error, in one page: read it when unsure
+        GET  /api/endpoints?brief=true    the groups of routes, small (?group=<id>: one group's routes); without it, every route: long
+        GET  /api/doc                     every endpoint, field and error, in one page: long; search first
 
         Example:
+        GET  \(base)/api/search?q=weather&in=scripts
+        → {"results": [{"kind": "script", "name": "utilities/weather.py", "run": {"method": "POST", "path": "/api/run", "body": {"script": "utilities/weather.py", "args": ["<A city>"], "async": true, …}}}], …}
         POST \(base)/api/run
-        {"script": "utilities/weather.py", "args": ["Lagos"], "client": "Assistant", "why": "You asked what the weather is in Lagos"}
+        {"script": "utilities/weather.py", "args": ["Lagos"], "async": true, "client": "Assistant", "why": "You asked what the weather is in Lagos"}
+        → 202 {"request": "2A7C…", "delivery": "pending", "next": [{"method": "GET", "path": "/api/requests/2A7C…", …}]}
+        GET  \(base)/api/requests/2A7C…   (again until "delivery" is "delivered": then "run.output" is the answer)
         """
     }
 }
