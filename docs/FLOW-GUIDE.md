@@ -395,7 +395,7 @@ text there's `text-case` (upper, lower, title, slug, snake, camel…), `encode` 
 escapes, hex, HTML), `hash`, `new-id` and `pick` (a number, one of some things, a coin, dice, a
 shuffle). Text goes in as their input: `"Hello World" |> pipe "text-case" ["slug"]`.
 
-**The file library.** Your notes, LIBRARY (in TOOL-MAC-RUN on the Desktop) (the **Library** board, ⌘7), are a flow's
+**The file library.** Your notes, LIBRARY in TOOL-MAC-RUN on the Desktop (the **Library** board, ⌘7), are a flow's
 too, each by its name without `.md`: `libraryRead "groceries"`, `libraryWrite "groceries" "- eggs"`
 (created, or its text replaced), `libraryAppend "journal" "Ran 5k"` (a line at its end),
 `libraryExists`, `libraryNames ()`, `libraryRecent 5`, `libraryRename "draft" "Letter"`,
@@ -418,6 +418,20 @@ library over the API (`POST /api/library`), without asking you each time. The fl
 (a line in your Inbox note, with the time), `journal` (a note a day), `find-note`, `library-digest`,
 `save-page` (the page in front of Chrome, as a note) and `clip-selection` (what's selected in
 Chrome, into Clippings) are made of them.
+
+**MEMORY and the mind.** What's remembered (the **Memory** board, ⌘8: PEOPLE, ORGANIZATIONS,
+EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS) and the mind that links it
+(the **Mind** board, ⌘9) are a flow's too: `remember "PEOPLE" "Ada Lovelace" "Met at the
+conference"` (a line in the file, and the file linked to her in the mind), `recall "ada"` (what's
+known, as lines), `upcoming 7` (the birthdays and dates this week), `memoryRead "IDEAS"`,
+`memoryAppend "IDEAS" "- a newsletter"`, `mindLink "ada lovelace" "works at" "acme"` (only ever
+added to), `mindAbout "acme"` and `mindQuery "| x - works at | acme"` (the notation's own query:
+a name not in the mind is a variable). SYSTEM-DOCS/MIND-GUIDE says how the mind goes.
+
+```
+let soon = upcoming 7
+if not (isEmpty soon) then notify (join "; " soon)
+```
 
 Finding files is Spotlight's, as ⌘Space is: `find-file` (by name, the newest first: `run
 "find-file" ["invoice"]`, or `["invoice"; "~/Documents"]`, or `["invoice"; "everywhere"]`),

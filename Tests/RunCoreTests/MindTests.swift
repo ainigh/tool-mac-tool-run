@@ -300,6 +300,30 @@ final class MindStoreTests: XCTestCase {
         XCTAssertEqual(memory.upcoming(days: 160, today: today, calendar: cal).last?.what, "ada lovelace: birthday 03-14")
     }
 
+    /// Flows reach MEMORY and the mind (TMR_MEMORY and TMR_MIND here).
+    func testFlowsRememberAndAskTheMind() throws {
+        setenv("TMR_MEMORY", memory.files.root.path, 1)
+        setenv("TMR_MIND", memory.mind.root.path, 1)
+        defer { unsetenv("TMR_MEMORY"); unsetenv("TMR_MIND") }
+        let host = FakeHost()
+        try Flow.run("""
+        remember "people" "Ada Lovelace" "Met at the conference"
+        mindLink "Ada Lovelace" "works at" "Acme"
+        mindLink "ada lovelace" "works at" "acme"
+        memoryAppend "IDEAS" "- a newsletter"
+        mindAbout "ada" |> each print
+        mindQuery "| x - works at | acme" |> each print
+        print (join ", " (recall "nobody"))
+        print (contains "newsletter" (memoryRead "IDEAS"))
+        """, host: host)
+        let said = host.said.filter { !$0.hasPrefix("✅") }
+        XCTAssertEqual(said, ["The mind knew that already", "| PEOPLE | ada lovelace", "| ada lovelace - works at | acme", "| ada lovelace - works at | acme", "", "true"], "\(host.said)")
+        XCTAssertTrue(memory.files.exists("PEOPLE"), "MEMORY was made, with its files")
+        XCTAssertThrowsError(try Flow.run("print (memoryRead \"nope\")", host: FakeHost())) { e in
+            XCTAssertTrue("\(e)".contains("There's no memory file called nope"), "\(e)")
+        }
+    }
+
     func testSystemDocsAreWrittenByTheAppAndReadOnly() throws {
         let shipped = home.appendingPathComponent("shipped", isDirectory: true)
         try FileManager.default.createDirectory(at: shipped, withIntermediateDirectories: true)

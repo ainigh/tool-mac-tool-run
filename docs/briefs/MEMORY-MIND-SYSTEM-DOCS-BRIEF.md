@@ -41,3 +41,21 @@ ship to main at each point. dont wait for builds in other branches
   without the app; utilities/tmr.py (and remember, recall, upcoming, mind-link, mind-ask, show)
   speaking to the app's API from a terminal or a flow; the API's one page (/api/doc), API.md,
   the README and the agents guide
+- [x] 5 · Flows reach MEMORY and the mind as they reach the library: remember, recall, upcoming,
+  memoryRead, memoryAppend, mindLink, mindAbout, mindQuery
+
+## Gaps closed along the way
+
+- "LEVRAGE" is spelt LEVERAGE (a file's name is what people and models will type).
+- The notation has no line back to the root scope once a scope is set: the API says so and how
+  (write root names as `name@`), rather than writing lines into the wrong scope.
+- A model's reply is taken as it comes (only its ```` ```mm ```` block's `|` lines), checked against the mind
+  first: one bad line writes nothing, and each mistake comes back with its fix.
+- A scope delete or merge is the person's, as the notation's workflow says: the API refuses it;
+  the Mind board asks first.
+- Reading Chrome's page never opens Chrome, and never clicks: to act on a page there's Straw,
+  which asks first.
+- /api/health kept the library's details under a key that a switch then overwrote: fixed.
+- On a Mac, a temporary folder is reached through /private too: a test compared paths, and failed
+  only there. Fixed.
+
