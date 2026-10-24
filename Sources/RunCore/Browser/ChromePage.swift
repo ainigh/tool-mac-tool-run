@@ -3,8 +3,9 @@ import Foundation
 /// The page in front of Google Chrome, as another app can ask about it: its title and address
 /// (these need nothing switched on), its text, whether some words are on it, where a thing named
 /// on it is (in view, above, below, or inside a menu that's closed), an outline of it, and a
-/// highlight that shows the person where to look. It reads; it never clicks or types (Straw does
-/// that, after asking). It never opens Chrome: with Chrome closed it says so.
+/// highlight that shows the person where to look; and it opens an address in a new tab (Chrome
+/// too, if it's closed), for the person to see and to read. It never clicks or types (Straw does
+/// that, after asking); only `open` starts Chrome: every read, with Chrome closed, says so.
 ///
 /// It talks to Chrome through AppleScript (`osascript`): macOS asks once whether the app may
 /// control Chrome, and reading inside the page needs Chrome's View > Developer > Allow JavaScript
@@ -89,13 +90,23 @@ public struct ChromePage: Sendable {
         try js(Self.outlineJS)
     }
 
+    /// Opens an address in a new tab of the front window (a window of its own when there's none;
+    /// Chrome itself when it's closed), brings Chrome forward, and waits up to 15 seconds for it to
+    /// load: the tab it's in. `newTab: false` opens it in the tab in front instead.
+    public func open(_ url: String, newTab: Bool = true) throws -> Tab {
+        let out = try call(Self.openScript, [url, newTab ? "new" : "front"])
+        let parts = out.components(separatedBy: "\n")
+        guard parts.count >= 3 else { throw ChromeError(.failed, "Chrome gave back something unexpected: \(out)") }
+        return Tab(title: parts[0], url: parts[1], loading: parts[2] == "true", window: 1, index: Int(parts.count > 3 ? parts[3] : "") ?? 1, active: true)
+    }
+
     // MARK: talking to Chrome
 
     func call(_ script: String, _ args: [String]) throws -> String {
         let out = try run(script, args)
         let t = out.trimmingCharacters(in: .newlines)
         switch t {
-        case "TMR_NOT_RUNNING": throw ChromeError(.notRunning, "Google Chrome isn't open.", fix: "Open Chrome and the page, then ask again (this never opens Chrome itself).")
+        case "TMR_NOT_RUNNING": throw ChromeError(.notRunning, "Google Chrome isn't open.", fix: "Open Chrome and the page (POST /api/browser/open {\"url\"} does), then ask again.")
         case "TMR_NO_WINDOW": throw ChromeError(.noWindow, "Chrome has no window open.", fix: "Open a page in Chrome, then ask again.")
         default: return t
         }
@@ -172,6 +183,29 @@ public struct ChromePage: Sendable {
     end run
     """
 
+    static let openScript = """
+    on run argv
+      set u to item 1 of argv
+      tell application id "com.google.Chrome"
+        if (count of windows) = 0 then
+          make new window
+          set URL of active tab of front window to u
+        else if item 2 of argv is "new" then
+          tell front window to make new tab with properties {URL:u}
+        else
+          set URL of active tab of front window to u
+        end if
+        activate
+        set t to active tab of front window
+        repeat 60 times
+          if not (loading of t) then exit repeat
+          delay 0.25
+        end repeat
+        return (title of t) & linefeed & (URL of t) & linefeed & ((loading of t) as text) & linefeed & ((active tab index of front window) as text)
+      end tell
+    end run
+    """
+
     static let tabsScript = """
     on run argv
       if not (application id "com.google.Chrome" is running) then return "TMR_NOT_RUNNING"
@@ -242,7 +276,10 @@ public struct ChromePage: Sendable {
         const body = document.body ? clean(document.body.innerText) : '';
         const sel = clean(String(getSelection() || ''));
         const desc = document.querySelector('meta[name=description]');
-        return {title: document.title, url: location.href, host: location.host, text: body.slice(0, max), chars: body.length, truncated: body.length > max,
+        const scope = document.querySelector('main, [role=main], article') || document.body;
+        const links = [], seenLinks = new Set();
+        for (const a of scope ? scope.querySelectorAll('a[href]') : []) { if (links.length >= 40) break; if (!shown(a) || !/^https?:/.test(a.href) || seenLinks.has(a.href)) continue; const t = nameOf(a).split('\\n')[0].slice(0, 80); if (!t) continue; seenLinks.add(a.href); links.push({text: t, url: a.href}); }
+        return {title: document.title, url: location.href, host: location.host, text: body.slice(0, max), chars: body.length, truncated: body.length > max, links: links,
                 language: document.documentElement.lang || '', description: desc ? clean(desc.content).slice(0, 300) : '', selection: sel.slice(0, 5000),
                 scroll: {top: Math.round(scrollY), height: Math.round(document.documentElement.scrollHeight), viewport: innerHeight},
                 focused: document.activeElement && document.activeElement !== document.body ? nameOf(document.activeElement).slice(0, 100) : ''};

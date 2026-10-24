@@ -65,6 +65,10 @@ the scripts, runs one with `client` and `why`, keeps the request id, and handles
 # what you need, by a few words: only the routes, scripts and flows that match, each with how to call it
 curl -s "localhost:8768/api/search?q=remember+a+birthday"
 
+# for a model: every tool, with its arguments, a guide and examples; then call one by name
+curl -s localhost:8768/api/tools
+curl -s localhost:8768/api/tools/web_search -d '{"arguments": {"q": "louvre opening hours"}, "client": "My App"}'
+
 # is it there, and what's on? (and how many of your requests are still open)
 curl -s localhost:8768/api/health
 
@@ -784,42 +788,98 @@ read.
 `"present": true` to show it in that window (`"presented": true`). The text is a file's text, the
 lines found, the names, or else the JSON.
 
+### Tools, for a model: `GET /api/tools`, `POST /api/tools/{name}`
+
+An app with a model doesn't have to teach it the routes. `GET /api/tools` is everything here as a
+short list of tools to hand the model as is, and `POST /api/tools/{name}` calls one: the app passes
+the model's calls through, and a tool added here is there the day it ships, with nothing to change
+in the app.
+
+```json
+{"ok": true, "count": 19,
+ "tools": [{"name": "web_fetch", "description": "Reads any web address from this Mac, at once …",
+            "args": [{"name": "url", "type": "string", "required": true, "about": "the address (https://…) …"},
+                     {"name": "find", "type": "string", "required": false, "about": "words: only the lines that have them"}],
+            "asks_on_the_mac": false, "answers": "at once", "stream": false, "on": true,
+            "aliases": ["fetch", "open_url", …], "call": "POST /api/tools/web_fetch", "uses": "GET /api/web/fetch"}, …],
+ "guide": ["Every tool answers in JSON. An error has \"error\", often \"fix\", and \"tools\" …", …],
+ "examples": [{"user": "When does the Louvre open on Sunday?",
+               "steps": [{"call": {"tool": "web_search", "arguments": {"q": "Louvre opening hours"}}, "result": "…"}, …],
+               "answer": "On Sundays the Louvre is open from 9 in the morning to 6 in the evening."}, …]}
+```
+
+- **The tools**: `find` (the tools, scripts and flows for a few words), `run_script`, `run_flow`,
+  `run_flow_code`, `check_flow`, `runs`, `web_search`, `web_fetch`, `browser`, `straw`, `library`,
+  `remember`, `recall`, `memory`, `mind`, `show`, `copy`, `docs`, `call_api` (any route no tool
+  covers). A tool whose switch is off is left out (`?all=true` lists it, `"on": false`).
+- **`guide`** is a line each on using them well (find before guessing; the web before saying you
+  can't; which tools wait for Run); **`examples`** are exchanges that show calls at work. Both are
+  for the model's instructions, so they're written here, beside the tools they're about.
+- **Calling one**: `POST /api/tools/web_fetch {"arguments": {"url": "https://example.com"}, "client":
+  "My App"}`. The answer is the JSON of the route the tool stands for, with `"tool"`. `run_script`,
+  `run_flow`, `run_flow_code` and `straw` wait for Run on the Mac (send `"why"`), and stream with
+  `"stream": true` (NDJSON, as `POST /api/run`); everything else answers at once.
+- **The names a model reaches for** are taken: another name for a tool (`google` is `web_search`,
+  `list_runs` is `runs` with `op` `list`, `notes` is `library`), another for an argument (`query`
+  for `q`, `address` for `url`), the arguments flat instead of under `"arguments"`, and a script's or
+  flow's own name as the tool (it's run, with its `args`).
+- **A miss says what to do**: `404 unknown_tool` names the tools there are and what fits the
+  words; `400 missing_argument` says what's missing; every error has `"takes"` (what the tool
+  takes) and `"tools"` (what fits instead, a line each).
+- `GET /api/search` finds tools too (`"kind": "tool"`), and gives each hit as a line a model reads
+  (`"lines"`: `tool web_fetch: Reads any web address … | takes: url (string): …`).
+
+### The web: `GET /api/web/search`, `GET /api/web/fetch`
+
+The web, read from this Mac without Chrome, answered at once: a model finds things out the way a
+person would (search, read the best result, follow a link or the JSON API a page points to).
+
+| route | gives back |
+|---|---|
+| `GET /api/web/search?q=louvre+opening+hours` (`?limit=8`) | `results`: `[{title, url, snippet}]`, `lines` (one a result), `engine` (DuckDuckGo, else Bing) |
+| `GET /api/web/fetch?url=https://…` (`?find=words`, `?max=8000`) | `url`, `status`, `type`, `kind` (`page`, `json`, `text`, `file`); a page's `title`, `description`, `text` (its main part, without scripts, styles, menus or footers) and `links` (`[{text, url}]`, whole addresses); a JSON API's `json`; `chars`, `truncated`, `more`; with `find`, `lines`: the lines that have the words |
+
+It only reads: GET, a browser's User-Agent, no cookies, nothing sent but the address. It never
+reaches this Mac or its local network (`localhost`, `192.168.…`, `10.…`, `*.local`, `169.254.…`):
+**403** `local_address`, and a redirect there is refused too. Errors: **400** `bad_url`, **502**
+`unreachable` · `search_failed`, **504** `timed_out`, each with its `fix`. The **Read the web**
+switch turns it off (and its tools with it).
+
 ### Chrome's page: `/api/browser`
 
-**Which Chrome tool is which.** `/api/browser` only *reads* the page already in front; it can't
-open anything. Opening, going to an address and searching are scripts, run like any other:
+The person's own Google Chrome, answered at once (nothing asks on the Mac): open a page there,
+read the page in front of them, find where a thing is, and ring it in red. **It never clicks,
+types or fills anything in**: that's Straw, after Run.
 
 | To | Use | Asks on the Mac |
 |---|---|---|
-| open a page, go to an address | `POST /api/run {"script": "browser/open-page.sh", "args": ["example.com"]}` | yes (Run) |
-| search Google and get the answer | `POST /api/run {"script": "browser/google.sh", "args": ["how tall is Kilimanjaro"]}` | yes (Run) |
-| search a site (YouTube, Amazon, GitHub, Maps, 40 more) | `POST /api/run {"script": "browser/site-search.sh", "args": ["youtube lofi hip hop"]}` | yes (Run) |
-| click, type, fill, several steps | Straw: `POST /api/straw/run {"source": "open example.com\nclick \"More\""}` | yes (Run) |
-| see what's on the page already in front | `/api/browser/url`, `/page`, `/has`, `/find`, `/outline` | no |
+| open a page for the person (and read it) | `POST /api/browser/open {"url": "example.com"}` | no |
+| find something out, without Chrome | `GET /api/web/search?q=…`, `GET /api/web/fetch?url=…` | no |
+| see what's on the page in front | `/api/browser/url`, `/page`, `/has`, `/find`, `/outline` | no |
 | show the person where something is | `POST /api/browser/highlight {"text"}` | no |
+| click, type, fill, several steps | Straw: `POST /api/straw/run {"source": "open example.com\nclick \"More\""}` | yes (Run) |
+| search a site (YouTube, Amazon, GitHub, Maps, 40 more) | `POST /api/run {"script": "browser/site-search.sh", "args": ["youtube lofi hip hop"]}` | yes (Run) |
 
-An address or words sent to a read (`/api/browser/url?text=https://www.google.com`) aren't
-opened: the answer is the tab in front as always, with `"not_opened"`, a `"note"` saying so, and
-`next` giving the call that opens it (or searches Google for the words). An action that isn't
-one (`/api/browser/search`, `/open`, `/navigate`, `/click`…) is `400 browser_reads_only`, saying
-the same.
+`POST /api/browser/open {"url", "new_tab"?: true, "max"?}` opens the address in a new tab in
+front (in a new window, or Chrome itself, when there's none; `"new_tab": false` uses the tab in
+front), waits up to 15 seconds for it to load, and answers with the page as `/page` reads it
+(`"opened": true`, `title`, `url`, `text`, `links`). Words instead of an address are a Google
+search, opened (`"searched"`). An address sent to a read (`/api/browser/url?text=https://…`)
+isn't opened: the answer is the tab in front as always, with `"not_opened"`, a `"note"`, and `next`
+giving the call that opens it. An action it doesn't do (`/api/browser/click`, `/type`, `/search`…)
+is `400 browser_reads_only`, saying what does.
 
-A search knows the difference: `GET /api/search?q=open+a+url` finds `browser/open-page.sh` and
-Straw, and `/api/browser`'s routes say what they aren't for (`"not_for": ["open", "navigate",
-…]`) and point to `open-page.sh` in `next` (as do `chrome_not_open` and `no_window`). A route's
-tag written `!word` is a word it's not for: a search with that word puts it lower.
-
-To guide the person through a site, an app can see the tab in front of Google Chrome — not a
-picture, the page: its address and title, its text, whether words are on it, and where a thing is.
-**It only reads**: it never clicks, types, opens a page or opens Chrome (Straw does that, after a
-click on Run). Nothing asks on the Mac; the **Read Chrome's page** switch turns it off.
+To guide the person through a site, an app sees the tab in front of Google Chrome — not a
+picture, the page: its address and title, its text and links, whether words are on it, and where a
+thing is. The **Chrome's page** switch turns it off.
 
 | route | gives back |
 |---|---|
 | `GET /api/browser` | `chrome` (`open`, or what's wrong), `front` (`{title, url}`), `javascript` (whether pages can be read, and the fix) |
 | `GET /api/browser/url` | `title`, `url`, `loading` (needs nothing switched on in Chrome) |
 | `GET /api/browser/tabs` | `tabs`: `[{window, index, active, title, url}]` (`?all=true`: every window) |
-| `GET /api/browser/page` | `title`, `url`, `host`, `text` (`?max=20000` characters; `chars`, `truncated`), `selection`, `description`, `scroll`, `focused` (`?outline=true` adds `outline`) |
+| `GET /api/browser/page` | `title`, `url`, `host`, `text` (`?max=20000` characters; `chars`, `truncated`), `links` (the main part's, `[{text, url}]`), `selection`, `description`, `scroll`, `focused` (`?outline=true` adds `outline`) |
+| `POST /api/browser/open {"url"}` | opens it in a new tab and reads it: `opened`, then as `/page` |
 | `GET /api/browser/has?text=Compute` | `present` (true·false), `answer` (yes·no), `count`, `hidden` (times in what isn't shown), `lines` (`?case_sensitive`, `?whole_words`) |
 | `GET /api/browser/find?text=Compute` | `found`: `[{text, kind, clickable, exact, shown, where, side, in, href, box}]` — `where` is `in view`, `above (scroll up)`, `below (scroll down)`, or `inside “Workers & Pages”, which is closed: open it first`; `lines`: each as a sentence to say |
 | `POST /api/browser/highlight {"text", "seconds"?}` | scrolls to it and rings it in red, with a label (or the closed menu it's inside); `said`: what to tell the person |
@@ -873,8 +933,13 @@ instead, such as a search for a route that isn't one):
 | 409 | `still_waiting`, `still_running` | a request can't be cleared yet: its caller is still waiting on it, or it's running (stop it first) |
 | 409 | `already_exists` | a library note of that name is there already (`create`, `rename`, `copy`, `restore`) |
 | 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
-| 400 | `browser_reads_only` | `/api/browser/search`, `/open`, `/navigate`…: Chrome's page only reads; `error` and `next` say what opens or searches (`browser/open-page.sh`, `browser/google.sh`, Straw) |
-| 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (it's never opened for you) |
+| 400 | `browser_reads_only` | `/api/browser/click`, `/type`, `/search`…: Chrome's page doesn't act; `error` and `next` say what does (Straw, the web's search) |
+| 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (`POST /api/browser/open` opens one) |
+| 404 | `unknown_tool` | `POST /api/tools/{name}` for a tool there isn't: `error` names the tools, and what fits |
+| 400 | `missing_argument` | a tool called without what it needs: `takes` says what it takes |
+| 403 | `local_address` | the web's routes never reach this Mac or its local network |
+| 400 | `bad_url` | not a web address (http or https) |
+| 502 | `unreachable`, `search_failed` | the site didn't answer, or the search found nothing |
 | 413 | `too_large` | a body over 8 MB |
 | 501 | `not_available` | showing or the clipboard asked of something that isn't the app on a Mac |
 | 503 | `endpoint_off` | that group is switched off in the app |

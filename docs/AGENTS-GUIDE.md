@@ -363,13 +363,21 @@ curl -s "localhost:8768/api/memory/upcoming?days=14"                      # what
   `{"mind": "ada"}`) puts it in a window in front of everything, with copy buttons. `"present": true`
   on any read does the same with its answer; `"copy": true` puts it on the clipboard.
 - `GET /api/browser/url`, `/page`, `/has?text=…` (true or false), `/find?text=…` (where it is, as a
-  sentence), `POST /api/browser/highlight {"text"}` (a red ring on the page): the page in Chrome,
-  read only. Look again after each step; never say something is on the page that `has` or `find`
-  didn't find. `PROMPT-SITE-GUIDE` in SYSTEM-DOCS is the prompt for it.
-  **It can't open a page or search.** To go to an address, run `browser/open-page.sh` (`"args":
-  ["<address>"]`); to search Google, `browser/google.sh` (it gives back the answer itself); a
-  site's own search, `browser/site-search.sh` (`["youtube lofi"]`); to click and type, Straw.
-  Those are runs: they wait for Run on the Mac.
+  sentence), `POST /api/browser/highlight {"text"}` (a red ring on the page): the page in Chrome.
+  `POST /api/browser/open {"url"}` opens one for the person, in a new tab, and reads it back. Look
+  again after each step; never say something is on the page that `has` or `find` didn't find.
+  `PROMPT-SITE-GUIDE` in SYSTEM-DOCS is the prompt for it. It never clicks or types: Straw does,
+  after Run on the Mac.
+- `GET /api/web/search?q=…` and `GET /api/web/fetch?url=…` (`&find=words`) find things out on the
+  web without Chrome, at once: a page's text and links, or a JSON API's answer.
+
+## Tools, for a model
+
+`GET /api/tools` is the whole API as a short list of tools a model calls by name, each with its
+arguments, with a `guide` and `examples` to put in its instructions; `POST /api/tools/{name}
+{"arguments": {…}}` calls one, and answers with the route's own JSON. An agent loop that hands
+its model the list and passes its calls through needs no wrapper of its own, and gets whatever is
+added here the day it ships.
 
 ## Straw: driving Chrome
 

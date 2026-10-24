@@ -355,6 +355,8 @@ extension RunAPI {
             return (e.status, e.code.rawValue, e.message, e.problems.isEmpty ? e.fix : "Each problem says its fix.", extra)
         case let e as ChromeError:
             return (e.status, e.code.rawValue, e.message, e.fix, [:])
+        case let e as WebError:
+            return (e.status, e.code.rawValue, e.message, e.fix, [:])
         case let e as HTTPError:
             return (e.status, e.code, e.message, nil, [:])
         default:

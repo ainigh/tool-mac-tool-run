@@ -91,60 +91,63 @@ final class DiscoveryTests: XCTestCase {
         XCTAssertEqual((json(scripts)["scripts"] as? [[String: Any]])?.first?["tags"] as? [String], ["forecast", "rain", "umbrella"])
     }
 
-    /// Chrome's page only reads: asked to open a page or search Google, the search gives what
-    /// does (the browser scripts, Straw), and the reading routes say where to go instead.
-    func testOpeningAPageFindsWhatOpensOneNotWhatReadsIt() async throws {
+    /// Opening a page, searching the web, reading an address: each is found by what someone
+    /// would say, the tool that does it first; reading the page in front still finds the reads.
+    func testOpeningAPageOrSearchingTheWebFindsWhatDoesIt() async throws {
         let lib = Library(root: folder)
         _ = try lib.addExamples()
         host.catalogValue = Catalog(folder: folder, scripts: lib.scripts(), flows: lib.flows())
-        func top(_ q: String) async -> [String] {
-            let (_, d) = await api.send("GET", "/api/search?q=" + (q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q) + "&limit=3")
+        func top(_ q: String, _ scope: String = "") async -> [String] {
+            let words: String = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
+            let target: String = "/api/search?q=" + words + "&limit=3" + scope
+            let (_, d) = await api.send("GET", target)
             return (json(d)["results"] as? [[String: Any]] ?? []).compactMap { ($0["name"] ?? $0["path"]) as? String }
         }
-        let google = await top("open a browser and do a google search")
-        XCTAssertEqual(google.first, "browser/google.sh")
-        let url = await top("open a url in chrome")
-        XCTAssertTrue(url.contains("browser/open-page.sh"), "\(url)")
-        for q in ["open a url in chrome", "navigate to a page", "go to a website", "search the web for cats", "open browser"] {
-            let found = await top(q)
-            XCTAssertFalse(found.contains { $0.hasPrefix("/api/browser") }, "\(q): \(found)")
-        }
-        // Reading the page still finds the reading routes.
-        let reading = await top("is the word compute on the page")
+        let web = await top("search the web for cats")
+        XCTAssertEqual(web.first, "web_search", "\(web)")
+        let read = await top("read a web page")
+        XCTAssertTrue(read.contains("web_fetch"), "\(read)")
+        let jsonAPI = await top("call a json api on the internet")
+        XCTAssertTrue(jsonAPI.contains("web_fetch"), "\(jsonAPI)")
+        let open = await top("open a url in chrome")
+        XCTAssertTrue(open.contains("browser"), "\(open)")
+        let openRoute = await top("open a url in chrome", "&in=routes")
+        XCTAssertEqual(openRoute.first, "/api/browser/open", "\(openRoute)")
+        // Reading the page in front still finds the reading routes.
+        let reading = await top("is the word compute on the page", "&in=routes")
         XCTAssertEqual(reading.first, "/api/browser/has")
-        let which = await top("which tab is in front")
+        let which = await top("which tab is in front", "&in=routes")
         XCTAssertEqual(which.first, "/api/browser/url")
-        // A reading route says what it isn't for, and what opens a page.
-        let (_, d) = await api.send("GET", "/api/search?q=current+page+url&in=routes")
-        let hit = (json(d)["results"] as? [[String: Any]])?.first { ($0["path"] as? String)?.hasPrefix("/api/browser") == true }
-        XCTAssertTrue((hit?["not_for"] as? [String] ?? []).contains("open"))
-        XCTAssertTrue(APINext.hints(for: HTTPRequest(method: "GET", target: "/api/browser/url")).contains { $0.why.contains("browser/open-page.sh") })
-        XCTAssertTrue(APINext.hints(forError: "chrome_not_open", HTTPRequest(method: "GET", target: "/api/browser/page")).contains { $0.why.contains("browser/open-page.sh") })
-        // Without the scripts, Straw.
-        host.catalogValue = Catalog(folder: folder, scripts: [], flows: [])
-        let bare = await top("navigate to a website")
-        XCTAssertEqual(bare.first, "/api/straw/run")
+        // Clicking is Straw's, not the page's.
+        let click = await top("click a button on a page", "&in=routes")
+        XCTAssertEqual(click.first, "/api/straw/run", "\(click)")
+        // Each hit says itself in a line, for a model.
+        let (_, d) = await api.send("GET", "/api/search?q=read+a+web+page&limit=3")
+        XCTAssertTrue((json(d)["lines"] as? [String] ?? []).contains { $0.hasPrefix("tool web_fetch: ") && $0.contains("takes: url (string)") }, "\(json(d)["lines"] ?? "")")
+        XCTAssertTrue(APINext.hints(for: HTTPRequest(method: "GET", target: "/api/browser/url")).contains { $0.path == "/api/browser/open" })
+        XCTAssertTrue(APINext.hints(forError: "chrome_not_open", HTTPRequest(method: "GET", target: "/api/browser/page")).contains { $0.path.hasPrefix("/api/web/search") })
     }
 
-    /// Asked to go somewhere, Chrome's page says it only reads, and what does: an address sent to
-    /// a read isn't taken for the page in front; an action that isn't one says what to run.
-    func testChromesPageSaysItDoesntGoAnywhereAndWhatDoes() async {
+    /// An address sent to a read isn't taken for the page in front, and the answer says what opens
+    /// it; an action the page can't do says what does.
+    func testChromesPageSaysWhatOpensAPageAndWhatClicks() async {
         let (_, d) = await api.send("GET", "/api/browser/url?text=https://www.google.com")
         XCTAssertEqual(json(d)["not_opened"] as? String, "https://www.google.com")
         let note = json(d)["note"] as? String ?? ""
-        XCTAssertTrue(note.contains("didn't open") && note.contains("browser/open-page.sh") && note.contains("https://www.google.com"), note)
+        XCTAssertTrue(note.contains("didn't open") && note.contains("/api/browser/open") && note.contains("https://www.google.com"), note)
         let first = (json(d)["next"] as? [[String: Any]])?.first
-        XCTAssertEqual(first?["path"] as? String, "/api/run")
-        XCTAssertTrue((first?["why"] as? String ?? "").contains("[\"https://www.google.com\"]"))
+        XCTAssertEqual(first?["path"] as? String, "/api/browser/open")
+        XCTAssertTrue((first?["why"] as? String ?? "").contains("\"https://www.google.com\""))
 
-        // Words, not an address: Google first.
+        // Words, not an address: a web search first.
         let (r, s) = await api.send("GET", "/api/browser/search?text=weather%20in%20Lagos")
         XCTAssertEqual(r.status, 400)
         XCTAssertEqual(json(s)["code"] as? String, "browser_reads_only")
-        XCTAssertTrue((json(s)["error"] as? String ?? "").contains("browser/google.sh\", \"args\": [\"weather in Lagos\"]"), json(s)["error"] as? String ?? "")
-        XCTAssertTrue(((json(s)["next"] as? [[String: Any]])?.first?["why"] as? String ?? "").contains("google.sh"))
-        let (o, _) = await api.send("POST", "/api/browser/open", body: Data(#"{"url": "example.com"}"#.utf8))
-        XCTAssertEqual(o.status, 400)
+        XCTAssertTrue((json(s)["error"] as? String ?? "").contains("/api/web/search"), json(s)["error"] as? String ?? "")
+        XCTAssertTrue(((json(s)["next"] as? [[String: Any]])?.first?["path"] as? String ?? "").hasPrefix("/api/web/search"))
+        let (c, cd) = await api.send("POST", "/api/browser/click", body: Data(#"{"text": "Sign in"}"#.utf8))
+        XCTAssertEqual(c.status, 400)
+        XCTAssertTrue((json(cd)["error"] as? String ?? "").contains("Straw"))
         // A plain read says nothing of the kind.
         let (_, plain) = await api.send("GET", "/api/browser/url")
         XCTAssertNil(json(plain)["not_opened"])

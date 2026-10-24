@@ -23,8 +23,9 @@ public enum APINext {
 
     static let search = Hint("GET", "/api/search?q={words}", "find the route, script or flow for something else, by a few words")
 
-    /// Chrome's page only reads: what opens one.
-    static let openPage = Hint("POST", "/api/run", "to open a page or search Google first (this only reads what's already there): POST /api/run {\"script\": \"browser/open-page.sh\", \"args\": [\"<address>\"]}, or browser/google.sh with [\"<question>\"] (each waits for Run on the Mac)")
+    /// What opens a page, and what finds things out without Chrome.
+    static let openPage = Hint("POST", "/api/browser/open", "open another page in Chrome, in a new tab, and read it: {\"url\"} (at once)")
+    static let webSearch = Hint("GET", "/api/web/search?q={words}", "find something out on the web, without Chrome (at once)")
 
     /// The calls that usually come after each route, by "METHOD path".
     static let table: [String: [Hint]] = [
@@ -117,6 +118,16 @@ public enum APINext {
         "GET /api/browser/find": [Hint("POST", "/api/browser/highlight", "ring it in red for the person {\"text\"}")],
         "POST /api/browser/highlight": [Hint("GET", "/api/browser/has?text={words}", "read again after the person's next step")],
         "GET /api/browser/outline": [Hint("GET", "/api/browser/find?text={words}", "where one thing is")],
+        "POST /api/browser/open": [Hint("GET", "/api/browser/find?text={words}", "where a thing is on it"), Hint("POST", "/api/browser/highlight", "ring it in red for the person {\"text\"}"),
+                                   Hint("GET", "/api/browser/page", "read it again, once it's changed")],
+        // The web
+        "GET /api/web": [webSearch, Hint("GET", "/api/web/fetch?url={address}", "read an address")],
+        "GET /api/web/search": [Hint("GET", "/api/web/fetch?url={address}", "read the result that fits best (a page, or a JSON API it points to)"), Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
+        "GET /api/web/fetch": [Hint("GET", "/api/web/fetch?url={address}", "follow one of its links, or the API it points to"), Hint("GET", "/api/web/fetch?url={address}&find={words}", "only the lines with some words"),
+                               Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
+        // Tools
+        "GET /api/tools": [Hint("POST", "/api/tools/{name}", "call one {\"arguments\": {…}}"), Hint("GET", "/api/search?q={words}&in=tools", "the tools for something, by a few words")],
+        "GET /api/tools/{name}": [Hint("POST", "/api/tools/{name}", "call it {\"arguments\": {…}}")],
         // Automation
         "GET /api/automation": [Hint("POST", "/api/automation", "tag a script or flow to run by itself {\"script\"|\"flow\", \"automation\": [tags], \"why\"}")],
         // Runs and requests
@@ -196,7 +207,7 @@ public enum APINext {
         case "unknown_flow":
             return [Hint("GET", "/api/search?q={words}&in=flows", "flows by what they do"), Hint("GET", "/api/flows", "every flow")]
         case "chrome_not_open", "no_window":
-            return [openPage, Hint("POST", "/api/straw/run", "or Straw code that opens it and acts on it {\"source\": \"open google.com\", \"why\"}")]
+            return [openPage, webSearch, Hint("GET", "/api/web/fetch?url={address}", "read an address without Chrome")]
         case "browser_reads_only":
             let q = req.query["text"] ?? req.query["q"] ?? (JSON.object(req.body)?["text"] as? String) ?? ""
             return RunAPI.actHints(q)
