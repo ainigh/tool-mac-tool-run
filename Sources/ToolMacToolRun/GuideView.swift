@@ -130,10 +130,13 @@ enum MarkdownBlocks {
             if !table.isEmpty { blocks.append(.table(table)) }
             table = []
         }
+        // The fence code opened with (``` or ~~~, or longer): only the same, as long or longer, closes it,
+        // so a prompt holding ```mm blocks can sit inside ```` fences.
+        var fence = ""
         for raw in text.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if code != nil {
-                if line.hasPrefix("```") {
+                if let c = fence.first, line.count >= fence.count, line.allSatisfy({ $0 == c }) {
                     blocks.append(.code(code!.joined(separator: "\n")))
                     code = nil
                 } else {
@@ -141,8 +144,9 @@ enum MarkdownBlocks {
                 }
                 continue
             }
-            if line.hasPrefix("```") {
+            if line.hasPrefix("```") || line.hasPrefix("~~~") {
                 endParagraph(); endTable()
+                fence = String(line.prefix { $0 == line.first })
                 code = []
             } else if line.hasPrefix("|") {
                 endParagraph()
@@ -185,7 +189,7 @@ enum MarkdownBlocks {
     }
 }
 
-private struct BlockView: View {
+struct BlockView: View {
     let block: MarkdownBlocks.Block
 
     var body: some View {

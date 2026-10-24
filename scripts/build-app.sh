@@ -37,6 +37,18 @@ cp "$BINDIR/flow" "$APP/Contents/MacOS/flow"
 # the repository).
 cp docs/FLOW-GUIDE.md "$APP/Contents/Resources/FLOW-GUIDE.md"
 cp docs/STRAW-GUIDE.md "$APP/Contents/Resources/STRAW-GUIDE.md"
+# SYSTEM-DOCS, which the app writes into TOOL-MAC-RUN on the Desktop each time it starts: the docs
+# written for it (docs/system), and the guides, the API and the mind's notation under the names
+# it knows them by. (The API reference, every route, Flow function and Straw word it makes itself.)
+DOCS="$APP/Contents/Resources/SYSTEM-DOCS"
+mkdir -p "$DOCS"
+cp docs/system/*.md "$DOCS/"
+cp docs/FLOW-GUIDE.md "$DOCS/FLOW-GUIDE.md"
+cp docs/STRAW-GUIDE.md "$DOCS/STRAW-GUIDE.md"
+cp docs/AGENTS-GUIDE.md "$DOCS/AGENTS-GUIDE.md"
+cp docs/DOCTRINE.md "$DOCS/DOCTRINE.md"
+cp "docs/Text mind-map notation.md" "$DOCS/MIND-NOTATION.md"
+cp API.md "$DOCS/API.md"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

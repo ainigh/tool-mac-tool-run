@@ -322,15 +322,10 @@ struct PanelView: View {
                 ToolTile(title: kind.title, detail: gridDetail(kind), symbol: kind.symbol, colors: kind.colors,
                          shortcut: "⌘\(kind.key)") { go { app.openGrid(kind) } }
             }
-            ToolTile(title: "API", detail: "Everything other apps can run: try each",
-                     symbol: APIBoardView.symbol, colors: APIBoardView.colors,
-                     shortcut: "⌘\(GridKind.allCases.count + 1)") { go { Windows.showAPIBoard() } }
-            ToolTile(title: "Automation", detail: automationDetail,
-                     symbol: AutomationBoardView.symbol, colors: AutomationBoardView.colors,
-                     shortcut: "⌘\(GridKind.allCases.count + 2)") { go { Windows.showAutomationBoard() } }
-            ToolTile(title: "Library", detail: libraryDetail,
-                     symbol: LibraryBoardView.symbol, colors: LibraryBoardView.colors,
-                     shortcut: "⌘\(GridKind.allCases.count + 3)") { go { Windows.showLibraryBoard() } }
+            ForEach(Board.allCases, id: \.self) { board in
+                ToolTile(title: board.title, detail: boardDetail(board), symbol: board.symbol, colors: board.colors,
+                         shortcut: "⌘\(board.key)") { go { board.show() } }
+            }
             ToolTile(title: "Runs", detail: runs.runningCount > 0 ? "\(runs.runningCount) running now" : "Everything they printed",
                      symbol: "list.bullet.rectangle.fill", colors: [Color(red: 0.18, green: 0.70, blue: 0.72), Color(red: 0.20, green: 0.72, blue: 0.42)],
                      shortcut: "⌘R") { go { Windows.showRuns(nil) } }
@@ -340,10 +335,22 @@ struct PanelView: View {
         }
     }
 
-    /// What the Library tile says: how many notes are in LIBRARY (in TOOL-MAC-RUN on the Desktop).
-    private var libraryDetail: String {
-        let n = FileLibrary().list().count
-        return n == 0 ? "Notes by name, on your Desktop" : "\(n) note\(n == 1 ? "" : "s") on your Desktop"
+    /// What a board's tile says under its name.
+    private func boardDetail(_ board: Board) -> String {
+        switch board {
+        case .api: return "Everything other apps can run: try each"
+        case .automation: return automationDetail
+        case .library:
+            let n = FileLibrary().list().count
+            return n == 0 ? "Notes by name, on your Desktop" : "\(n) note\(n == 1 ? "" : "s") on your Desktop"
+        case .memory:
+            let n = FileLibrary(shelf: .memory).list().count
+            return n == 0 ? "People, dates, ideas: remembered" : "\(n) file\(n == 1 ? "" : "s") of what's remembered"
+        case .mind:
+            let n = MindStore().graph().nodes.count
+            return n == 0 ? "What links to what, as a picture" : "\(n) thing\(n == 1 ? "" : "s"), and how they link"
+        case .systemDocs: return "How it all works, for you and models"
+        }
     }
 
     /// What the Automation tile says: how many run by themselves, or what it's for.
@@ -443,16 +450,16 @@ struct PanelView: View {
         seconds < 60 ? "\(seconds) s" : "\(seconds / 60) min"
     }
 
-    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 the API board, ⌘6 the
-    /// Automation board, ⌘R the runs, ⌘Q quits.
+    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 to ⌘0 the other boards
+    /// (API, Automation, Library, Memory, Mind, System Docs), ⌘R the runs, ⌘Q quits.
     private var shortcuts: some View {
         ZStack {
             ForEach(GridKind.allCases, id: \.self) { kind in
                 Button("") { go { app.openGrid(kind) } }.keyboardShortcut(KeyEquivalent(kind.key))
             }
-            Button("") { go { Windows.showAPIBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 1))))
-            Button("") { go { Windows.showAutomationBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 2))))
-            Button("") { go { Windows.showLibraryBoard() } }.keyboardShortcut(KeyEquivalent(Character(String(GridKind.allCases.count + 3))))
+            ForEach(Board.allCases, id: \.self) { board in
+                Button("") { go { board.show() } }.keyboardShortcut(KeyEquivalent(board.key))
+            }
             Button("") { go { Windows.showRuns(nil) } }.keyboardShortcut("r")
             Button("") { go { app.quit() } }.keyboardShortcut("q")
         }

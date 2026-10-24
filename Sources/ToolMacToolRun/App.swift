@@ -52,7 +52,7 @@ final class AppModel: ObservableObject {
 
     static let folderKey = "scriptsFolder"
 
-    static var version: String {
+    nonisolated static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
@@ -96,6 +96,34 @@ final class AppModel: ObservableObject {
         if remember { UserDefaults.standard.set(url.path, forKey: Self.folderKey) }
         reload()
         watch()
+    }
+
+    // MARK: TOOL-MAC-RUN
+
+    /// The SYSTEM-DOCS the app ships with (in its Resources; nil when built without them).
+    nonisolated static var shippedSystemDocs: URL? {
+        Bundle.main.resourceURL.map { $0.appendingPathComponent("SYSTEM-DOCS", isDirectory: true) }
+            .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+    }
+
+    /// Writes SYSTEM-DOCS from what this version ships with (only what's changed).
+    nonisolated static func installSystemDocs() throws {
+        let port = UserDefaults.standard.data(forKey: "apiSettings").flatMap { try? JSONDecoder().decode(APISettings.self, from: $0) }?.port ?? APISettings.defaultPort
+        try SystemDocs.install(into: FileLibrary(shelf: .systemDocs), shipped: shippedSystemDocs, baseURL: "http://127.0.0.1:\(port)", version: version)
+    }
+
+    /// At launch, off the main thread: SYSTEM-DOCS brought up to date, and MEMORY (with its
+    /// files, the first time) and the mind made if they aren't there. The library is made when
+    /// it's first used.
+    func setUpHome() {
+        Task.detached(priority: .utility) {
+            do {
+                try AppModel.installSystemDocs()
+                try Memory().ensure()
+            } catch {
+                await MainActor.run { AppModel.shared.problem = "\(error)" }
+            }
+        }
     }
 
     /// The suggested folder: ~/Scripts.
@@ -314,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppModel.shared.updater.start()
         APIService.shared.launch()
         AutomationCenter.shared.start()
+        AppModel.shared.setUpHome()
         // Asked to quit with SIGTERM (the installer closing it, a logout): quit as the menu's Quit
         // does, so runs are stopped and saved. Caught by a handler that does nothing, not ignored:
         // an ignored SIGTERM would be handed on to every script it starts, and Stop couldn't end them.
