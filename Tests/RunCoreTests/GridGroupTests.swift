@@ -392,7 +392,10 @@ final class GridGroupTests: XCTestCase {
         let site = try browse("site-search", ["YouTube", "lofi", "hip hop"])
         XCTAssertEqual(site.code, 0, site.err)
         XCTAssertTrue(try String(contentsOf: log, encoding: .utf8).contains("opened https://www.youtube.com/results?search_query=lofi%20hip%20hop front"))
-        XCTAssertEqual(try browse("site-search", ["--url", "maps", "café & bar"]).out, "https://www.google.com/maps/search/caf%C3%A9%20%26%20bar\n")
+        XCTAssertEqual(try browse("site-search", ["--url", "maps", "R&D labs"]).out, "https://www.google.com/maps/search/R%26D%20labs\n")
+        // Each byte of an é, whichever way it reaches the script (macOS hands a program's arguments over decomposed: e and ́).
+        let accent = try browse("site-search", ["--url", "maps", "café"]).out
+        XCTAssertTrue(["https://www.google.com/maps/search/caf%C3%A9\n", "https://www.google.com/maps/search/cafe%CC%81\n"].contains(accent), accent)
         XCTAssertEqual(try browse("site-search", ["--url", "so", "swift async"]).out, "https://stackoverflow.com/search?q=swift%20async\n")
         let sites = try browse("site-search", ["list"])
         XCTAssertEqual(sites.code, 0)
