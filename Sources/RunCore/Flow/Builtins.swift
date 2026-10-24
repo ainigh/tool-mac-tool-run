@@ -29,7 +29,7 @@ public struct Builtin: @unchecked Sendable {
 
 extension Builtin {
     /// Every builtin, in the order the guide lists them.
-    public static let all: [Builtin] = scripts + epa + asking + text + lists + logic + system + library
+    public static let all: [Builtin] = scripts + epa + asking + text + lists + logic + system + library + memory
 
     /// What `for x in xs do …` is made of (`each`, by a name a flow can't write or hide).
     static let forName = "$for"
@@ -472,6 +472,77 @@ extension Builtin {
             .list(FileLibrary().search(a[0].string).flatMap { hit in hit.lines.map { Value.str("\(hit.note.name), line \($0.number): \($0.text)") } })
         },
     ]
+
+    // MARK: MEMORY and the mind
+
+    /// MEMORY (PEOPLE, ORGANIZATIONS, EVENT-DATES…, in TOOL-MAC-RUN) and the mind that links it:
+    /// the same ones the Memory and Mind boards show and the API serves.
+    static let memory: [Builtin] = [
+        Builtin("remember", "string -> string -> string -> unit", "Memory", "Remembers something (first: the MEMORY file, then who or what it's about, then what): a line in the file, linked in the mind.",
+                "remember \"PEOPLE\" \"Ada Lovelace\" \"Met at the conference\"", arity: 3) { i, a, pos in
+            let r = try Builtin.inMemory(pos) { try $0.remember(category: a[0].string, about: a[1].string, text: a[2].string, who: "a flow") }
+            i.host.say("✅ Remembered \(r.node) in \(r.file)")
+            return .unit
+        },
+        Builtin("recall", "string -> string list", "Memory", "What's known about a name: its links and notes in the mind, and the lines in MEMORY that mention it.",
+                "recall \"ada\" |> each print", arity: 1) { _, a, _ in
+            let r = Memory().recall(a[0].string)
+            return .list((r.about.flatMap(\.lines) + r.mentions.flatMap { h in h.lines.map { "\(h.note.name), line \($0.number): \($0.text)" } }).map(Value.str))
+        },
+        Builtin("upcoming", "int -> string list", "Memory", "The birthdays and dates in the next this many days, the soonest first: from MEMORY's files and the mind's notes.",
+                "upcoming 7 |> each print", arity: 1) { _, a, _ in
+            .list(Memory().upcoming(days: max(0, a[0].int)).map { Value.str("\(JSON.day($0.day)) (in \($0.days) day\($0.days == 1 ? "" : "s")): \($0.what)") })
+        },
+        Builtin("memoryRead", "string -> string", "Memory", "A MEMORY file's text, by its name (PEOPLE, IDEAS…).", "let people = memoryRead \"PEOPLE\"", arity: 1) { _, a, pos in
+            .str(try Builtin.inMemory(pos) { try $0.files.read(a[0].string).text })
+        },
+        Builtin("memoryAppend", "string -> string -> unit", "Memory", "Adds a line at the end of a MEMORY file (first: its name; made if it isn't there, and a node of the mind).",
+                "memoryAppend \"IDEAS\" \"- a newsletter for the club\"", arity: 2) { i, a, pos in
+            let r = try Builtin.inMemory(pos) { m -> FileLibrary.Note in
+                let r = try m.files.append(a[0].string, a[1].string)
+                try m.mind.index(m.files, who: "a flow")
+                return r.note
+            }
+            i.host.say("✅ Added to \(r.name) in MEMORY")
+            return .unit
+        },
+        Builtin("mindLink", "string -> string -> string -> unit", "Memory", "Links two things in the mind (first, a label that reads left to right, then second): sam, works at, acme.",
+                "mindLink \"sam\" \"works at\" \"acme\"", arity: 3) { i, a, pos in
+            let added = try Builtin.inMemory(pos) { m -> [String] in
+                let g = m.mind.graph()
+                let from = try Memory.nodeName(a[0].string, in: g), to = try Memory.nodeName(a[2].string, in: g)
+                let label = MindNotation.safeText(a[1].string).text
+                return try m.mind.append([MindNotation.line(from: from, to: to, labels: label.isEmpty ? [] : [label])], stamp: MindStore.stamp("a flow")).added
+            }
+            i.host.say(added.isEmpty ? "The mind knew that already" : "✅ \(added.joined(separator: "; "))")
+            return .unit
+        },
+        Builtin("mindAbout", "string -> string list", "Memory", "All the mind knows about a thing, as lines of its notation (nothing: it isn't there).",
+                "mindAbout \"acme\" |> each print", arity: 1) { _, a, _ in
+            let g = MindStore().graph()
+            guard let id = MindQuery.lookup(a[0].string, in: g).first, let about = MindQuery.about(id, in: g) else { return .list([]) }
+            return .list(about.lines.map(Value.str))
+        },
+        Builtin("mindQuery", "string -> string list", "Memory", "The mind's lines that match a query in its notation (a name not in the mind is a variable): | x - works at | acme.",
+                "mindQuery \"| x - works at | acme\" |> each print", arity: 1) { _, a, _ in
+            var lines: [String] = []
+            for answer in MindQuery.run(a[0].string, in: MindStore().graph()) { for l in answer.lines where !lines.contains(l) { lines.append(l) } }
+            return .list(lines.map(Value.str))
+        },
+    ]
+
+    /// Something done to MEMORY or the mind, its mistake said as the flow's.
+    static func inMemory<T>(_ pos: Pos, _ work: (Memory) throws -> T) throws -> T {
+        do {
+            let m = Memory()
+            if !m.folderExists || !m.mind.exists { try m.ensure() }
+            return try work(m)
+        } catch let e as LibraryError {
+            throw FlowError(.run, pos, e.message, fix: e.fix)
+        } catch let e as MindError {
+            throw FlowError(.run, pos, e.message, fix: e.fix)
+        }
+    }
 
     /// Something done to the library, its mistake said as the flow's.
     static func inLibrary<T>(_ pos: Pos, _ work: (FileLibrary) throws -> T) throws -> T {
