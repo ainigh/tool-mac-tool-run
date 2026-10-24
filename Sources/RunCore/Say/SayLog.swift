@@ -25,6 +25,8 @@ public actor SayLog {
         case notAnswered
         case withdrawn
         case couldNotStart(String)
+        /// Stopped before it ended.
+        case stopped
 
         /// Still going (waiting for the click, or running).
         public var open: Bool { self == .waiting || self == .running }
@@ -42,6 +44,7 @@ public actor SayLog {
             case .notAnswered: "not_answered"
             case .withdrawn: "withdrawn"
             case .couldNotStart: "could_not_start"
+            case .stopped: "stopped"
             }
         }
     }

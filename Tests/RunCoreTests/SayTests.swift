@@ -234,6 +234,22 @@ final class SayTests: XCTestCase {
         XCTAssertTrue(unknown.contains("I can't tell which request"), unknown)
     }
 
+    func testARunStoppedWhileRunningIsSaidSo() async throws {
+        host.behave = { r in r.append(.out, "copying…\n") }
+        _ = await say("run the nightly backup")
+        for _ in 0..<200 where host.started.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
+        let running = await say("what happened to the backup")
+        XCTAssertTrue(running.contains("is running"), running)
+        let stopping = await say("stop the backup")
+        XCTAssertTrue(stopping.hasPrefix("Stopping the nightly backup."), stopping)
+        let run = try XCTUnwrap(host.started.first.flatMap { s in host.runs.values.first { $0.name == s.name } })
+        host.update(run.id) { $0.finish(code: nil, state: .stopped) }
+        let news = await say("what can you do")
+        XCTAssertTrue(news.hasPrefix("Meanwhile: The nightly backup was stopped before it ended. Say \"show me the nightly backup\""), news)
+        let shown = await say("show me the backup")
+        XCTAssertTrue(shown.hasPrefix("The nightly backup was stopped. Before that it printed:\ncopying…"), shown)
+    }
+
     func testMoreGivesTheRestOfALongAnswer() async throws {
         let text = (1...45).map { "line \($0)" }.joined(separator: "\n")
         _ = await say("Write a note\n- name: long\n- text:\n```\n\(text)\n```")
