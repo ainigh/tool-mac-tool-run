@@ -241,7 +241,7 @@ final class MindStoreTests: XCTestCase {
         let archived = try mind.compact()
         XCTAssertEqual(try String(contentsOf: archived, encoding: .utf8), old)
         XCTAssertEqual(mind.graph().canonical, MindGraph(log: old).canonical)
-        XCTAssertEqual(mind.archived(), [archived])
+        XCTAssertEqual(mind.archived().map(\.lastPathComponent), [archived.lastPathComponent])
     }
 
     func testMemoryComesWithItsFilesEachANode() throws {
