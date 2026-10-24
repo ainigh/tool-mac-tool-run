@@ -156,6 +156,11 @@ public enum Tools {
             let q = try need(f, "q", "find takes q: a few words of what you want to do (\"weather\", \"rename a note\").")
             return Call(method: "GET", path: "/api/search" + query([("q", q), ("in", f.text("in") ?? "tools,scripts,flows"), ("limit", "8")]))
         },
+        Tool("say", "Everything here in plain words, with no other tool: say what you want and get words back. If it answers with templates, fill one in (its {blanks}, one of each [choice]) and say it back. It keeps track of what you asked for and says what changed at the start of its next answer.",
+             args: [Arg("text", "string", "what you want, in words, or one of its templates filled in", required: true, aliases: "words message said sentence q query")],
+             aliases: "talk ask speak tell chat converse", tags: "talk words plain text sentence template conversation", uses: "POST /api/say") { f in
+            Call(method: "POST", path: "/api/say", body: ["text": try need(f, "text", "say takes text: what you want, in words.")])
+        },
         Tool("run_script", "Runs one of the person's scripts by its name (find says what each does and takes): a card goes up on the Mac and waits for them to click Run, then it gives back what the script printed (or that they didn't click Run).",
              args: [Arg("script", "string", "its name, as find or the list gives it (utilities/weather.py)", required: true, aliases: "name file"),
                     Arg("args", "list", "one string per input it takes, in order", aliases: "arguments argv inputs"),
@@ -371,6 +376,7 @@ public enum Tools {
         "run_script, run_flow, run_flow_code and straw put a card on the Mac and wait for the person to click Run: say so when you send one. If they click Don't Run, leave it unless they ask again. Every other tool answers at once.",
         "Notes are library's: find or read one before you write to it. What the person tells you about their world goes to remember; before you answer about a person, place, organization or date, recall it. Only ever write what they said.",
         "Something long (steps, a list, a result to check) is for show; something they'll paste is for copy.",
+        "A small model can use say alone: it takes words and answers in words, offers templates to fill when it isn't sure, and follows runs itself.",
     ]
 
     /// Exchanges that show the tools at work, for the shape of a call (not to copy).

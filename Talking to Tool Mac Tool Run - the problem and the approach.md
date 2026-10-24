@@ -279,7 +279,70 @@ Adapter: Meanwhile: the nightly backup finished (it worked).
    correction), and would chain simple steps ("then save it"). It's only needed where layer 1
    proves too strict.
 
-## Open questions
+## Where it stands
+
+Layer 1 is built: `POST /api/say` ([API.md](API.md#say-plain-words-post-apisay)). The code is in
+`Sources/RunCore/Say/` (the grammar, the matcher, the templates, the words, the log) and
+`Sources/RunCore/API/SayAPI.swift` (the conversation). Beside `POST /api/say`:
+
+| Route | What it's for |
+|---|---|
+| `GET /api/say` | how to use it, as text: the one line for a model's instructions, and the built-in forms |
+| `GET /api/say/forms` | every template there is now (`?q=words`: the ones that fit; `?format=json`) |
+| `GET /api/say/log` | what this client asked for and how each went, as JSON (for the app beside the model, or for debugging) |
+| `POST /api/say/reset` | start over (`{"forget": true}`: the log too) |
+| `POST /api/tools/say` | the same, as the one tool (`say` is in `GET /api/tools`) |
+
+A script or flow says how it's offered with a `# Say:` header line. The tools' templates are
+written once, in `SayForms.tools`, beside the tools they call (their `say`); routes are reached
+through them.
+
+## Decisions on the open questions
+
+- **How many templates a search returns**: the best three, numbered; up to five more come with
+  "more". When fewer than three fit, "Search the web" is offered last, since the web answers most
+  questions.
+- **Titles are a contract**: a title never changes on its own. A tool's template keeps its title
+  from version to version; one that's renamed keeps the old one in `formerly`, and it's still
+  taken. A script's or flow's title is its file name in words ("nightly-backup" is "Nightly
+  backup"), so it changes only when the file is renamed; two of the same name get "(a flow)" or
+  "(in Chrome)" after the second.
+- **How long a log is kept**: a week, at most 200 requests a client, for the latest 100 clients,
+  in memory while the app runs (as the request ledger is). **A conversation starts again** after
+  six hours without a word: the numbers ("the second one"), what "more" would give and anything
+  waiting for "yes" are forgotten; the log stays, so "what have I asked for today" still answers.
+  `start over` (or `POST /api/say/reset`) does it at once.
+- **Chains** ("search for X, then save the first result as a note") wait for the d-model. A
+  layer-1 chain would need a way to refer to a result inside a template, which is a language, not
+  a form.
+- **Remembering which templates a client uses**: yes. Each use is counted per client, and of two
+  templates that fit as well, the one it has used more is offered (and taken) first.
+
+## Gaps closed on the way
+
+- **Yes and no** are built-in forms (a question asked first needs an answer), and so is `start
+  over`. A question with two choices is answered by number.
+- **A number** is a pick only right after a numbered list (of templates, of requests, or of
+  choices); otherwise it's a value. A pick of a template with blanks shows it alone, to fill; one
+  that takes nothing is done.
+- **Either shape for any template**: an inline template can be sent labeled (its title, then a
+  line per blank), and a labeled value of several lines can be its lines under its label, without
+  a fence.
+- **Of two sentences as close, the more particular wins** (`read the note {its name}` over `read
+  {a web address}`): the one that matched more of its own fixed words.
+- **The words of a request** ("I need to know if", "tell me whether") aren't searched for: only
+  what it's about.
+- **Hand-over once, for two**: the adapter is the client of the system. It collects a result once
+  it's over (so `GET /api/requests/open` no longer lists it), and the client hears of it as news
+  and sees it in full when it asks.
+- **The card says who and why in the client's words**: a run asked for through `say` carries
+  `why`: *My App asked in words: “run the nightly backup”*. Nothing reaches the Mac that the
+  person wouldn't see in full; tagging something to run by itself waits for Allow the same way,
+  and the answer comes as news.
+- **What isn't followed**: requests a client makes directly (`POST /api/run`) aren't in its `say`
+  log; only what it asked for in words.
+
+## Open questions (answered above, kept for the record)
 
 - How many templates should a search return: the best three, or up to five?
 - Titles become a contract that client models learn. How are they kept stable, and how is a

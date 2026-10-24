@@ -195,6 +195,8 @@ public final class RunAPI: @unchecked Sendable {
     public let version: String
     /// Every request that reached the card, by its id (`GET /api/requests/{id}`).
     public let requests = RequestLedger()
+    /// What each client said to `POST /api/say`, and how its requests went: the template adapter's log.
+    public let sayLog = SayLog()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
     /// The file library it serves (LIBRARY, in TOOL-MAC-RUN on the Desktop).
@@ -262,6 +264,7 @@ public final class RunAPI: @unchecked Sendable {
         if path == "/api/straw" || path.hasPrefix("/api/straw/") { return try await strawRoute(req, path: path, s) }
         if path == "/api/web" || path.hasPrefix("/api/web/") { return try await webRoute(req, path: path, s) }
         if path == "/api/tools" || path.hasPrefix("/api/tools/") { return try await toolsRoute(req, path: path, s) }
+        if path == "/api/say" || path.hasPrefix("/api/say/") { return try await sayRoute(req, path: path, s) }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (GET /api/endpoints lists every route)")
         }

@@ -64,6 +64,27 @@ public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
         return found
     }
 
+    /// The sentences a header's `Say:` lines give (`# Say: what's the weather in {a city}`): how
+    /// the template adapter (`POST /api/say`) offers it, each `{…}` one of its inputs, in order.
+    /// Only the comment lines at its top count.
+    public static func declaredSay(in contents: String) -> [String] {
+        var found: [String] = []
+        for raw in contents.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).prefix(60) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#!") { continue }
+            guard let marker = ["//", "#", "--"].first(where: { line.hasPrefix($0) }) else { break }
+            if let say = parseSay(line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)), !found.contains(say) { found.append(say) }
+        }
+        return found
+    }
+
+    /// "Say: what's the weather in {a city}" → the sentence, or nil.
+    public static func parseSay(_ said: String) -> String? {
+        guard let colon = said.firstIndex(of: ":"), said[..<colon].lowercased().trimmingCharacters(in: .whitespaces) == "say" else { return nil }
+        let text = said[said.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
+    }
+
     /// "Tags: weather, forecast rain" → ["weather", "forecast", "rain"], or nil.
     public static func parseTags(_ said: String) -> [String]? {
         guard let colon = said.firstIndex(of: ":"), said[..<colon].lowercased().trimmingCharacters(in: .whitespaces) == "tags" else { return nil }

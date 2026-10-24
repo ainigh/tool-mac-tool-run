@@ -752,7 +752,7 @@ final class APITests: XCTestCase {
     func testTheStatusPagesExampleFlowChecks() throws {
         let page = StatusPage.html
         let start = try XCTUnwrap(page.range(of: "<textarea id=\"code\">")).upperBound
-        let end = try XCTUnwrap(page.range(of: "</textarea>")).lowerBound
+        let end = try XCTUnwrap(page.range(of: "</textarea>", range: start..<page.endIndex)).lowerBound
         XCTAssertNoThrow(try Flow.check(String(page[start..<end]), scripts: []))
     }
 }
@@ -841,7 +841,7 @@ final class APIClientTests: XCTestCase {
             XCTAssertTrue(client.text(baseURL: "http://127.0.0.1:8768", token: "tok3n").contains("Bearer tok3n"), client.title)
             XCTAssertFalse(client.help.isEmpty)
         }
-        XCTAssertEqual(APIClient.allCases.map(\.title), ["curl", "Python", "JavaScript", "Swift", "Shortcuts", "AI Agent"])
+        XCTAssertEqual(APIClient.allCases.map(\.title), ["curl", "Python", "JavaScript", "Swift", "Shortcuts", "AI Agent", "Small Model"])
     }
 
     func testThePythonAndJavaScriptParse() throws {
