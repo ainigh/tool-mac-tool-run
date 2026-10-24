@@ -48,21 +48,22 @@ enum SayText {
     /// ("event dates" and "EVENT-DATES" are the same).
     static func squashed(_ text: String) -> String { norm(text) }
 
-    /// How many single-character changes turn one into the other.
+    /// How many single-character changes turn one into the other, two letters swapped ("raed")
+    /// counting as one.
     static func distance(_ a: String, _ b: String) -> Int {
         let a = Array(a), b = Array(b)
         if a.isEmpty { return b.count }
         if b.isEmpty { return a.count }
-        var prev = Array(0...b.count)
-        var cur = [Int](repeating: 0, count: b.count + 1)
+        var d = [[Int]](repeating: [Int](repeating: 0, count: b.count + 1), count: a.count + 1)
+        for i in 0...a.count { d[i][0] = i }
+        for j in 0...b.count { d[0][j] = j }
         for i in 1...a.count {
-            cur[0] = i
             for j in 1...b.count {
-                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+                d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+                if i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1] { d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1) }
             }
-            swap(&prev, &cur)
         }
-        return prev[b.count]
+        return d[a.count][b.count]
     }
 
     /// 1 for the same word, less the more it takes to change one into the other; a number is

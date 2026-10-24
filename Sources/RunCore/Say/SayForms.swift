@@ -112,7 +112,7 @@ public enum SayForms {
                 words: "library note notes write save create new list", about: "a note written (or rewritten)", changes: true,
                 next: ["Read a note", "Add to a note"], action: .tool("library") { f in ["op": "write", "name": f["name"] ?? "", "text": f["text"] ?? ""] }),
         SayForm("Add to a note", fields: [.init("name", "its name"), .init("text", "what to add at its end", multiline: true)],
-                words: "library note notes append add line journal log list", about: "a line added at the end of a note", changes: true,
+                words: "library note notes append add line journal log list jot down write", about: "a line added at the end of a note", changes: true,
                 next: ["Read a note"], action: .tool("library") { f in ["op": "append", "name": f["name"] ?? "", "text": f["text"] ?? ""] }),
         SayForm("Find a note", "find the note about {a few words}", also: ["find a note about {a few words}", "which note has {a few words}"],
                 words: "library note notes find which name", about: "notes by words in their names and text, the best first",
@@ -269,7 +269,7 @@ public enum SayForms {
         let all = APISearch.query(q)
         // How a request is put ("I need to know if", "tell me whether") says nothing of what it's for.
         let kept = all.filter { !sayStopWords.contains($0) }
-        let terms = kept.isEmpty ? all : kept
+        var terms = kept.isEmpty ? all : kept
         guard !terms.isEmpty else { return [] }
         let candidates = forms.filter { $0.kind != "builtin" }
         let docs = candidates.map { f in
@@ -278,6 +278,13 @@ public enum SayForms {
                 (APISearch.set([f.words, f.about]), 3),
                 (APISearch.set(f.fields.compactMap(\.blank) + f.fields.flatMap(\.choices)), 1),
             ])
+        }
+        // A misspelt word ("serch", "remmeber") is taken as the word the templates have that it's closest to.
+        let vocabulary = Set(docs.flatMap { $0.fields.flatMap(\.words) })
+        terms = terms.map { t in
+            guard t.count >= 4, !vocabulary.contains(t), !vocabulary.contains(where: { $0.count > t.count && $0.hasPrefix(t) }) else { return t }
+            let near = vocabulary.filter { abs($0.count - t.count) <= 2 }.map { ($0, SayText.similarity($0, t)) }.max { $0.1 < $1.1 }
+            return near.map { $0.1 >= 0.75 ? $0.0 : t } ?? t
         }
         let scores = docs.map { d in terms.map(d.score) }
         let rarity: [Double] = terms.indices.map { k in

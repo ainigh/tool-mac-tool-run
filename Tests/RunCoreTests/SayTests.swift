@@ -219,6 +219,27 @@ final class SayTests: XCTestCase {
         XCTAssertTrue(read.hasPrefix("The web has these"), read)
     }
 
+    func testWhatItForgivesAndWhatItDoesnt() async throws {
+        _ = await say("Write a note\n- name: groceries\n- text: eggs")
+        // Letters swapped are one slip, in a fixed word and in a label.
+        let read = await say("raed the note groceries")
+        XCTAssertTrue(read.hasPrefix("The note groceries:"), read)
+        // A fixed run that's another one isn't it, however well the rest fits: offered, not done.
+        let wrong = await say("find louvre hours on the internet")
+        XCTAssertTrue(wrong.hasPrefix("These can do that:\n1. Search the web"), wrong)
+        // A slip in a change that doesn't wait for the Mac is asked about; a run's slip isn't (the click is the question).
+        let delete = await say("delte the note groceries")
+        XCTAssertTrue(delete.hasPrefix("Did you mean: Delete a note (groceries)?"), delete)
+        _ = await say("no")
+        let run = await say("run the nightly bakup")
+        XCTAssertTrue(run.contains("click Run"), run)
+        // Misspelt words still find the templates; a question offers the web.
+        let typos = await say("serch teh wbe fro louvre hours")
+        XCTAssertTrue(typos.contains("These can do that:\n1. Search the web"), typos)
+        let question = await say("when does the louvre open?")
+        XCTAssertTrue(question.contains("2. Search the web"), question)
+    }
+
     func testStopTakesBackWhatsStillWaiting() async throws {
         host.holdApprovals = true
         _ = await say("run the nightly backup")

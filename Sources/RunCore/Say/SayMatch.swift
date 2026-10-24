@@ -7,6 +7,16 @@ enum SayMatch {
     /// How sure a match must be to count at all, and to be acted on without asking.
     static let floor = 0.72
     static let clean = 0.9
+    /// What one run of fixed words must reach, however well the rest fit ("find {…} on the
+    /// internet" isn't "find {…} on the page").
+    static let part = 0.75
+    /// A change that doesn't wait for the person at the Mac is done at once only this sure (a
+    /// misspelt word in "delete the note" is asked about); one that waits for their click needs
+    /// only `clean`, since the click is the question.
+    static let sureChange = 0.97
+
+    /// How sure a match must be to be done without asking first.
+    static func certain(_ form: SayForm) -> Double { form.changes && !form.asks ? sureChange : clean }
 
     /// What a text came to against one form.
     enum Outcome {
@@ -79,7 +89,7 @@ enum SayMatch {
                     }
                     if blank != nil, let b = best, b.s >= clean { break search }
                 }
-                guard let b = best, b.s >= 0.5 else { return nil }
+                guard let b = best, b.s >= part else { return nil }
                 if let label = blank {
                     guard b.i > pos, b.i <= toks.count else { return nil }
                     let end = b.i < toks.count ? toks[b.i].range.lowerBound : text.endIndex
