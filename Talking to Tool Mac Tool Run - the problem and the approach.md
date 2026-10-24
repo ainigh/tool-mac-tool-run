@@ -1,0 +1,290 @@
+# Talking to Tool Mac Tool Run: the problem and the approach
+
+## Where we are
+
+Tool Mac Tool Run serves scripts, flows, notes, memory, the web and the browser over a local HTTP
+API. It already does a lot to be easy on clients:
+
+- `/api/search` finds a route, script or flow by a few words.
+- Every answer says what to call `next`.
+- `/api/tools` packages everything as model-ready tools.
+- The server keeps track of requests. Each request gets an id and the client polls with it. Once a
+  finished result has been read, it's handed over and cleared, so asking again no longer lists it
+  as open.
+
+## The problem
+
+The client is often a model, and often a **small** one. Its attention is divided: it's there to do
+a narrow task (help the person, write the email, plan the trip), and every bit of this system it
+has to hold in mind is taken from that task.
+
+To use the system today, a client model has to:
+
+1. **Know the tools exist** and carry their schemas (names, arguments, types) in its context.
+2. **Load the docs**, or enough of them, to pick the right route or tool.
+3. **Compose the call**: the right name, the right arguments in the right shape.
+4. **Keep the request id** for anything that runs asynchronously.
+5. **Remember to come back** and poll for status, then read the result.
+6. **Interpret the answer**: JSON, states (`waiting`, `running`, `delivered`, `cleared`…), error
+   codes and fixes.
+7. **Track its own history**: what it asked for, when, and what came of it.
+
+Each step is easy for a large model and a real cost for a small one. The cost is paid in the
+context window (docs and schemas), in attention (switching from the task to the plumbing), and in
+reliability (a forgotten poll, a misremembered id, a mistyped argument).
+
+## The goal
+
+**A client should only need to know how to talk.**
+
+There should be one way in: say something, get plain words back. A client shouldn't need any tool
+names, routes, arguments, ids, polling or JSON. Nothing has to be loaded first.
+
+---
+
+## The approach: a template adapter
+
+### The idea in one paragraph
+
+An adapter sits in front of the whole API and becomes the API. A client says what it wants. If
+that doesn't match anything yet, the adapter treats it as a search and answers with a few
+**templates**: the sentences or short forms that would do it, each with blanks to fill. The client
+copies one, fills the blanks, and says it back. The adapter recognizes its own template, calls the
+real API, keeps track of the request, and answers in plain words.
+
+### Why this works
+
+The hard part of understanding free language is pulling the arguments out of a sentence. The
+adapter reverses who does the parsing. **The system offers the forms, and the model fills them.**
+Filling a blank is easy for even a small model. Reading back a filled-in template is easy for a
+script, because it wrote the template and knows its fixed words. Each side does what it's good at.
+
+Clients also can't ask for things the system can't do, because they only ever fill forms the
+system offered. Misunderstandings become rare, so confirmation turns become rare too.
+
+This has a precedent in menu-based natural-language interfaces (Tennant's NLMenu, early 1980s),
+which showed users only the sentences the system could understand and had them complete those.
+
+### What it replaces
+
+| The client used to | Now |
+|---|---|
+| carry tool schemas and docs | says what it wants; gets the forms that fit |
+| compose a call | fills a form |
+| keep a request id | refers to it in words: "the backup", "the last one" |
+| remember to poll | hears about it at the start of its next reply |
+| parse JSON | reads a few sentences |
+| track its history | asks: "what have I asked for today?" |
+
+---
+
+## The template grammar
+
+### Two shapes
+
+**Inline**, for a capability that takes nothing or one value:
+
+```
+Search the web
+  search the web for {what to look for}
+```
+
+**Labeled**, for anything with two or more values, or with a value that can run to several lines:
+
+```
+Remember something
+- category: [PEOPLE | ORGANIZATIONS | EVENT-DATES | BIRTHDAYS | LOCATIONS | IDEAS | LEVERAGE | STRATEGIES | OTHERS]
+- about: {who or what it's about}
+- fact: {what to remember}
+- date (optional): {a day, like 2026-11-03, or 03-14 for every year}
+```
+
+The labeled shape is the main one. A label on every line removes the ambiguity that inline
+sentences run into when a value contains one of the template's fixed words. ("search for flights
+to Lagos" contains "to".) It also means the order of the lines doesn't matter.
+
+### Notation
+
+| Written | Means |
+|---|---|
+| A title line (`Remember something`) | the capability's name. It's stable, plain words, never a file name or route. |
+| `{…}` | a blank to fill. The words inside say what goes there. |
+| `[a \| b \| c]` | choose exactly one of these. |
+| `(optional)` after a label | may be left out. |
+| `- label: value` | one value per line, in any order. |
+| a label followed by a fenced block | a value of several lines (note text, Flow code, Straw code): |
+
+````
+Write a note
+- name: groceries
+- text:
+```
+- eggs
+- milk
+```
+````
+
+Everything else in a template is fixed wording.
+
+### What the adapter accepts
+
+The adapter is forgiving about everything except the values themselves:
+
+- **Fixed words and titles** match fuzzily (edit distance, case, punctuation, a paraphrase close to
+  the issued wording).
+- **Labels** match fuzzily.
+- **Choices** match fuzzily. When a choice was corrected, the reply says so ("taken as PEOPLE").
+- **Values** are taken exactly as written. Quotes around a value are allowed, and removed.
+- In the inline shape, a blank takes everything between its anchors, and the last blank takes
+  the rest of the line.
+
+### Where the templates come from
+
+Nobody has to write them by hand. The system already describes everything:
+
+- **Tools** (`/api/tools`) have arguments with `about` text, which give a labeled form directly.
+- **Scripts and flows** have `# Input:` lines (each one a blank) with `# Why:` lines and
+  `(optional)` marks, plus a summary for the title.
+- **Routes** have summaries and tags.
+
+Two optional additions improve the wording where the generated one is clumsy:
+
+- a `# Say:` header line on a script or flow (`# Say: what's the weather in {a city}`)
+- a `say` field on a route or tool
+
+---
+
+## Built-in forms
+
+These are always available. They aren't found through search, because they're about the
+conversation itself.
+
+```
+what can you do
+what happened to {something you asked for}
+what have I asked for [today | recently | since {a time}]
+show me {something you asked for}
+more
+stop {something you asked for}
+I'm done with {something you asked for}
+```
+
+`{something you asked for}` accepts any of these: "the last one", a word from its name or
+description ("the backup"), a time ("the one around 3"), or a number from the last list the
+adapter showed ("the second one").
+
+---
+
+## State: the adapter holds everything
+
+- **The request log.** For each client, the adapter keeps every request id, what was asked, when,
+  how it's going, and whether its result was delivered. The client never sees an id.
+- **No polling.** The adapter polls itself.
+- **News first.** Every reply starts with what has changed since the client last spoke:
+
+```
+Meanwhile: the nightly backup finished (it worked). Say "show me the backup" to see what it printed.
+```
+
+- **Hand-over once.** The adapter keeps the system's rule. A result is shown in full once, then
+  referred to briefly ("the backup finished at 9:12 and worked"), unless the client asks again.
+
+---
+
+## Replies: fixed shapes, plain words
+
+Every reply has the same three parts, any of which can be empty:
+
+1. **News**: what changed since last time.
+2. **The answer**: what was done or found.
+3. **What you can say next**: one to three templates that usually follow.
+
+Rules:
+
+- Never JSON, file names, routes or ids.
+- Large results are cut down by fixed rules: a count, the first lines, then "say 'more' for the rest".
+- Lists are numbered, so the client can say "the second one".
+- A failure is a plain sentence plus the template that fixes it.
+- The person's consent stays separate and is said plainly. When something waits for the Mac, the
+  reply says: "This needs the person at the Mac to click Run. I'll tell you when they do." The
+  client agreeing to something never stands in for that click.
+
+### When the adapter asks first
+
+Only when the match was uncertain: two templates were about equally close, or a title or choice
+needed a big correction. A cleanly filled template is acted on at once. Reads always answer at once.
+
+---
+
+## An exchange
+
+```
+Client:  I need to know if it'll rain in Lagos tomorrow
+
+Adapter: These can do that:
+         1. The weather
+              what's the weather in {a city}
+         2. Search the web
+              search the web for {what to look for}
+
+Client:  what's the weather in Lagos
+
+Adapter: Lagos: 29°C, thunderstorms likely tomorrow afternoon (70%).
+         You can also say: search the web for {what to look for}
+
+Client:  remember something
+         - category: EVENT-DATES
+         - about: Lagos trip
+         - fact: rain likely on the first afternoon, plan indoors
+         - date: 2026-10-25
+
+Adapter: Remembered under EVENT-DATES: Lagos trip.
+         You can also say: what's coming up [this week | this month]
+
+Client:  run the nightly backup
+
+Adapter: This needs the person at the Mac to click Run. I'll tell you when they do.
+         You can also say: what happened to {something you asked for}
+
+         … later …
+
+Client:  what have I asked for today
+
+Adapter: Meanwhile: the nightly backup finished (it worked).
+         Today you asked for:
+         1. the weather in Lagos (answered)
+         2. remembering "Lagos trip" (done)
+         3. the nightly backup (done, not shown yet: say "show me the backup")
+```
+
+---
+
+## How it's offered to a client
+
+- **One tool**: `say(text) → text`.
+- **Over HTTP**: `POST /api/say` takes `text/plain` and answers `text/plain`. The client is
+  identified as it already is, by `client` or `X-Client`, so each client has its own log.
+- What a small model needs in its instructions: *"To use the Mac's tools, use `say`. Say what you
+  want; if it offers templates, fill one in and say it back."*
+
+---
+
+## Layers
+
+1. **The template adapter** (this document). It's deterministic, built on `/api/search` and the
+   existing metadata, and covers single-step requests, status and history.
+2. **The d-model** (optional, later). It adds a free-language parser in front of the adapter that
+   tries to understand requests that aren't filled templates. It would also learn from what
+   clients approve (counting a mapping as learned only once its result was used without
+   correction), and would chain simple steps ("then save it"). It's only needed where layer 1
+   proves too strict.
+
+## Open questions
+
+- How many templates should a search return: the best three, or up to five?
+- Titles become a contract that client models learn. How are they kept stable, and how is a
+  rename handled (old titles still accepted)?
+- How long is a client's log kept, and when does a "conversation" start again?
+- Should simple chains ("search for X, then save the first result as a note") be a built-in form
+  in layer 1, or wait for the d-model?
+- Should the adapter remember which templates a client has used, and offer those first next time?
