@@ -3425,7 +3425,7 @@ extension Examples {
         """# + "\n"),
         ("utilities/library-search.sh", #"""
         #!/bin/bash
-        # Searches every note in the library (LIBRARY (in TOOL-MAC-RUN on your Desktop)): each line with your words on it, the best notes first
+        # Searches every note in the library (LIBRARY, in TOOL-MAC-RUN on your Desktop): each line with your words on it, the best notes first
         #
         # Input: The words to look for (a "phrase" in quotes)
         # Why: Every note is read; nothing is changed
@@ -3447,7 +3447,7 @@ extension Examples {
         """# + "\n"),
         ("utilities/library-read.sh", #"""
         #!/bin/bash
-        # A note's text, from the library (LIBRARY (in TOOL-MAC-RUN on your Desktop)), by its name
+        # A note's text, from the library (LIBRARY, in TOOL-MAC-RUN on your Desktop), by its name
         #
         # Input: The note's name (without .md)
         set -euo pipefail
@@ -6092,7 +6092,7 @@ extension Examples {
         print $"Said {length (split " " picked)} words"
         """# + "\n"),
         ("quick-note.flow", #"""
-        // Adds a line to the Inbox note in your library (LIBRARY (in TOOL-MAC-RUN on the Desktop)), with the time: a thought to sort out later
+        // Adds a line to the Inbox note in your library (LIBRARY, in TOOL-MAC-RUN on the Desktop), with the time: a thought to sort out later
         //
         // Input: What to note down
         let words = if isEmpty args then ask "Note down…" else join " " args

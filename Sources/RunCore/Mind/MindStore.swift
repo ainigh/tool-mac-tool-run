@@ -83,10 +83,10 @@ public struct MindStore: Sendable {
     /// delete or merge is the person's to do, refused unless `scopeChanges`.
     @discardableResult
     public func append(_ lines: [String], scope: String? = nil, comment: String? = nil, stamp: String? = nil,
-                       partial: Bool = false, scopeChanges: Bool = false) throws -> Appended {
+                       partial: Bool = false, scopeChanges: Bool = false, dryRun: Bool = false) throws -> Appended {
         MindCache.lock.lock()
         defer { MindCache.lock.unlock() }
-        try ensure()
+        if !dryRun { try ensure() }
         let before = log()
         var g = MindGraph(log: before)
         var n = g.lines
@@ -166,6 +166,8 @@ public struct MindStore: Sendable {
         var text = before
         if !text.isEmpty, !text.hasSuffix("\n") { text += "\n" }
         text += written.joined(separator: "\n") + "\n"
+        // Only checking: what would be written, and the mind it would make.
+        if dryRun { return Appended(written: written, added: added, known: known, problems: problems, scope: g.current, graph: g) }
         do {
             try Data(text.utf8).write(to: file, options: .atomic)
             MindCache.shared.drop(file.path)

@@ -71,6 +71,11 @@ final class FakeRunHost: RunHost, @unchecked Sendable {
         }
     }
 
+    var screen = ScreenLog()
+
+    func present(_ p: Presentation) async throws { screen.show(p) }
+    func copy(_ text: String) async throws { screen.copy(text) }
+
     func automate(_ request: RunRequest) async throws -> AutomationEntry {
         try lock.withLock {
             automateRequests.append(request)
@@ -80,6 +85,18 @@ final class FakeRunHost: RunHost, @unchecked Sendable {
                                    next: a.schedules.isEmpty ? nil : Date(timeIntervalSince1970: 1_800_000_000))
         }
     }
+}
+
+/// What a pretend screen was given.
+final class ScreenLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var shownValue: [Presentation] = []
+    private var copiedValue: [String] = []
+    var shown: [Presentation] { lock.withLock { shownValue } }
+    var copied: [String] { lock.withLock { copiedValue } }
+    func show(_ p: Presentation) { lock.withLock { shownValue.append(p) } }
+    func copy(_ t: String) { lock.withLock { copiedValue.append(t) } }
+    func reset() { lock.withLock { shownValue = []; copiedValue = [] } }
 }
 
 /// Collects a streamed body.
