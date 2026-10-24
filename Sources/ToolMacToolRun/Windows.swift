@@ -131,15 +131,63 @@ enum Windows {
         }
     }
 
-    /// The Library board: the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), a tile each, one open to edit.
-    /// It fills 90% of the screen, as the other boards do.
-    static func showLibraryBoard() {
-        let id = "library-board"
+    /// The Library board: the notes in LIBRARY, a tile each, one open to edit. It fills 90% of
+    /// the screen, as the other boards do.
+    static func showLibraryBoard() { showShelfBoard(.library) }
+
+    /// A shelf's board (Library, Memory, System Docs): its files, a tile each, one open.
+    static func showShelfBoard(_ shelf: Shelf) {
+        let id = "\(shelf.rawValue)-board"
         let frame = ninetyPercent
-        show(id, title: "Library", size: frame.size, minSize: NSSize(width: 720, height: 460), autosave: false) {
-            LibraryBoardView(app: AppModel.shared)
+        show(id, title: shelf.title, size: frame.size, minSize: NSSize(width: 720, height: 460), autosave: false) {
+            LibraryBoardView(app: AppModel.shared, shelf: shelf)
         }
         windows[id]?.setFrame(frame, display: true, animate: false)
+    }
+
+    /// The Mind board: the mind as a picture (or as text), a node picked to see all about it.
+    static func showMindBoard(select name: String? = nil) {
+        let id = "mind-board"
+        let frame = ninetyPercent
+        let isNew = windows[id] == nil
+        show(id, title: "Mind", size: frame.size, minSize: NSSize(width: 760, height: 480), autosave: false) {
+            MindBoardView(app: AppModel.shared, model: MindBoardModel.shared)
+        }
+        if isNew { windows[id]?.setFrame(frame, display: true, animate: false) }
+        if let name { MindBoardModel.shared.select(named: name) }
+    }
+
+    /// What another app (or you) asked to show: a window in front of everything, near the pointer.
+    static func showPresent() {
+        if let w = windows["present"] {
+            w.orderFrontRegardless()
+            bringForward(w)
+            return
+        }
+        let size = NSSize(width: 760, height: 640)
+        let w = NSPanel(contentRect: NSRect(origin: .zero, size: size),
+                        styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.title = "Shown to You"
+        w.titlebarAppearsTransparent = true
+        w.isReleasedWhenClosed = false
+        // In front of everything, on whichever Space the person is on, until they close it.
+        w.level = .floating
+        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        w.hidesOnDeactivate = false
+        w.becomesKeyOnlyIfNeeded = false
+        w.minSize = NSSize(width: 480, height: 320)
+        w.contentViewController = NSHostingController(rootView: PresentView(center: PresentCenter.shared))
+        w.setContentSize(size)
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        if let v = screen?.visibleFrame {
+            w.setFrameOrigin(NSPoint(x: v.midX - size.width / 2, y: v.midY - size.height / 2))
+        } else {
+            w.center()
+        }
+        w.setFrameAutosaveName("ToolMacToolRun.present")
+        windows["present"] = w
+        w.orderFrontRegardless()
+        bringForward(w)
     }
 
     // MARK: editors

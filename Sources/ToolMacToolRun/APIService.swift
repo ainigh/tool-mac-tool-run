@@ -29,7 +29,7 @@ final class APIService: ObservableObject {
         current = SettingsBox(loaded)
         wantsServing = defaults.object(forKey: Self.servingKey) as? Bool ?? true
         let box = current
-        let api = RunAPI(host: AppRunHost(), version: AppModel.version) { box.value }
+        let api = RunAPI(host: AppRunHost(), version: AppModel.version, shelves: { Shelves(shipped: AppModel.shippedSystemDocs) }) { box.value }
         http = APIServer(api: api)
         http.onState = { [weak self] state in
             MainActor.assumeIsolated { self?.server = state }
@@ -170,6 +170,14 @@ final class AppRunHost: RunHost, @unchecked Sendable {
             center.set(a, for: item)
             return AutomationEntry(id: item.id, grid: item.grid, title: item.title, automation: a, next: center.next(for: item.id, kind: item.grid)?.at)
         }
+    }
+
+    func present(_ p: Presentation) async throws {
+        await MainActor.run { PresentCenter.shared.show(p) }
+    }
+
+    func copy(_ text: String) async throws {
+        await MainActor.run { PresentCenter.shared.copy(text) }
     }
 
     func record(_ id: UUID) async -> RunRecord? {

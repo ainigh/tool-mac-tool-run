@@ -297,33 +297,27 @@ struct GridHeader: View {
     static func short(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The grids and the API board, a segment each: a click opens that one's window.
+/// The grids and the other boards, a segment each: a click opens that one's window.
 struct BoardSwitcher: View {
-    /// The one showing: a grid's raw value, or `BoardSwitcher.api`.
+    /// The one showing: a grid's raw value, or a `Board`'s.
     let current: String
     @ObservedObject var app: AppModel
 
-    static let api = "api"
-    static let automation = "automation"
-    static let library = "library"
+    static let api = Board.api.rawValue
+    static let automation = Board.automation.rawValue
+    static let library = Board.library.rawValue
 
     var body: some View {
         Picker("", selection: Binding(get: { current }, set: { picked in
             guard picked != current else { return }
             if let kind = GridKind(rawValue: picked) {
                 app.openGrid(kind)
-            } else if picked == Self.automation {
-                Windows.showAutomationBoard()
-            } else if picked == Self.library {
-                Windows.showLibraryBoard()
-            } else {
-                Windows.showAPIBoard()
+            } else if let board = Board(rawValue: picked) {
+                board.show()
             }
         })) {
             ForEach(GridKind.allCases, id: \.self) { k in Text(k.title).tag(k.rawValue) }
-            Text("API").tag(Self.api)
-            Text("Automation").tag(Self.automation)
-            Text("Library").tag(Self.library)
+            ForEach(Board.allCases, id: \.self) { b in Text(b.short).tag(b.rawValue) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -331,10 +325,9 @@ struct BoardSwitcher: View {
         .help(Self.help)
     }
 
-    /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, ⌘6 Automation, from the menu bar icon)".
+    /// "Switch boards (⌘1 Scripts, ⌘2 Composer, …, ⌘5 API, … ⌘0 System Docs, from the menu bar icon)".
     private static var help: String {
-        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" }
-            + ["⌘\(GridKind.allCases.count + 1) API", "⌘\(GridKind.allCases.count + 2) Automation", "⌘\(GridKind.allCases.count + 3) Library"]
+        let keys = GridKind.allCases.map { "⌘\($0.key) \($0.title)" } + Board.allCases.map { "⌘\($0.key) \($0.title)" }
         return "Switch boards (\(keys.joined(separator: ", ")), from the menu bar icon)"
     }
 }

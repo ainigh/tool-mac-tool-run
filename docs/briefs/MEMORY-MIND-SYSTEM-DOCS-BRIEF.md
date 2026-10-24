@@ -32,5 +32,9 @@ ship to main at each point. dont wait for builds in other branches
   the notation; check, prompt, context), /api/system-docs (read only), /api/present and
   /api/clipboard ("present": true and "copy": true on any answer), /api/browser (Chrome's page:
   url, tabs, page, has, find, highlight, outline). Each has its switch in the panel
-- [ ] 3 · The boards: Memory, Mind (a picture, and the text), System Docs; the Present window
+- [x] 3 · The boards: Memory (⌘8), Mind (⌘9: a picture to move around in, or its text as written or
+  in its shortest form; a node's panel; lines added, checked as they're typed), System Docs (⌘0:
+  read only, laid out, with copy buttons); the Present window (in front of everything, copy
+  buttons on the whole, each section, each piece of code); SYSTEM-DOCS installed and MEMORY made at
+  launch; SYSTEM-DOCS' first docs (prompts, recipes, exchanges, guides)
 - [ ] 4 · The docs (SYSTEM-DOCS' prompts, recipes and exchanges), scripts and guides

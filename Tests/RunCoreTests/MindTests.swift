@@ -325,3 +325,51 @@ final class MindStoreTests: XCTestCase {
         XCTAssertFalse(shelf.search("API").isEmpty)
     }
 }
+
+/// What SYSTEM-DOCS ships with: every ```mm example in it is notation the mind reads.
+final class SystemDocsContentTests: XCTestCase {
+    static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    func testEveryNotationExampleInTheDocsReads() throws {
+        let folder = Self.repo.appendingPathComponent("docs/system", isDirectory: true)
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "md" }
+        XCTAssertTrue(files.contains { $0.lastPathComponent == "PROMPT-ASSISTANT.md" })
+        var blocks = 0
+        for f in files {
+            let text = try String(contentsOf: f, encoding: .utf8)
+            var inside: [String]?
+            for line in text.components(separatedBy: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if inside == nil, t == "```mm" { inside = []; continue }
+                if inside != nil, t.hasPrefix("```") {
+                    blocks += 1
+                    var g = MindGraph()
+                    for l in inside! where l.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                        // A line's own comment (after the notation) is two spaces or more on.
+                        let statement = l.components(separatedBy: "  ").first ?? l
+                        XCTAssertNoThrow(try g.apply(statement), "\(f.lastPathComponent): \(statement)")
+                    }
+                    inside = nil
+                    continue
+                }
+                inside?.append(line)
+            }
+        }
+        XCTAssertGreaterThan(blocks, 5)
+    }
+
+    func testTheShippedDocsInstall() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("docs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let shelf = FileLibrary(root: home, shelf: .systemDocs)
+        let r = try SystemDocs.install(into: shelf, shipped: Self.repo.appendingPathComponent("docs/system"), baseURL: "http://127.0.0.1:8768", version: nil)
+        for name in ["START-HERE", "PROMPT-ASSISTANT", "MIND-GUIDE", "MEMORY-GUIDE", "RECIPES", "EXCHANGES", "BROWSER-GUIDE", "API-REFERENCE"] {
+            XCTAssertTrue(r.written.contains(name), name)
+        }
+        // The query the recipes show answers.
+        let g = MindGraph(log: "| PEOPLE | ada\n| ada @birthday 03-14\n| PEOPLE | sam")
+        let answers = MindQuery.run("| PEOPLE | x\n| x @birthday", in: g)
+        XCTAssertEqual(answers.count, 2)
+        XCTAssertEqual(answers[1].lines, ["| ada @birthday 03-14"])
+    }
+}
