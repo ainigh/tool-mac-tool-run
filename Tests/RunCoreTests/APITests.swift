@@ -752,7 +752,7 @@ final class APITests: XCTestCase {
     func testTheStatusPagesExampleFlowChecks() throws {
         let page = StatusPage.html
         let start = try XCTUnwrap(page.range(of: "<textarea id=\"code\">")).upperBound
-        let end = try XCTUnwrap(page.range(of: "</textarea>")).lowerBound
+        let end = try XCTUnwrap(page.range(of: "</textarea>", range: start..<page.endIndex)).lowerBound
         XCTAssertNoThrow(try Flow.check(String(page[start..<end]), scripts: []))
     }
 }
