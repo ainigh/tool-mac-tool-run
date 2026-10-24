@@ -3171,11 +3171,13 @@ extension Examples {
 
 
         def find(name):
+            """The note of that name, as the folder lists it (on a Mac, GROCERIES.md is groceries.md too)."""
             k = key(name)
-            exact = os.path.join(ROOT, k + "." + EXT)
-            if os.path.isfile(exact):
-                return k, exact
-            for n, p in notes():
+            found = notes()
+            for n, p in found:
+                if n == k:
+                    return n, p
+            for n, p in found:
                 if fold(n) == fold(k):
                     return n, p
             return None

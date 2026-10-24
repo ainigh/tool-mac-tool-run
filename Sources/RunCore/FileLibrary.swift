@@ -103,10 +103,12 @@ public struct FileLibrary: Sendable {
     /// accents (on a Mac, `Groceries` and `groceries` are the same file). Nil when there's none.
     public func find(_ name: String) -> Note? {
         guard let key = try? Self.key(name, ext: ext) else { return nil }
-        let exact = root.appendingPathComponent(key + "." + ext)
-        if FileManager.default.fileExists(atPath: exact.path) { return note(at: exact) }
+        // From the folder's own list, so the name is the file's (on a Mac, GROCERIES.md is
+        // groceries.md too, and would come back as typed).
+        let all = list()
+        if let exact = all.first(where: { $0.name == key }) { return exact }
         let folded = Self.fold(key)
-        return list().first { Self.fold($0.name) == folded }
+        return all.first { Self.fold($0.name) == folded }
     }
 
     public func exists(_ name: String) -> Bool { find(name) != nil }
