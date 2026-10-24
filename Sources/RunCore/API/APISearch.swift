@@ -13,6 +13,8 @@ public enum APISearch {
         /// only in its group's description).
         public var strong: Int
         public var score: Double
+        /// Words of the search it says it isn't for (it's put lower for them).
+        public var against: [String] = []
         /// Its place in the order things are listed in, to keep ties in that order.
         public var order: Int
         public var json: [String: Any]
@@ -68,6 +70,8 @@ public enum APISearch {
     /// One thing to find, as fields of words, each with its weight.
     struct Doc {
         var fields: [(words: Set<String>, weight: Int)]
+        /// Words it's not for (a route's `!open` tags): a search with one puts it lower.
+        var notFor: Set<String> = []
 
         /// How well one word matches: the weight of the best field it's in, or (a word of three
         /// letters or more) a field word it begins, one less.
@@ -90,16 +94,35 @@ public enum APISearch {
 
     static func doc(_ r: APIRoutes.Route, in g: APIRoutes.Group) -> Doc {
         let path = r.path.split(separator: "/").filter { !$0.hasPrefix("{") }.map(String.init)
+        let (tags, notFor) = split(r.tags), (groupTags, groupNotFor) = split(g.tags)
+        // The group's about says what it isn't for, in words ("never opens a page"): not matched on.
         return Doc(fields: [
-            (set(r.tags + path), 4),
-            (set([r.summary] + g.tags + [g.id]), 3),
-            (set([g.title, g.about, methodWords[r.method] ?? ""]), 1),
-        ])
+            (set(tags + path), 4),
+            (set([r.summary] + groupTags + [g.id]), 3),
+            (set([g.title, groupNotFor.isEmpty ? g.about : "", methodWords[r.method] ?? ""]), 1),
+        ], notFor: set(notFor + groupNotFor))
     }
+
+    /// Tags, and the words written `!word` (what it's not for).
+    static func split(_ tags: [String]) -> (tags: [String], notFor: [String]) {
+        (tags.filter { !$0.hasPrefix("!") }, tags.filter { $0.hasPrefix("!") }.map { String($0.dropFirst()) })
+    }
+
+    /// Words the examples that ship with the app are found by, beyond what their headers say
+    /// (their files can't change without making them look edited): what someone would ask for.
+    static let exampleTags: [String: String] = [
+        "browser/open-page.sh": "open go goto navigate visit load url address website link browse web page",
+        "browser/google.sh": "google search web online internet look up question answer browse open",
+        "browser/site-search.sh": "search web website site youtube amazon github wikipedia reddit online",
+        "browser/browser.sh": "open navigate url javascript",
+        "browser/find-tab.sh": "switch tab go",
+        "browser/youtube.sh": "video search watch",
+        "utilities/weather.py": "forecast rain temperature",
+    ]
 
     static func doc(_ s: ScriptItem) -> Doc {
         Doc(fields: [
-            (set([s.title] + s.tags + [APICatalog.topic(of: s) ?? ""]), 4),
+            (set([s.title] + s.tags + [APICatalog.topic(of: s) ?? "", exampleTags[s.id] ?? ""]), 4),
             (set([s.summary ?? "", s.grid.rawValue, s.language.title, s.language.rawValue, s.grid.isFlow ? "flow" : "script"]), 3),
             (set(s.inputs.map(\.prompt)), 1),
         ])
@@ -122,8 +145,13 @@ public enum APISearch {
             let scores = terms.map(d.score)
             guard scores.contains(where: { $0 > 0 }) else { return }
             let matched = zip(terms, scores).filter { $0.1 > 0 }.map(\.0)
-            let strong = scores.filter { $0 >= 2 }.count
-            scored.append((scores, Hit(kind: kind, matched: matched, strong: strong, score: 0, order: order, json: json())))
+            var strong = scores.filter { $0 >= 2 }.count
+            // Asked for something it says it isn't for: lower (a word fewer, half the score).
+            let against = terms.filter(d.notFor.contains)
+            if !against.isEmpty { strong = max(0, strong - 1) }
+            var hit = Hit(kind: kind, matched: matched, strong: strong, score: 0, order: order, json: json())
+            hit.against = against
+            scored.append((scores, hit))
         }
         var order = 0
         if scopes.contains(.routes) {
@@ -154,7 +182,8 @@ public enum APISearch {
         }
         let hits: [Hit] = scored.map { s in
             var h = s.hit
-            h.score = (zip(s.scores, rarity).reduce(0) { $0 + Double($1.0) * $1.1 } * 100).rounded() / 100
+            let raw = zip(s.scores, rarity).reduce(0) { $0 + Double($1.0) * $1.1 } * (h.against.isEmpty ? 1 : 0.5)
+            h.score = (raw * 100).rounded() / 100
             return h
         }
         let most = hits.map(\.strong).max() ?? 0
@@ -170,8 +199,11 @@ public enum APISearch {
     // MARK: what each hit says
 
     static func routeJSON(_ r: APIRoutes.Route, _ g: APIRoutes.Group) -> [String: Any] {
-        ["method": r.method, "path": r.path, "summary": r.summary, "group": g.id, "asks_on_the_mac": r.asks, "tags": r.tags,
-         "call": r.key]
+        var out: [String: Any] = ["method": r.method, "path": r.path, "summary": r.summary, "group": g.id, "asks_on_the_mac": r.asks,
+                                  "tags": split(r.tags).tags, "call": r.key]
+        let notFor = split(r.tags).notFor + split(g.tags).notFor
+        if !notFor.isEmpty { out["not_for"] = notFor }
+        return out
     }
 
     /// A script, with the request that runs it (its inputs as placeholder arguments).
@@ -198,7 +230,7 @@ public enum APISearch {
     /// any client, to look deeper with `?group=` or a search.
     static func brief(settings: APISettings) -> [[String: Any]] {
         APIRoutes.groups.map { g in
-            var out: [String: Any] = ["id": g.id, "title": g.title, "about": g.about, "routes": g.routes.count, "tags": g.tags,
+            var out: [String: Any] = ["id": g.id, "title": g.title, "about": g.about, "routes": g.routes.count, "tags": split(g.tags).tags,
                                       "list": "/api/endpoints?group=\(g.id)"]
             if let e = g.endpoint { out["on"] = settings.isOn(e) }
             return out

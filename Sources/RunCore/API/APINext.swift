@@ -23,6 +23,9 @@ public enum APINext {
 
     static let search = Hint("GET", "/api/search?q={words}", "find the route, script or flow for something else, by a few words")
 
+    /// Chrome's page only reads: what opens one.
+    static let openPage = Hint("POST", "/api/run", "to open a page or search Google first (this only reads what's already there): POST /api/run {\"script\": \"browser/open-page.sh\", \"args\": [\"<address>\"]}, or browser/google.sh with [\"<question>\"] (each waits for Run on the Mac)")
+
     /// The calls that usually come after each route, by "METHOD path".
     static let table: [String: [Hint]] = [
         // About
@@ -106,10 +109,10 @@ public enum APINext {
         "GET /api/clipboard": [Hint("POST", "/api/clipboard", "copy something {\"text\"}")],
         "POST /api/clipboard": [Hint("POST", "/api/present", "show it too {\"title\", \"text\"}")],
         // Chrome's page
-        "GET /api/browser": [Hint("GET", "/api/browser/page", "what the page says"), Hint("GET", "/api/browser/find?text={words}", "where a thing is on it")],
-        "GET /api/browser/url": [Hint("GET", "/api/browser/page", "what the page says"), Hint("GET", "/api/browser/has?text={words}", "whether words are on it")],
-        "GET /api/browser/tabs": [Hint("GET", "/api/browser/page", "the page in front")],
-        "GET /api/browser/page": [Hint("GET", "/api/browser/find?text={words}", "where a thing is"), Hint("GET", "/api/browser/has?text={words}", "whether words are on it")],
+        "GET /api/browser": [Hint("GET", "/api/browser/page", "what the page says"), Hint("GET", "/api/browser/find?text={words}", "where a thing is on it"), openPage],
+        "GET /api/browser/url": [Hint("GET", "/api/browser/page", "what the page says"), Hint("GET", "/api/browser/has?text={words}", "whether words are on it"), openPage],
+        "GET /api/browser/tabs": [Hint("GET", "/api/browser/page", "the page in front"), openPage],
+        "GET /api/browser/page": [Hint("GET", "/api/browser/find?text={words}", "where a thing is"), Hint("GET", "/api/browser/has?text={words}", "whether words are on it"), openPage],
         "GET /api/browser/has": [Hint("GET", "/api/browser/find?text={words}", "where it is"), Hint("POST", "/api/browser/highlight", "ring it in red for the person {\"text\"}")],
         "GET /api/browser/find": [Hint("POST", "/api/browser/highlight", "ring it in red for the person {\"text\"}")],
         "POST /api/browser/highlight": [Hint("GET", "/api/browser/has?text={words}", "read again after the person's next step")],
@@ -192,6 +195,11 @@ public enum APINext {
             return [Hint("GET", "/api/search?q={words}&in=scripts", "scripts by what they do"), Hint("GET", "/api/scripts", "every script")]
         case "unknown_flow":
             return [Hint("GET", "/api/search?q={words}&in=flows", "flows by what they do"), Hint("GET", "/api/flows", "every flow")]
+        case "chrome_not_open", "no_window":
+            return [openPage, Hint("POST", "/api/straw/run", "or Straw code that opens it and acts on it {\"source\": \"open google.com\", \"why\"}")]
+        case "browser_reads_only":
+            let q = req.query["text"] ?? req.query["q"] ?? (JSON.object(req.body)?["text"] as? String) ?? ""
+            return RunAPI.actHints(q)
         case "unknown_group":
             return [Hint("GET", "/api/endpoints?brief=true", "the groups there are")]
         default:

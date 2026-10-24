@@ -11,7 +11,9 @@ public enum APIRoutes {
         /// It waits for a click on the Mac (Run, Allow, Stop It) before it does anything.
         public let asks: Bool
         /// Words it's found by (`GET /api/search`) beyond its path and summary: what someone
-        /// looking for it would say ("note", "remember", "job", "status").
+        /// looking for it would say ("note", "remember", "job", "status"). One written `!open`
+        /// is a word it's *not* for: a search that has it puts the route lower (Chrome's page
+        /// only reads, so "open a page" isn't it).
         public let tags: [String]
 
         init(_ method: String, _ path: String, _ summary: String, asks: Bool = false, tags: String = "") {
@@ -52,7 +54,7 @@ public enum APIRoutes {
             Route("GET", "/api/endpoints", "every route, in its groups (this list; GET /api too; ?group=library for one group; ?brief=true: the groups alone)", tags: "all every list routes groups catalog"),
             Route("GET", "/api/health", "is it up, which groups are on, the folder, how many scripts, flows and notes", tags: "health up alive ping status version check ok server running"),
             Route("GET", "/api/doc", "the whole API in one page (text/markdown), with this server's address", tags: "doc documentation reference contract markdown whole"),
-            Route("GET", "/", "a status page in a browser, with a place to try a script or Flow code", tags: "page html browser try status"),
+            Route("GET", "/", "a status page in a browser, with a place to try a script or Flow code", tags: "html home try status"),
         ]),
         Group(id: "scripts", title: "Scripts and flows", about: "The scripts and flows in the folder, and running them", endpoint: nil, tags: "script flow run execute program shell bash python node command tool job task", routes: [
             Route("GET", "/api/scripts", "the scripts (?group=scripts, utilities or browser: one grid's)", tags: "scripts list available utilities tools what"),
@@ -64,7 +66,7 @@ public enum APIRoutes {
         Group(id: "straw", title: "Straw: Chrome by what's on the page", about: "Straw's words and scripts, checking Straw code, and running it in Chrome", endpoint: nil, tags: "straw chrome browser automate web page click type drive site", routes: [
             Route("GET", "/api/straw", "Straw's words (what each takes and does, with an example) and the Straw scripts in the folder", tags: "words vocabulary list scripts"),
             Route("POST", "/api/straw/check", "check Straw code without running it {\"source\"}: what it would do, or its mistake, line and fix", tags: "check validate plan"),
-            Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome", asks: true, tags: "run execute open click"),
+            Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome: it opens pages, goes to addresses, clicks and types (open example.com, click \"More\")", asks: true, tags: "run execute open go goto navigate visit url address website browse click type fill press automate"),
         ]),
         Group(id: "library", title: "File library", about: "The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no extension): answered at once, without asking on the Mac",
               endpoint: .library, tags: "library note notes file files text markdown document doc key value store save", routes: [
@@ -160,8 +162,8 @@ public enum APIRoutes {
             Route("GET", "/api/clipboard", "what it takes", tags: "clipboard how"),
             Route("POST", "/api/clipboard", "copy {\"text\"}, a file {\"shelf\", \"name\"}, or a node {\"mind\"}", tags: "copy clipboard paste"),
         ]),
-        Group(id: "browser", title: "Chrome's page", about: "The page in front of Chrome, to guide the person through a site: what's open, what it says, whether words are on it, where a thing is, and a ring to show them. Reads only; never clicks or types",
-              endpoint: .browser, tags: "chrome browser page tab site web url guide", routes: RunAPI.browserRoutes.map { Route($0.method, $0.path, $0.summary, tags: RunAPI.browserTags[$0.path] ?? "") }),
+        Group(id: "browser", title: "Chrome's page (reads only)", about: "The page already in front of Chrome, to guide the person through a site: what's open, what it says, whether words are on it, where a thing is, and a ring to show them. READS ONLY: it never opens a page, goes to an address, searches, clicks or types. To open a page or search Google, run a browser script (browser/open-page.sh, browser/google.sh, browser/site-search.sh: POST /api/run) or Straw (POST /api/straw/run)",
+              endpoint: .browser, tags: "chrome browser page tab site guide read current front !open !go !goto !navigate !visit !load !launch !browse !click !type !fill !press !google", routes: RunAPI.browserRoutes.map { Route($0.method, $0.path, $0.summary, tags: RunAPI.browserTags[$0.path] ?? "") }),
         Group(id: "automation", title: "Automation", about: "Scripts and flows that run by themselves", endpoint: nil, tags: "automation automate schedule cron trigger every recurring timer tag", routes: [
             Route("GET", "/api/automation", "the tags there are, and what runs by itself", tags: "list tags scheduled"),
             Route("POST", "/api/automation", "tag a script or a flow to run by itself {\"script\"|\"flow\", \"automation\": [tags]}", asks: true, tags: "schedule tag automate set"),

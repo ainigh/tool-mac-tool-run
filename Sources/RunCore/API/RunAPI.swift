@@ -705,6 +705,12 @@ public final class RunAPI: @unchecked Sendable {
                               "results": results, "next": next.map(\.json)])
     }
 
+    /// A string as JSON writes it, quotes and all ("a \"b\"").
+    static func jsonString(_ s: String) -> String {
+        let d = JSON.data([s])
+        return String(String(decoding: d, as: UTF8.self).dropFirst().dropLast())
+    }
+
     /// A query's true or false: "true", "1", "yes" (or there with nothing after it).
     static func flag(_ value: String?) -> Bool {
         guard let v = value?.lowercased() else { return false }

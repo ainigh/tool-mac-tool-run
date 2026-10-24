@@ -366,6 +366,10 @@ curl -s "localhost:8768/api/memory/upcoming?days=14"                      # what
   sentence), `POST /api/browser/highlight {"text"}` (a red ring on the page): the page in Chrome,
   read only. Look again after each step; never say something is on the page that `has` or `find`
   didn't find. `PROMPT-SITE-GUIDE` in SYSTEM-DOCS is the prompt for it.
+  **It can't open a page or search.** To go to an address, run `browser/open-page.sh` (`"args":
+  ["<address>"]`); to search Google, `browser/google.sh` (it gives back the answer itself); a
+  site's own search, `browser/site-search.sh` (`["youtube lofi"]`); to click and type, Straw.
+  Those are runs: they wait for Run on the Mac.
 
 ## Straw: driving Chrome
 
