@@ -122,7 +122,22 @@ and a chip for each section. A click runs one: when its header says it takes som
 result shows beside the tiles, live, and stays when it's done, printed something or not. A tile
 drags into a flow's block editor, as the editor's library does; right-click copies the `curl`
 command (or the request) another app would send for the same run. It's the way to try anything
-the API offers by hand.
+the API offers by hand. Each section's tiles are under their topics (the utilities' Library,
+Finding files, Date and time, This Mac…; the browser's Straw, Searching sites, Chrome; the
+functions' Text, Lists, System…), and its **Library** section runs the file library's operations.
+
+**The Library board** (⌘7) is your notes: a folder called **LIBRARY** on your Desktop, each note a
+Markdown file known by its name alone (`groceries` is `LIBRARY/groceries.md`). A tile each, the
+latest changed first; click one to read and edit it beside them (⌘S saves); **New Note** (⌘N),
+a search across every note's text (each match with the lines it's on), right-click to rename,
+duplicate, open in its app or show in the Finder. Deleting moves a note to the library's own
+**Trash**, numbered (`groceries (1)`, `groceries (2)`…), so several of a name can wait there to be
+restored. Other apps use the same notes over the API (`/api/library`: list, read, write, create,
+append, rename, copy, delete, restore, full-text search, find by it, recent, outline, backlinks),
+**without asking you each time**: they're notes, not programs, and every call still gets an id.
+Flows use them too (`libraryRead`, `libraryWrite`, `libraryAppend`, `libraryFind`…), and so do
+the Utilities grid's `library` scripts (`library-search`, `library-find`, `library-append`…) and
+the flows `quick-note`, `journal`, `find-note`, `library-digest`, `save-page` and `clip-selection`.
 
 **The Automation board** (⌘6) is everything that runs by itself, the same tiles grouped by what
 makes them run: a **schedule** (every minute, every 5, 10 or 30 minutes, every hour, every
@@ -154,6 +169,12 @@ window; so do the panel's latest runs.
 
 The same panel has **Runs**: every run of a script or a flow, with how it went and everything it
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
+
+**Every route, in its groups**: `GET /api/endpoints` lists them (About the API, Scripts and flows,
+Straw, File library, Automation, Runs and requests), and so do `/api/doc` and the API's own page.
+**Straw has routes of its own**: `GET /api/straw` (its words and scripts), `POST /api/straw/check`
+(Straw code checked, nothing run) and `POST /api/straw/run` (a Straw script, or Straw code an app
+sends, run in Chrome once you click Run; the card shows the code).
 
 **Other apps can run them too, with your OK.** The app serves an HTTP API at
 `http://127.0.0.1:8768` (the way Super Voice serves speech): another app lists your scripts and

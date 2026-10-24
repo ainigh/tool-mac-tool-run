@@ -86,7 +86,18 @@ public enum APIClient: String, CaseIterable, Sendable {
         curl -s\(auth) \(base)/api/compose -d '{"flow": "morning.flow", "client": "My Terminal", "why": "Morning check"}'
         curl -s\(auth) \(base)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My Terminal"}'
 
-        # The whole API in one page
+        # The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac
+        curl -s\(auth) \(base)/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\\n- milk\\n", "client": "My Terminal"}'
+        curl -s\(auth) \(base)/api/library -d '{"op": "search", "q": "milk"}'
+        curl -s\(auth) "\(base)/api/library/files/groceries?format=text"
+        curl -s\(auth) -X DELETE \(base)/api/library/files/groceries      # to the library's Trash (restore brings it back)
+
+        # Straw: check Straw code (nothing runs), or run it in Chrome (waits for Run on the Mac)
+        curl -s\(auth) \(base)/api/straw/check -d '{"source": "open example.com\\nread title"}'
+        curl -s\(auth) \(base)/api/straw/run -d '{"source": "open example.com\\nread title", "client": "My Terminal", "why": "Trying Straw"}'
+
+        # Every route, in its groups; the whole API in one page
+        curl -s\(auth) \(base)/api/endpoints
         curl -s\(auth) \(base)/api/doc
         """
     }
@@ -146,6 +157,17 @@ public enum APIClient: String, CaseIterable, Sendable {
             return result["request"]
 
 
+        def library(op, **fields):
+            """The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            library("write", name="groceries", text="- eggs"), library("read", name="groceries")["text"],
+            library("append", name="groceries", text="- milk"), library("search", q="milk")["results"],
+            library("find", q="milk")["names"], library("names")["names"], library("delete", name="groceries")."""
+            result, _ = call("POST", "/api/library", {"op": op, "client": CLIENT, **fields})
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error"))  # not_found (with "fix": the names near it), already_exists…
+            return result
+
+
         def wait_for(request_id, every=1.0):
             """Where the request is, once it's over: succeeded, failed, denied, not_answered…"""
             while True:
@@ -160,6 +182,8 @@ public enum APIClient: String, CaseIterable, Sendable {
             print("Scripts:", ", ".join(s["name"] for s in scripts["scripts"]))
             r = run("hello.sh", ["world"], why="Trying the API from Python")
             print("ok" if r["ok"] else f"failed ({r['code']})", r["output"])
+            library("write", name="From Python", text="Written by my Python app")
+            print(library("read", name="From Python")["text"])
         """#
     }
 
@@ -197,6 +221,15 @@ public enum APIClient: String, CaseIterable, Sendable {
         export async function runLater(script, args = [], why = "") {
           const { json } = await call("POST", "/api/run", { script, args, why, client: CLIENT, async: true });
           return json.request;
+        }
+
+        // The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+        // await library("write", { name: "groceries", text: "- eggs" }); (await library("read", { name: "groceries" })).text
+        // (await library("search", { q: "eggs" })).results; (await library("find", { q: "eggs" })).names; library("delete", { name: "groceries" })
+        export async function library(op, fields = {}) {
+          const { json } = await call("POST", "/api/library", { op, client: CLIENT, ...fields });
+          if (!json.ok) throw new Error(json.error); // not_found (with json.fix: the names near it), already_exists…
+          return json;
         }
 
         export async function waitFor(requestId, everyMs = 1000) {
@@ -251,6 +284,18 @@ public enum APIClient: String, CaseIterable, Sendable {
                 return json["request"] as? String ?? ""
             }
 
+            /// The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            /// `try await library("write", ["name": "groceries", "text": "- eggs"])`, `try await library("read", ["name": "groceries"])["text"]`,
+            /// "search" (["q": "eggs"]), "find", "append", "delete" (to the library's Trash), "restore"…
+            func library(_ op: String, _ fields: [String: Any] = [:]) async throws -> [String: Any] {
+                var body = fields
+                body["op"] = op
+                body["client"] = client
+                let (json, _) = try await call("POST", "api/library", body)
+                if json["ok"] as? Bool != true { throw Refused(message: json["error"] as? String ?? "it didn't work") }
+                return json
+            }
+
             /// Where a request is: waiting, running, succeeded, failed, denied, not_answered…
             func state(of requestID: String) async throws -> [String: Any] {
                 try await call("GET", "api/requests/\\(requestID)").0
@@ -299,6 +344,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         3. Keep the request id: it's in every answer (the X-Request-Id header, and "request" in the JSON). GET \(base)/api/requests/{id} says where it is any time later: waiting, running, succeeded, failed, denied, not_answered.
         4. Find names before running: GET /api/scripts and GET /api/flows list what there is, with what each asks for ("inputs"). Never guess a name.
         5. A run that fails is still HTTP 200: read "ok" and "code". 403 means it didn't run (the user said no, or didn't answer); don't ask again unless the user wants you to.
+        6. The user's notes, LIBRARY on their Desktop, are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
 
         Endpoints:
         GET  /api/scripts                 the scripts: name, title, summary, inputs (what each asks for), dangers
@@ -309,6 +355,12 @@ public enum APIClient: String, CaseIterable, Sendable {
         POST /api/check                   {"source": "<Flow code>"} → checks it, runs nothing
         GET  /api/requests/{id}           where a request is, with its run's output once it has one
         POST /api/runs/{id}/stop          stops a run you asked for (one the user started asks them first)
+        POST /api/library                 {"op": "list"|"names"|"read"|"read_many"|"write"|"create"|"append"|"rename"|"copy"|"delete"|"restore"|"trash"|"search"|"find"|"recent"|"stats"|"outline"|"backlinks", "name"?, "text"?, "q"?, …}: the notes, answered at once
+                                          e.g. {"op": "search", "q": "bank"} → {"results": [{"name", "score", "lines": [{"line", "text"}]}]}; {"op": "read", "name": "groceries"} → {"text", …}
+        GET  /api/straw                   Straw's words and the Straw scripts (Straw drives Chrome by what's on the page)
+        POST /api/straw/check             {"source": "<Straw code>"} → what it would do, or its mistake; runs nothing
+        POST /api/straw/run               {"script": "<name>"} or {"source": "<Straw code>"}, with "client" and "why": runs it in Chrome once the user clicks Run
+        GET  /api/endpoints               every route, in its groups
         GET  /api/doc                     every endpoint, field and error, in one page: read it when unsure
 
         Example:

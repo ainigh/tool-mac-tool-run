@@ -29,7 +29,7 @@ public struct Builtin: @unchecked Sendable {
 
 extension Builtin {
     /// Every builtin, in the order the guide lists them.
-    public static let all: [Builtin] = scripts + epa + asking + text + lists + logic + system
+    public static let all: [Builtin] = scripts + epa + asking + text + lists + logic + system + library
 
     /// What `for x in xs do …` is made of (`each`, by a name a flow can't write or hide).
     static let forName = "$for"
@@ -418,6 +418,69 @@ extension Builtin {
     ]
 
     static func expand(_ path: String) -> String { (path as NSString).expandingTildeInPath }
+
+    // MARK: the file library
+
+    /// The notes in LIBRARY on the Desktop, by name (no .md): the same library the Library board
+    /// shows and the API serves.
+    static let library: [Builtin] = [
+        Builtin("libraryNames", "unit -> string list", "Library", "The names of the notes in LIBRARY on the Desktop, A to Z.", "libraryNames () |> each print", arity: 1) { _, _, _ in
+            .list(FileLibrary().names().map(Value.str))
+        },
+        Builtin("libraryRead", "string -> string", "Library", "A note's text, by its name (without .md).", "let list = libraryRead \"groceries\"", arity: 1) { _, a, pos in
+            .str(try Builtin.inLibrary(pos) { try $0.read(a[0].string).text })
+        },
+        Builtin("libraryWrite", "string -> string -> unit", "Library", "Writes a note (first: its name): created, or its text replaced.",
+                "libraryWrite \"groceries\" \"- eggs\\n- milk\"", arity: 2) { i, a, pos in
+            let r = try Builtin.inLibrary(pos) { try $0.write(a[0].string, a[1].string) }
+            i.host.say("✅ \(r.created ? "Created" : "Wrote") \(r.note.name) in the library")
+            return .unit
+        },
+        Builtin("libraryAppend", "string -> string -> unit", "Library", "Adds text at the end of a note, on a line of its own (creating it if it isn't there).",
+                "libraryAppend \"journal\" $\"{now ()} went for a run\"", arity: 2) { i, a, pos in
+            let r = try Builtin.inLibrary(pos) { try $0.append(a[0].string, a[1].string) }
+            i.host.say("✅ Added to \(r.note.name) in the library")
+            return .unit
+        },
+        Builtin("libraryDelete", "string -> unit", "Library", "Moves a note to the library's Trash (as name (1), name (2)…), to restore later.", "libraryDelete \"old draft\"", arity: 1) { i, a, pos in
+            let t = try Builtin.inLibrary(pos) { try $0.delete(a[0].string) }
+            i.host.say("🗑 Moved \(t.name) to the library's Trash as \(t.url.lastPathComponent)")
+            return .unit
+        },
+        Builtin("libraryRename", "string -> string -> unit", "Library", "Gives a note (first: its name) another name; not one that's taken.", "libraryRename \"draft\" \"Letter to Ada\"", arity: 2) { i, a, pos in
+            let n = try Builtin.inLibrary(pos) { try $0.rename(a[0].string, to: a[1].string) }
+            i.host.say("✅ Renamed \(a[0].string) to \(n.name) in the library")
+            return .unit
+        },
+        Builtin("libraryRestore", "string -> unit", "Library", "Brings the latest note of that name back from the library's Trash.", "libraryRestore \"old draft\"", arity: 1) { i, a, pos in
+            let n = try Builtin.inLibrary(pos) { try $0.restore(a[0].string) }
+            i.host.say("✅ Restored \(n.name) from the library's Trash")
+            return .unit
+        },
+        Builtin("libraryRecent", "int -> string list", "Library", "The names of the notes changed last, newest first (this many).", "libraryRecent 5 |> each print", arity: 1) { _, a, _ in
+            .list(FileLibrary().recent(max(0, a[0].int)).map { Value.str($0.name) })
+        },
+        Builtin("libraryExists", "string -> bool", "Library", "Whether a note of that name is in the library.", "if not (libraryExists \"journal\") then libraryWrite \"journal\" \"# Journal\"", arity: 1) { _, a, _ in
+            .bool(FileLibrary().exists(a[0].string))
+        },
+        Builtin("libraryFind", "string -> string list", "Library", "The names of the notes with every one of the words in their name or text, the best first.",
+                "libraryFind \"bank account\" |> each print", arity: 1) { _, a, _ in
+            .list(FileLibrary().search(a[0].string, .init(lines: 0)).map { Value.str($0.note.name) })
+        },
+        Builtin("librarySearch", "string -> string list", "Library", "Every line with the words on it, in every note: \"name, line 3: the line\", the best notes first.",
+                "librarySearch \"call\" |> each print", arity: 1) { _, a, _ in
+            .list(FileLibrary().search(a[0].string).flatMap { hit in hit.lines.map { Value.str("\(hit.note.name), line \($0.number): \($0.text)") } })
+        },
+    ]
+
+    /// Something done to the library, its mistake said as the flow's.
+    static func inLibrary<T>(_ pos: Pos, _ work: (FileLibrary) throws -> T) throws -> T {
+        do {
+            return try work(FileLibrary())
+        } catch let e as LibraryError {
+            throw FlowError(.run, pos, e.message, fix: e.fix)
+        }
+    }
 
     /// Whether `piece` is in `text` (where `options` say): the same search `replace` and `split`
     /// do, so they all agree, and the empty text is in every text.

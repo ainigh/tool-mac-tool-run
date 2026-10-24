@@ -264,6 +264,35 @@ the why in chat is fine, inventing a different one is not.
 - A name works with or without its extension, and a utility or browser script by its file name
   alone (`"speak"` for `utilities/speak.sh`).
 
+## The file library: memory that needs no click
+
+The person's notes, **LIBRARY** on their Desktop, are a key-value store an agent can use without
+a card: a note is a name (no `.md`) and its text. Everything is one endpoint, answered at once:
+
+```bash
+curl -s localhost:8768/api/library -d '{"op": "write", "name": "Agent notes", "text": "- the user prefers metric\n", "client": "My Agent"}'
+curl -s localhost:8768/api/library -d '{"op": "append", "name": "Agent notes", "text": "- flight on Friday"}'
+curl -s localhost:8768/api/library -d '{"op": "read", "name": "Agent notes"}'          # {"text": …}
+curl -s localhost:8768/api/library -d '{"op": "find", "q": "flight"}'                  # {"names": […], the best first}
+curl -s localhost:8768/api/library -d '{"op": "search", "q": "\"flight on\""}'        # every line it's on
+```
+
+- Each call has an id too (`request`, `X-Request-Id`); `GET /api/requests/{id}` answers for it,
+  as `{"kind": "library", "op", "ok", "summary"}`. There's nothing to poll: the answer is final.
+- `read` of a name that isn't there is `404 not_found` with `fix` naming the notes near it: use
+  one of those, or `find` first. Never guess a name.
+- `delete` moves a note to the library's own Trash (`restore` brings it back), so a mistake can be
+  undone; still, replace or delete only what the user asked about. Prefer `append` for adding to
+  a note over `write`, which replaces it.
+- `GET /api/library` lists every operation with the fields it takes.
+
+## Straw: driving Chrome
+
+`GET /api/straw` lists Straw's words; `POST /api/straw/check {"source"}` checks Straw code an
+agent wrote without running or asking anything (its mistake comes back with `line` and `fix`);
+`POST /api/straw/run {"source", "name", "client", "why", "async": true}` runs it in Chrome once the
+person clicks Run, with the request id like any run. What the script `read`s is its output.
+
 ## When things aren't there
 
 | what happened | you see | do |
@@ -296,6 +325,12 @@ curl -s localhost:8768/api/scripts
 curl -s localhost:8768/api/flows
 curl -s localhost:8768/api/check -d '{"source": "let x = 1"}'
 
-# the whole contract in one page, with this Mac's address
+# the file library (no click): write, read, find
+curl -s localhost:8768/api/library -d '{"op": "write", "name": "Agent notes", "text": "…", "client": "My Agent"}'
+curl -s localhost:8768/api/library -d '{"op": "read", "name": "Agent notes"}'
+curl -s localhost:8768/api/library -d '{"op": "find", "q": "flight"}'
+
+# every route, in its groups; the whole contract in one page, with this Mac's address
+curl -s localhost:8768/api/endpoints
 curl -s localhost:8768/api/doc
 ```

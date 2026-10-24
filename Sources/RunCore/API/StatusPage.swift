@@ -41,7 +41,7 @@ enum StatusPage {
 <body>
 <main>
   <h1>Tool Mac Tool Run</h1>
-  <p class="sub">Your scripts and flows, for other apps: <code id="base"></code> · <a href="/api/health">/api/health</a>. Nothing runs until you click <b>Run</b> on the Mac.</p>
+  <p class="sub">Your scripts and flows, for other apps: <code id="base"></code> · <a href="/api/health">/api/health</a> · <a href="/api/endpoints">/api/endpoints</a>. Nothing runs until you click <b>Run</b> on the Mac (the file library's notes aside: they answer at once).</p>
 
   <section class="card"><h2>Status</h2><div class="pills" id="status">Checking…</div></section>
 
@@ -73,26 +73,23 @@ print $"There are {trim files} things in the scripts folder."</textarea>
 <script>
 const $ = id => document.getElementById(id);
 $("base").textContent = location.origin;
-const routes = [
-  ["GET /api/health", "whether it's up, which endpoints are on, the folder"],
-  ["GET /api/scripts", "the scripts in the folder: name, language, description"],
-  ["GET /api/flows", "the flows in the folder's composer folder"],
-  ["POST /api/run", "{\"script\", \"args\", \"stdin\", \"client\"}: runs it once it's allowed on the Mac, and answers with how it went and what it printed (\"stream\": true sends it as it goes; \"wait\": false answers once it has started; \"async\": true answers now, with the request's id)"],
-  ["POST /api/compose", "{\"flow\"} or {\"source\"}: runs a flow, or Flow code, the same way"],
-  ["POST /api/check", "{\"source\"}: checks Flow code (its types, or its mistake); nothing runs"],
-  ["GET /api/doc", "the whole API in one page (text), to paste into another app's code or a chat"],
-  ["GET /api/requests/{id}", "where a request is: waiting for the click, denied, running, how it ended (its id is in every answer's X-Request-Id)"],
-  ["GET /api/runs", "the latest runs"],
-  ["GET /api/runs/{id}", "one run, with its output"],
-  ["POST /api/runs/{id}/stop", "stops it"],
-];
-$("routes").innerHTML = routes.map(([r, d]) => `<tr><td><code>${r}</code></td><td>${d.replace(/</g, "&lt;")}</td></tr>`).join("");
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+// Every route, in its groups: the same list GET /api/endpoints gives.
+(async () => {
+  try {
+    const e = await (await fetch("/api/endpoints")).json();
+    $("routes").innerHTML = e.groups.map(g =>
+      `<tr><th colspan="2" style="text-align:left;padding-top:10px">${esc(g.title)}${g.on === false ? " (switched off)" : ""}</th></tr>` +
+      g.routes.map(r => `<tr><td><code>${r.method} ${esc(r.path)}</code></td><td>${esc(r.summary)}${r.asks_on_the_mac ? " · <b>asks on the Mac</b>" : ""}</td></tr>`).join("")
+    ).join("");
+  } catch (err) { $("routes").textContent = "Couldn't list them: " + err; }
+})();
 
 async function status() {
   try {
     const h = await (await fetch("/api/health")).json();
     const pill = (name, on) => `<span class="pill">${name} <b class="${on ? "on" : "off"}">${on ? "on" : "off"}</b></span>`;
-    $("status").innerHTML = [pill("run", h.run), pill("compose", h.compose), pill("catalog", h.catalog), pill("runs", h.runs),
+    $("status").innerHTML = [pill("run", h.run), pill("compose", h.compose), pill("catalog", h.catalog), pill("runs", h.runs), pill("library", h.library),
       `<span class="pill">${h.folder ? `${h.scripts} scripts, ${h.flows} flows` : "no folder chosen yet"}</span>`,
       `<span class="pill">v${h.version}</span>`].join("");
   } catch (e) { $("status").textContent = "Not reachable: " + e; }

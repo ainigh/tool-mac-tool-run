@@ -2,7 +2,7 @@ import Foundation
 
 /// The API's endpoint groups, each of which can be switched off in the menu bar panel.
 public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
-    case run, compose, catalog, runs
+    case run, compose, catalog, runs, library
 
     public var title: String {
         switch self {
@@ -10,6 +10,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .compose: return "Run flows"
         case .catalog: return "List scripts and flows"
         case .runs: return "Runs and their output"
+        case .library: return "File library"
         }
     }
 
@@ -19,6 +20,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .compose: return "POST /api/compose · /api/check"
         case .catalog: return "GET /api/scripts · /api/flows"
         case .runs: return "GET /api/runs · /api/requests"
+        case .library: return "/api/library (no asking)"
         }
     }
 
@@ -29,6 +31,7 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .compose: return "Other apps can ask to run a flow, or send Flow code to run. Each run waits for you to click Run on this Mac."
         case .catalog: return "Other apps can see the names, languages and descriptions of your scripts and flows (not what's in them)."
         case .runs: return "Other apps can read the runs and their requests (how they went and what they printed) and stop one (a run you started asks you first)."
+        case .library: return "Other apps can list, read, write, search and delete the notes in LIBRARY on your Desktop, without asking you each time. A delete moves the note to the library's own Trash, where it can be restored."
         }
     }
 }

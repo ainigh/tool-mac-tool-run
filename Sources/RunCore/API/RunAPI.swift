@@ -34,6 +34,9 @@ public struct RunRequest: Identifiable, Sendable {
     /// Not a run now: the app asks to tag the item so it runs by itself (the request's
     /// `automation`). The card says so, and Run tags it. Empty tags take the automation off.
     public var automation: Automation?
+    /// Code an app sent that's run as a script (Straw code, kept in a file of its own): the card
+    /// shows it in full, as it does Flow code.
+    public var shownCode: String?
 
     public init(what: What, name: String, arguments: [String] = [], stdin: String? = nil, client: String,
                 from: String = "this Mac", command: String, dangers: [String] = [], why: String? = nil, automation: Automation? = nil) {
@@ -60,10 +63,11 @@ public struct RunRequest: Identifiable, Sendable {
         }
     }
 
-    /// Flow code: what it is (shown in full on the Mac before it's allowed).
+    /// The code it runs, when an app sent it (Flow code, or Straw code): shown in full on the Mac
+    /// before it's allowed.
     public var source: String? {
         if case let .source(s) = what { return s }
-        return nil
+        return shownCode
     }
 
     public var isScript: Bool {
@@ -147,13 +151,19 @@ public final class RunAPI: @unchecked Sendable {
     public let version: String
     /// Every request that reached the card, by its id (`GET /api/requests/{id}`).
     public let requests = RequestLedger()
+    /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
+    public let libraryLog = LibraryLog()
+    /// The file library it serves (LIBRARY on the Desktop).
+    let library: @Sendable () -> FileLibrary
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
 
-    public init(host: RunHost, version: String, settings: @escaping @Sendable () -> APISettings) {
+    public init(host: RunHost, version: String, library: @escaping @Sendable () -> FileLibrary = { FileLibrary() },
+                settings: @escaping @Sendable () -> APISettings) {
         self.host = host
         self.version = version
+        self.library = library
         self.settings = settings
     }
 
@@ -176,6 +186,7 @@ public final class RunAPI: @unchecked Sendable {
 
     private static let routes: [String: String] = [
         "/": "GET", "/index.html": "GET", "/favicon.ico": "GET", "/api/health": "GET", "/api/doc": "GET",
+        "/api": "GET", "/api/endpoints": "GET",
         "/api/scripts": "GET", "/api/flows": "GET", "/api/runs": "GET", "/api/requests": "GET",
         "/api/run": "POST", "/api/compose": "POST", "/api/check": "POST",
     ]
@@ -186,8 +197,10 @@ public final class RunAPI: @unchecked Sendable {
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
         if path.hasPrefix("/api/requests/") { return try await requestRoute(req, path: path, s) }
         if path == "/api/automation" { return try await automationRoute(req, s) }
+        if path == "/api/library" || path.hasPrefix("/api/library/") { return try await libraryRoute(req, path: path, s) }
+        if path == "/api/straw" || path.hasPrefix("/api/straw/") { return try await strawRoute(req, path: path, s) }
         guard let method = Self.routes[path] else {
-            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (see /api/health)")
+            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (GET /api/endpoints lists every route)")
         }
         try allow(req, method, path)
         switch path {
@@ -197,6 +210,17 @@ public final class RunAPI: @unchecked Sendable {
             return HTTPResponse(status: 204)
         case "/api/health":
             return JSON.response(await health(s))
+        case "/api", "/api/endpoints":
+            // Every route, in its groups (?group=library: one of them).
+            var groups = APIRoutes.groups
+            if let wanted = req.query["group"] {
+                groups = groups.filter { $0.id == wanted.lowercased() }
+                if groups.isEmpty {
+                    throw HTTPError(status: 400, code: "unknown_group", message: "there's no group called \(wanted); the groups: \(APIRoutes.groups.map(\.id).joined(separator: ", "))")
+                }
+            }
+            return JSON.response(["ok": true, "version": version, "count": groups.reduce(0) { $0 + $1.routes.count },
+                                  "doc": "/api/doc", "groups": groups.map { APIRoutes.json($0, settings: s) }])
         case "/api/doc":
             // The API in one page, with this server's own address (and token, for a caller on the network).
             let doc = APIDoc.text(baseURL: Access.baseURL(req, settings: s), token: s.allowNetwork ? s.token : nil, version: version)
@@ -298,6 +322,8 @@ public final class RunAPI: @unchecked Sendable {
         }
         try allow(req, "GET", path)
         guard let e = await requests.entry(id) else {
+            // A library operation's id answers here too.
+            if let op = await libraryLog.entry(id) { return JSON.response(LibraryLog.json(op), headers: [("X-Request-Id", id.uuidString)]) }
             throw HTTPError(status: 404, code: "unknown_request",
                             message: "no request \(id.uuidString) (the latest \(requests.capacity) are kept while the app runs)")
         }
@@ -383,13 +409,13 @@ public final class RunAPI: @unchecked Sendable {
         HTTPError(status: 404, code: "unknown_run", message: "no run \(id.uuidString) (runs are kept until Clear Finished, the latest 300)")
     }
 
-    private func need(_ e: APIEndpoint, _ s: APISettings) throws {
+    func need(_ e: APIEndpoint, _ s: APISettings) throws {
         guard s.isOn(e) else {
             throw HTTPError(status: 503, code: "endpoint_off", message: "\(e.title.lowercased()) is turned off in Tool Mac Tool Run")
         }
     }
 
-    private func catalog() async throws -> Catalog {
+    func catalog() async throws -> Catalog {
         guard let c = await host.catalog() else {
             throw HTTPError(status: 409, code: "no_folder",
                             message: "no scripts folder is chosen yet: click Tool Mac Tool Run's icon in the menu bar and choose one")
@@ -412,6 +438,8 @@ public final class RunAPI: @unchecked Sendable {
         } else {
             out["folder"] = NSNull()
         }
+        let lib = library()
+        out["library"] = ["folder": lib.root.path, "notes": lib.list().count, "approval": "none (answered at once)"] as [String: Any]
         for e in APIEndpoint.allCases { out[e.rawValue] = s.isOn(e) }
         return out
     }
@@ -528,7 +556,7 @@ public final class RunAPI: @unchecked Sendable {
     /// (`"wait": false`: once it has started; `"async": true`: before anyone has clicked), or
     /// sending what it prints as it prints it (`"stream": true`). Every way, the request's id goes
     /// back (`X-Request-Id`, and `request` in the JSON), and `GET /api/requests/{id}` has the rest.
-    private func execute(_ request: RunRequest, _ fields: [String: Any], via: String) async throws -> HTTPResponse {
+    func execute(_ request: RunRequest, _ fields: [String: Any], via: String) async throws -> HTTPResponse {
         await requests.add(request, via: via)
         let id = request.id.uuidString
         let tagged: [(String, String)] = [("X-Request-Id", id)]
@@ -698,7 +726,7 @@ public final class RunAPI: @unchecked Sendable {
 
     /// The body as JSON fields. Plain text (for compose and check) is the flow's code; nothing at
     /// all is no fields.
-    private func body(_ req: HTTPRequest, plainTextAs field: String? = nil) throws -> [String: Any] {
+    func body(_ req: HTTPRequest, plainTextAs field: String? = nil) throws -> [String: Any] {
         if req.body.isEmpty { return [:] }
         if let field, req.contentType.hasPrefix("text/") {
             return [field: String(decoding: req.body, as: UTF8.self)]
