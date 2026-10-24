@@ -86,7 +86,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         curl -s\(auth) \(base)/api/compose -d '{"flow": "morning.flow", "client": "My Terminal", "why": "Morning check"}'
         curl -s\(auth) \(base)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My Terminal"}'
 
-        # The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac
+        # The file library (LIBRARY (in TOOL-MAC-RUN on the Desktop)): notes by name, answered at once, nothing asked on the Mac
         curl -s\(auth) \(base)/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\\n- milk\\n", "client": "My Terminal"}'
         curl -s\(auth) \(base)/api/library -d '{"op": "search", "q": "milk"}'
         curl -s\(auth) "\(base)/api/library/files/groceries?format=text"
@@ -158,7 +158,7 @@ public enum APIClient: String, CaseIterable, Sendable {
 
 
         def library(op, **fields):
-            """The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            """The file library (LIBRARY (in TOOL-MAC-RUN on the Desktop)): notes by name, answered at once, nothing asked on the Mac.
             library("write", name="groceries", text="- eggs"), library("read", name="groceries")["text"],
             library("append", name="groceries", text="- milk"), library("search", q="milk")["results"],
             library("find", q="milk")["names"], library("names")["names"], library("delete", name="groceries")."""
@@ -223,7 +223,7 @@ public enum APIClient: String, CaseIterable, Sendable {
           return json.request;
         }
 
-        // The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+        // The file library (LIBRARY (in TOOL-MAC-RUN on the Desktop)): notes by name, answered at once, nothing asked on the Mac.
         // await library("write", { name: "groceries", text: "- eggs" }); (await library("read", { name: "groceries" })).text
         // (await library("search", { q: "eggs" })).results; (await library("find", { q: "eggs" })).names; library("delete", { name: "groceries" })
         export async function library(op, fields = {}) {
@@ -284,7 +284,7 @@ public enum APIClient: String, CaseIterable, Sendable {
                 return json["request"] as? String ?? ""
             }
 
-            /// The file library (LIBRARY on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            /// The file library (LIBRARY (in TOOL-MAC-RUN on the Desktop)): notes by name, answered at once, nothing asked on the Mac.
             /// `try await library("write", ["name": "groceries", "text": "- eggs"])`, `try await library("read", ["name": "groceries"])["text"]`,
             /// "search" (["q": "eggs"]), "find", "append", "delete" (to the library's Trash), "restore"…
             func library(_ op: String, _ fields: [String: Any] = [:]) async throws -> [String: Any] {
@@ -344,7 +344,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         3. Keep the request id: it's in every answer (the X-Request-Id header, and "request" in the JSON). GET \(base)/api/requests/{id} says where it is any time later: waiting, running, succeeded, failed, denied, not_answered.
         4. Find names before running: GET /api/scripts and GET /api/flows list what there is, with what each asks for ("inputs"). Never guess a name.
         5. A run that fails is still HTTP 200: read "ok" and "code". 403 means it didn't run (the user said no, or didn't answer); don't ask again unless the user wants you to.
-        6. The user's notes, LIBRARY on their Desktop, are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
+        6. The user's notes, LIBRARY (in TOOL-MAC-RUN on their Desktop), are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
 
         Endpoints:
         GET  /api/scripts                 the scripts: name, title, summary, inputs (what each asks for), dangers

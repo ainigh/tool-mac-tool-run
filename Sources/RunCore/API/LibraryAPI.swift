@@ -1,6 +1,6 @@
 import Foundation
 
-/// The file library over HTTP (`/api/library…`): the notes in LIBRARY on the Desktop, by name.
+/// The file library over HTTP (`/api/library…`): the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name.
 /// Unlike a run, nothing here waits for a click on the Mac: it's notes, not programs, and a
 /// delete only moves a note to the library's own Trash. Every call still gets an id, as a run's
 /// request does (`X-Request-Id`, and `request` in its JSON), and `GET /api/library/operations/{id}`

@@ -3,7 +3,7 @@ import Combine
 import RunCore
 import SwiftUI
 
-/// What the Library board shows and does: the notes in LIBRARY on the Desktop (by name, without
+/// What the Library board shows and does: the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop) (by name, without
 /// .md), the one open, a search across them all, and the library's own Trash. The same library
 /// the API serves (`/api/library`) and flows reach (`libraryRead`…), so it's read again often:
 /// another app may have just written a note.
@@ -152,7 +152,7 @@ final class LibraryBoardModel: ObservableObject {
         }
     }
 
-    /// Makes LIBRARY on the Desktop (the board's first run).
+    /// Makes LIBRARY (in TOOL-MAC-RUN on the Desktop) (the board's first run).
     func makeFolder() {
         do {
             try library.ensure()
@@ -170,7 +170,7 @@ final class LibraryBoardModel: ObservableObject {
     }
 }
 
-/// The Library board: every note in LIBRARY on the Desktop, a tile each (the latest changed
+/// The Library board: every note in LIBRARY (in TOOL-MAC-RUN on the Desktop), a tile each (the latest changed
 /// first), the one open beside them to read and edit, a search across every note's text, and the
 /// library's own Trash (deleted notes wait there, numbered, to be restored). It looks like the
 /// other boards on purpose, and fills 90% of the screen as they do.
@@ -267,7 +267,7 @@ struct LibraryBoardView: View {
 
     private var subtitle: String {
         let n = model.notes.count
-        let place = "~/Desktop/\(FileLibrary.folderName)"
+        let place = Home.short(model.library.root)
         guard model.folderExists else { return "\(place) isn't there yet" }
         return "\(n) note\(n == 1 ? "" : "s") in \(place), by name; other apps reach them over the API without asking"
     }

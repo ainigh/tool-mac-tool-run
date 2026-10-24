@@ -340,7 +340,7 @@ struct PanelView: View {
         }
     }
 
-    /// What the Library tile says: how many notes are in LIBRARY on the Desktop.
+    /// What the Library tile says: how many notes are in LIBRARY (in TOOL-MAC-RUN on the Desktop).
     private var libraryDetail: String {
         let n = FileLibrary().list().count
         return n == 0 ? "Notes by name, on your Desktop" : "\(n) note\(n == 1 ? "" : "s") on your Desktop"

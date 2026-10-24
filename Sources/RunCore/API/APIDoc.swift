@@ -67,7 +67,7 @@ public enum APIDoc {
 
         ## The file library: notes by name, answered at once
 
-        LIBRARY, on the person's Desktop, holds their notes: Markdown files, each known by its name without .md (groceries is LIBRARY/groceries.md). A name is a key and the note's text its value. NOTHING HERE ASKS ON THE MAC: the library's calls answer at once (they're notes, not programs). A delete only moves the note to the library's own Trash folder, numbered (groceries (1).md, groceries (2).md…), so it can be restored.
+        LIBRARY, in TOOL-MAC-RUN on the person's Desktop, holds their notes: Markdown files, each known by its name without .md (groceries is LIBRARY/groceries.md). A name is a key and the note's text its value. NOTHING HERE ASKS ON THE MAC: the library's calls answer at once (they're notes, not programs). A delete only moves the note to the library's own Trash folder, numbered (groceries (1).md, groceries (2).md…), so it can be restored.
         Every call has an id, as a run's request does: X-Request-Id, and "request" in the JSON; GET /api/library/operations/{id} (or /api/requests/{id}) says what it did, who asked and how it went.
         The easy way: POST /api/library {"op": "<operation>", …its fields}. Every answer has "ok", "op" and "request"; a refusal also "code", "error" and often "fix".
         - list {"sort"?: "name"|"modified"|"created"|"size", "order"?: "asc"|"desc", "q"?: words in the name, "limit"?, "offset"?, "content"?: true} → {"notes": [{"name", "file", "title"?, "size", "modified", "created"?, "text"?}], "count", "total"}

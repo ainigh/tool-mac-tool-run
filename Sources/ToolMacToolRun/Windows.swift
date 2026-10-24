@@ -131,7 +131,7 @@ enum Windows {
         }
     }
 
-    /// The Library board: the notes in LIBRARY on the Desktop, a tile each, one open to edit.
+    /// The Library board: the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), a tile each, one open to edit.
     /// It fills 90% of the screen, as the other boards do.
     static func showLibraryBoard() {
         let id = "library-board"
