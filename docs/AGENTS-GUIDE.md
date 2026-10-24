@@ -11,6 +11,14 @@ The contract itself is [API.md](../API.md); this guide is the way to use it from
 Base URL   http://127.0.0.1:8768
 ```
 
+**A small model, or one whose attention belongs to its task, doesn't need any of this.** It can
+use one tool, `say`, and plain words: `POST /api/say` takes what it wants as text and answers in
+text, offering templates to fill when it isn't sure, following runs itself and telling what
+changed at the start of the next answer. No ids, no polling, no JSON. Its instructions need one
+line: *"To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and
+say it back."* → [API.md](../API.md#say-plain-words-post-apisay), and SYSTEM-DOCS' PROMPT-SMALL-MODEL.
+What follows is for an agent that makes the calls itself.
+
 ## In one minute
 
 ```bash

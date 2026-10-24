@@ -125,6 +125,10 @@ public enum APINext {
         "GET /api/web/search": [Hint("GET", "/api/web/fetch?url={address}", "read the result that fits best (a page, or a JSON API it points to)"), Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
         "GET /api/web/fetch": [Hint("GET", "/api/web/fetch?url={address}", "follow one of its links, or the API it points to"), Hint("GET", "/api/web/fetch?url={address}&find={words}", "only the lines with some words"),
                                Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
+        // Say
+        "GET /api/say/forms": [Hint("POST", "/api/say", "say one back, its blanks filled (text/plain)")],
+        "GET /api/say/log": [Hint("POST", "/api/say", "ask about one in words: \"what happened to {something you asked for}\"")],
+        "POST /api/say/reset": [Hint("POST", "/api/say", "say what you want (text/plain)")],
         // Tools
         "GET /api/tools": [Hint("POST", "/api/tools/{name}", "call one {\"arguments\": {…}}"), Hint("GET", "/api/search?q={words}&in=tools", "the tools for something, by a few words")],
         "GET /api/tools/{name}": [Hint("POST", "/api/tools/{name}", "call it {\"arguments\": {…}}")],

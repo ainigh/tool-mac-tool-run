@@ -56,6 +56,14 @@ public enum APIRoutes {
             Route("GET", "/api/doc", "the whole API in one page (text/markdown), with this server's address", tags: "doc documentation reference contract markdown whole"),
             Route("GET", "/", "a status page in a browser, with a place to try a script or Flow code", tags: "html home try status"),
         ]),
+        Group(id: "say", title: "Say: plain words", about: "One way in, for any client and a small model most of all: say what you want as text, and get plain words back (no routes, ids, polling or JSON). What isn't one of its templates yet is answered with the templates that would do it ({…} a blank to fill, [a | b] a choice of one); one said back filled in is done at once, or put to the person at the Mac (a run waits for Run). It follows each request itself, and every answer starts with what changed",
+              endpoint: nil, tags: "say talk speak words plain text natural language sentence chat conversation template templates form forms adapter small model llm assistant", routes: [
+            Route("POST", "/api/say", "say what you want, as text (text/plain, or {\"text\"}); the answer is plain text. ?client= (or X-Client) says who's talking: each client has its own log", tags: "say talk ask tell words sentence chat message"),
+            Route("GET", "/api/say", "how to use it, as text: the one line a model's instructions need, and the sentences that are always there", tags: "how help instructions usage"),
+            Route("GET", "/api/say/forms", "every template it offers (?q=words: the ones that fit; ?format=json: as JSON, each with its lines)", tags: "templates forms list grammar sentences"),
+            Route("GET", "/api/say/log", "what this client asked for, and how each went (JSON, the newest first)", tags: "log history asked requests conversation"),
+            Route("POST", "/api/say/reset", "start over: the numbers and anything pending forgotten ({\"forget\": true}: what was asked too)", tags: "reset start over forget clear new"),
+        ]),
         Group(id: "scripts", title: "Scripts and flows", about: "The scripts and flows in the folder, and running them", endpoint: nil, tags: "script flow run execute program shell bash python node command tool job task", routes: [
             Route("GET", "/api/scripts", "the scripts (?group=scripts, utilities or browser: one grid's)", tags: "scripts list available utilities tools what"),
             Route("GET", "/api/flows", "the flows", tags: "flows list available composer"),

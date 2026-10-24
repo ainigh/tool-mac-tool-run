@@ -229,6 +229,17 @@ SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
 
 ## For other apps
 
+**Or just talk to it.** `POST /api/say` is one way in for any client, a small model most of all:
+say what you want as text, get plain words back. What it can't place yet is answered with a few
+templates to fill in (`search the web for {what to look for}`, `what's the weather in {a place}`,
+or a short form with a line for each value); one said back filled in is done, or put to you on the
+card. It follows each request itself and starts every answer with what changed (*Meanwhile: the
+nightly backup finished*), so the client never keeps an id, polls or reads JSON. A model's
+instructions need one line: *"To use the Mac's tools, use `say`. Say what you want; if it offers
+templates, fill one in and say it back."* A script's header can say how it's offered: `# Say:
+what's the weather in {a city}`. → [API.md](API.md#say-plain-words-post-apisay), and the thinking
+behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).
+
 **[API.md](API.md)** is what client apps need: `http://127.0.0.1:8768`, with `/api/scripts`,
 `/api/flows`, `/api/run`, `/api/compose` (a flow, or Flow code you send), `/api/check`,
 `/api/runs` and `/api/requests`. Nothing runs until the person at the Mac clicks **Run** on the

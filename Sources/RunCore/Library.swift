@@ -25,6 +25,9 @@ public struct ScriptItem: Identifiable, Equatable, Hashable, Sendable {
     /// The words its header says it's found by (`# Tags: weather forecast rain`): what
     /// `GET /api/search` finds it by, beside its name and what it does.
     public var tags: [String] = []
+    /// How the template adapter offers it (`# Say: what's the weather in {a city}`): a
+    /// sentence with a blank for each input, in order. Empty: one is made from its name and inputs.
+    public var say: [String] = []
 
     public init(url: URL, language: ScriptLanguage, summary: String? = nil, modified: Date? = nil, grid: GridKind = .scripts) {
         self.url = url
@@ -156,6 +159,7 @@ public struct Library: Sendable {
             var item = ScriptItem(url: url, language: lang, summary: contents.flatMap(Self.summary), modified: Self.modified(url), grid: kind).cautioned()
             item.inputs = contents.map(ScriptInput.declared) ?? []
             item.tags = contents.map(ScriptInput.declaredTags) ?? []
+            item.say = contents.map(ScriptInput.declaredSay) ?? []
             return item
         }
     }
@@ -167,6 +171,7 @@ public struct Library: Sendable {
             var item = ScriptItem(url: url, language: .unknown, summary: head.flatMap(Self.summary), modified: Self.modified(url), grid: .composer)
             item.inputs = head.map(ScriptInput.declared) ?? []
             item.tags = head.map(ScriptInput.declaredTags) ?? []
+            item.say = head.map(ScriptInput.declaredSay) ?? []
             let text = Caution.text(of: url)
             item.dangers = Caution.dangers(in: text)
             item.usesEPA = EPA.isUsed(in: text)
@@ -230,7 +235,7 @@ public struct Library: Sendable {
                 if text.hasPrefix("-*-") || text.lowercased().hasPrefix("vim:") || text.lowercased().hasPrefix("shellcheck") { break }
                 text = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
                 // An "Input: …" line (and the "Why: …" under it) says what it asks for, not what it does.
-                if ScriptInput.parse(text) != nil || ScriptInput.parseWhy(text) != nil || ScriptInput.parseTags(text) != nil { break }
+                if ScriptInput.parse(text) != nil || ScriptInput.parseWhy(text) != nil || ScriptInput.parseTags(text) != nil || ScriptInput.parseSay(text) != nil { break }
                 if !text.isEmpty { return String(text.prefix(140)) }
             }
             // The first line that isn't a comment: there's no description.

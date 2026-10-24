@@ -62,6 +62,10 @@ the scripts, runs one with `client` and `why`, keeps the request id, and handles
 ## In one minute
 
 ```bash
+# the one way in, for any client (a small model most of all): say what you want, get words back
+curl -s localhost:8768/api/say?client=My+App -H 'Content-Type: text/plain' -d "what's the weather in Lagos"
+# This needs the person at the Mac to click Run. I'll tell you when they do.
+
 # what you need, by a few words: only the routes, scripts and flows that match, each with how to call it
 curl -s "localhost:8768/api/search?q=remember+a+birthday"
 
@@ -135,6 +139,7 @@ with how many routes it has and the words it's found by); `?q=words` is a search
 | group | what's in it |
 |---|---|
 | **About the API** | `/api/search`, `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
+| **Say: plain words** | `/api/say`, `/api/say/forms`, `/api/say/log`, `/api/say/reset` ([below](#say-plain-words-post-apisay)) |
 | **Scripts and flows** | `/api/scripts`, `/api/flows`, `/api/run`, `/api/compose`, `/api/check` |
 | **Straw** | `/api/straw`, `/api/straw/check`, `/api/straw/run` ([below](#straw-get-apistraw-post-apistrawcheck-post-apistrawrun)) |
 | **File library** | `/api/library` and everything under it ([below](#the-file-library-apilibrary)) |
@@ -788,6 +793,95 @@ read.
 `"present": true` to show it in that window (`"presented": true`). The text is a file's text, the
 lines found, the names, or else the JSON.
 
+### Say, plain words: `POST /api/say`
+
+One way in, for a client that should only need to know how to talk: no tool names, routes,
+arguments, ids, polling or JSON, and nothing to load first. A model's instructions need one line:
+*"To use the Mac's tools, use `say`. Say what you want; if it offers templates, fill one in and say
+it back."* (The thinking behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).)
+
+```bash
+curl -s 'localhost:8768/api/say?client=My+App' -H 'Content-Type: text/plain' -d "I need to know if it'll rain in Lagos tomorrow"
+```
+```
+These can do that:
+1. Weather
+     what's the weather in {a place}
+2. Search the web
+     search the web for {what to look for}
+Fill one in and say it back.
+```
+
+- **In**: `POST /api/say` with the words as `text/plain` (or JSON `{"text": "…", "client": "…"}`).
+  Who's talking is `?client=`, `X-Client`, `"client"`, else the User-Agent: each client has a
+  conversation and a log of its own. **Out**: `text/plain`, always 200 (a refusal is said in words).
+- **Templates**: the sentences or short forms that would do something, each with blanks. `{…}` is a
+  blank, `[a | b | c]` a choice of one, `(optional)` a line that may be left out, a value of
+  several lines goes in a fenced block under its label. Two shapes: **inline** (`search the web
+  for {what to look for}`) for nothing or one value, **labeled** (a title, then `- label: value`
+  lines, in any order) for more:
+
+  ```
+  Remember something
+  - category: [PEOPLE | ORGANIZATIONS | EVENT-DATES | BIRTHDAYS | LOCATIONS | IDEAS | LEVERAGE | STRATEGIES | OTHERS]
+  - about: {who or what it's about}
+  - fact: {what to remember}
+  - date (optional): {a day, like 2026-11-03, or 03-14 for every year}
+  ```
+- **What's forgiving and what isn't**: titles, fixed words, labels and choices match fuzzily (case,
+  punctuation, a misspelling, a small word missing; a corrected choice is said: "taken as
+  PEOPLE"). Values are taken exactly as written (quotes around one are taken off). In a sentence a
+  blank takes everything between its fixed words, the last one the rest; an inline template can be
+  sent labeled too (its title, then a line per blank).
+- **When it asks first**: only when a match was uncertain (two templates about as close, or a
+  title or choice that needed a big correction) and it would change something: *Did you mean:
+  Delete a note (shopping)? Say yes to go ahead, or no.* A clean match is done at once; a read is
+  always answered at once.
+- **Where templates come from**: each tool has its own (the web, Chrome, MEMORY, the mind, notes,
+  showing, copying, the guides, runs, Flow code, Straw, automation); each script and flow gets one
+  from its header: a `# Say:` line (`# Say: what's the weather in {a city}`, each `{…}` one of its
+  `# Input:` lines in order), else its name (`run the nightly backup`, `weather: {a place}`), and
+  the labeled shape when it takes two values or more (a line per `# Input:`, `# Why:` in its blank).
+- **Always there**: `what can you do`, `what happened to {something you asked for}`, `what have I
+  asked for [today | recently | since {a time}]`, `show me {something you asked for}`, `more`,
+  `stop {something you asked for}`, `I'm done with {something you asked for}`, `start over`, and
+  `yes` / `no` to a question. `{something you asked for}` is "the last one", a word from it ("the
+  backup"), a time ("the one around 3"), or a number from the last list ("the second one").
+- **The adapter holds the state**: every request id, what was asked and when, how it's going, and
+  whether its result was shown. It follows runs itself (the client never polls), collects a result
+  once it's over (so `GET /api/requests/open` no longer lists it), and every reply starts with the
+  news since the client last spoke: *Meanwhile: The nightly backup finished (it worked). Say "show
+  me the nightly backup" to see what it printed.* A result is shown in full once; after that it's
+  referred to briefly, unless the client asks again.
+- **Replies have three parts**, any of them empty: the news, the answer, and what you can say next
+  (one or two templates). Never JSON, routes, file names or ids. Lists are numbered. A long answer
+  is cut to its first 20 lines (or 1500 characters), then *(26 more lines: say "more" for the
+  rest.)*. A failure is a sentence and the template that fixes it.
+- **Consent stays the person's**: a run (a script, a flow, Flow code, Straw) is asked for with
+  `"async": true` and the card says why, in the client's own words (*My App asked in words: “run the
+  nightly backup”*). The reply says *This needs the person at the Mac to click Run. I'll tell you
+  when they do.* The client agreeing never stands in for that click.
+- **How long**: a conversation starts again after six hours without a word (the numbers and
+  anything pending are forgotten; the log is kept). The log keeps a week, at most 200 requests a
+  client, for the latest 100 clients, while the app runs.
+
+The rest of the group:
+
+- `GET /api/say`: how to use it, as text (the one line for a model's instructions, the forms that
+  are always there).
+- `GET /api/say/forms`: every template there is now, as text (`?q=words`: the ones that fit, best
+  first; `?format=json`: `{"forms": [{"title", "template", "kind", "shape", "sentences"?,
+  "fields"?: [{"label", "blank"?, "choices"?, "optional", "multiline"}], "changes",
+  "waits_for_the_mac", "formerly"?}]}`). A title is a contract: it stays from version to version,
+  and one that's renamed keeps its old title in `formerly`, still taken.
+- `GET /api/say/log`: what this client asked for, newest first, as JSON: `{"entries": [{"number",
+  "asked", "said", "template", "what", "state", "shown", "muted", "waits_for_the_mac", "request"?,
+  "result"?, "ended"?}]}`. `state` is `answered`, `done`, `failed`, `waiting`, `running`, `worked`,
+  `denied`, `not_answered`, `withdrawn` or `could_not_start`.
+- `POST /api/say/reset`: start over (`{"forget": true}`: the log too).
+- **As a tool**: `say` is in `GET /api/tools`; `POST /api/tools/say {"arguments": {"text": "…"}}`
+  answers the same text.
+
 ### Tools, for a model: `GET /api/tools`, `POST /api/tools/{name}`
 
 An app with a model doesn't have to teach it the routes. `GET /api/tools` is everything here as a
@@ -808,7 +902,8 @@ in the app.
                "answer": "On Sundays the Louvre is open from 9 in the morning to 6 in the evening."}, …]}
 ```
 
-- **The tools**: `find` (the tools, scripts and flows for a few words), `run_script`, `run_flow`,
+- **The tools**: `find` (the tools, scripts and flows for a few words), `say` (all of it in plain
+  words, [above](#say-plain-words-post-apisay)), `run_script`, `run_flow`,
   `run_flow_code`, `check_flow`, `runs`, `web_search`, `web_fetch`, `browser`, `straw`, `library`,
   `remember`, `recall`, `memory`, `mind`, `show`, `copy`, `docs`, `call_api` (any route no tool
   covers). A tool whose switch is off is left out (`?all=true` lists it, `"on": false`).
