@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The Automation board: everything that runs by itself, a tile each, grouped by what makes it
 /// run (every morning, when the API is called…), with when it next runs and how it last went;
-/// then, under "Not automated", everything else, ready to be tagged. A click runs a tile now
+/// then, under "Not automated", everything else, by its grid, ready to be tagged. A click runs a tile now
 /// (as its cell would); right-click → Automation tags it. Its result shows beside the tiles, as
 /// on the API board. It looks like the API board on purpose: the same tiles, grouped differently.
 struct AutomationBoardView: View {
@@ -20,6 +20,8 @@ struct AutomationBoardView: View {
     static let symbol = "clock.badge.checkmark"
     static let colors = [Color(red: 0.93, green: 0.42, blue: 0.24), Color(red: 0.80, green: 0.22, blue: 0.40)]
     static let notAutomated = "not-automated"
+    /// The top of the tiles, scrolled back to when the chip changes.
+    private static let top = "top"
 
     var body: some View {
         Group {
@@ -51,6 +53,7 @@ struct AutomationBoardView: View {
         let automated = found.filter { !automation($0).isEmpty }
         let rest = found.filter { automation($0).isEmpty }
         let tagged = all.filter { !automation($0).isEmpty }.count
+        let filter = selected(automated: automated)
         return GeometryReader { geo in
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -58,31 +61,21 @@ struct AutomationBoardView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 34)
                         .padding(.bottom, 12)
-                    chips(automated: automated, rest: rest)
+                    chips(automated: automated, rest: rest, selected: filter)
                         .padding(.horizontal, 24)
                         .padding(.bottom, 8)
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 22) {
-                            if tagged == 0 && search.isEmpty { emptyCard }
-                            ForEach(AutomationTag.allCases, id: \.self) { tag in
-                                let tiles = automated.filter { automation($0).tags.contains(tag) }
-                                if (only == nil || only == tag.rawValue) && !tiles.isEmpty {
-                                    section(title: tag.title, about: tag.about, symbol: tag.symbol, color: tag.kind == .schedule ? Self.colors[0] : Self.colors[1], tiles)
-                                }
-                            }
-                            if (only == nil || only == Self.notAutomated) && !rest.isEmpty {
-                                section(title: "Not automated", about: "Right-click one → Automation, and pick when it runs", symbol: "circle.dashed", color: .secondary, rest)
-                            }
-                            if found.isEmpty {
-                                Text("Nothing matches “\(search)”.")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.top, 60)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                Color.clear.frame(height: 0).id(Self.top)
+                                board(found: found, automated: automated, rest: rest, tagged: tagged, filter: filter)
+                                    .padding(.horizontal, 24)
+                                    .padding(.bottom, 24)
                             }
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 24)
+                        // A new chip starts at its top, not wherever the last one was scrolled to.
+                        .onChange(of: only) { _, _ in proxy.scrollTo(Self.top, anchor: .top) }
+                        .onChange(of: search) { _, _ in proxy.scrollTo(Self.top, anchor: .top) }
                     }
                     footer
                 }
@@ -102,6 +95,42 @@ struct AutomationBoardView: View {
                 }
             }
         }
+    }
+
+    /// The tiles the chip that's on (`filter`) shows: each tag's, then the untagged, by grid.
+    private func board(found: [ScriptItem], automated: [ScriptItem], rest: [ScriptItem], tagged: Int, filter: String?) -> some View {
+        LazyVStack(alignment: .leading, spacing: 22) {
+            if tagged == 0 && search.isEmpty && filter == nil { emptyCard }
+            ForEach(AutomationTag.allCases, id: \.self) { tag in
+                let tiles = automated.filter { automation($0).tags.contains(tag) }
+                if (filter == nil || filter == tag.rawValue) && !tiles.isEmpty {
+                    section(title: tag.title, about: tag.about, symbol: tag.symbol, color: tag.kind == .schedule ? Self.colors[0] : Self.colors[1], tiles)
+                }
+            }
+            if (filter == nil || filter == Self.notAutomated) && !rest.isEmpty {
+                untagged(rest)
+            }
+            if found.isEmpty {
+                note("Nothing matches “\(search)”.")
+            } else if filter == Self.notAutomated && rest.isEmpty {
+                note(search.isEmpty ? "Everything runs by itself: nothing is left to tag." : "Everything that matches “\(search)” runs by itself.")
+            }
+        }
+    }
+
+    /// The chip that's on: the one picked, while it still has tiles. Untagging the last item of a
+    /// tag takes its chip away, and the board goes back to All rather than showing nothing.
+    private func selected(automated: [ScriptItem]) -> String? {
+        guard let picked = only, picked != Self.notAutomated else { return only }
+        return automated.contains { item in automation(item).tags.contains { $0.rawValue == picked } } ? picked : nil
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.title3)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 60)
     }
 
     // MARK: the top
@@ -159,23 +188,24 @@ struct AutomationBoardView: View {
         .help("Finds a tile by any of its words: its name, what it does, its grid, its tags")
     }
 
-    private func chips(automated: [ScriptItem], rest: [ScriptItem]) -> some View {
+    private func chips(automated: [ScriptItem], rest: [ScriptItem], selected: String?) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                chip("All", count: automated.count + rest.count, color: .accentColor, value: nil, help: "Every tile")
+                chip("All", count: automated.count + rest.count, color: .accentColor, value: nil, on: selected == nil, help: "Every tile")
                 ForEach(AutomationTag.allCases, id: \.self) { tag in
                     let n = automated.filter { automation($0).tags.contains(tag) }.count
                     if n > 0 {
-                        chip(tag.title, count: n, color: tag.kind == .schedule ? Self.colors[0] : Self.colors[1], value: tag.rawValue, help: tag.about)
+                        chip(tag.title, count: n, color: tag.kind == .schedule ? Self.colors[0] : Self.colors[1], value: tag.rawValue,
+                             on: selected == tag.rawValue, help: tag.about)
                     }
                 }
-                chip("Not automated", count: rest.count, color: .secondary, value: Self.notAutomated, help: "Everything that runs only when clicked, or asked for")
+                chip("Not automated", count: rest.count, color: .secondary, value: Self.notAutomated, on: selected == Self.notAutomated,
+                     help: "Everything that runs only when clicked, or asked for, by its grid")
             }
         }
     }
 
-    private func chip(_ title: String, count: Int, color: Color, value: String?, help: String) -> some View {
-        let on = only == value
+    private func chip(_ title: String, count: Int, color: Color, value: String?, on: Bool, help: String) -> some View {
         return Button { withAnimation(.easeOut(duration: 0.12)) { only = value } } label: {
             HStack(spacing: 5) {
                 Text(title)
@@ -213,23 +243,54 @@ struct AutomationBoardView: View {
 
     private func section(title: String, about: String, symbol: String, color: Color, _ tiles: [ScriptItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol).foregroundStyle(color).font(.caption.weight(.bold))
-                Text(title.uppercased())
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Text(about)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 460), spacing: 10)], spacing: 10) {
-                ForEach(tiles) { item in
-                    let last = runs.latest(file: item.id, kind: item.grid)
-                    AutomationTile(item: item, automation: automation(item), next: center.next(for: item.id, kind: item.grid)?.at,
-                                   last: last, shown: last?.id != nil && last?.id == shown) { run(item) }
-                        .contextMenu { menu(item, last: last) }
+            heading(title: title, about: about, symbol: symbol, color: color)
+            tileGrid(tiles)
+        }
+    }
+
+    /// Everything not tagged yet, under its grid (Scripts, Composer, Utilities, Browser).
+    private func untagged(_ tiles: [ScriptItem]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            heading(title: "Not automated", about: "Right-click one → Automation, and pick when it runs", symbol: "circle.dashed", color: .secondary)
+            ForEach(GridKind.allCases, id: \.self) { kind in
+                let mine = tiles.filter { $0.grid == kind }
+                if !mine.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: kind.symbol)
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(kind.colors[0])
+                            Text("\(kind.title) · \(mine.count)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        tileGrid(mine)
+                    }
                 }
+            }
+        }
+    }
+
+    private func heading(title: String, about: String, symbol: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundStyle(color).font(.caption.weight(.bold))
+            Text(title.uppercased())
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+            Text(about)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    private func tileGrid(_ tiles: [ScriptItem]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 460), spacing: 10)], spacing: 10) {
+            ForEach(tiles) { item in
+                let last = runs.latest(file: item.id, kind: item.grid)
+                AutomationTile(item: item, automation: automation(item), next: center.next(for: item.id, kind: item.grid)?.at,
+                               last: last, shown: last?.id != nil && last?.id == shown) { run(item) }
+                    .contextMenu { menu(item, last: last) }
             }
         }
     }

@@ -33,7 +33,9 @@ front** of Chrome's front window; `open` makes a new one and puts it there.
 ## A line
 
 A line is a word, then what it works on. Text goes in quotes (`"…"` or `'…'`); a `#` starts a
-comment, at the start of a line or after a space.
+comment, at the start of a line or after a space. Inside quotes, `\"` is a quote and `\\` a
+backslash; any other backslash stays as it's written, so JavaScript's `'\t'` and `/\s+/` work in a
+`js` line.
 
 ```
 open example.com              # an address: quotes are optional when it's one word
@@ -66,6 +68,11 @@ and a trailing `…` or `:` don't matter.
   click "Delete" in "my-old-key"      # the Delete in the row (the box) that has my-old-key in it
   ```
 
+- **Or the first of them.** In a list of results, "the first one" is what a person says:
+  `click first css "h3 a"` clicks the one highest on the page, of however many there are. Keep
+  it for lists of the same kind of thing; for a button, say which (`in "…"`), so a page that
+  changes stops the script instead of clicking the wrong one.
+
 - **A selector when you need one.** `css "…"` takes a CSS selector instead of a name, for things
   with no name of their own: `read all css ".titleline > a"`, `click css "#next"`. A click needs
   it to match one thing too.
@@ -89,8 +96,8 @@ Only what's shown counts: something hidden, or under `aria-hidden`, isn't on the
 | `check` `uncheck` | THING | ticks or unticks a checkbox, or turns a switch on or off; already so stays so |
 | `scroll` | THING, or `down` `up` `top` `bottom` | brings it into view, or scrolls the page |
 | `see` | [no] THING | stops the script unless THING is on the page; `see no THING`, unless it isn't |
-| `read` | THING, `all` THING, `after` THING, `title`, `url`, `page`, `links` [into NAME] | gives back its words (a field: what's in it; a checkbox: checked or unchecked). `all`: every match, a line each. `after`: what's beside it (a `<dt>`'s `<dd>`, the next cell, the field a label names). `page`: all its text. `links`: every link, its words and address |
-| `js` | CODE [into NAME] | runs JavaScript in the page and gives back what it gives (an expression, or statements with a `return`) |
+| `read` | THING, `all` THING, `after` THING, `links` THING, `title`, `url`, `page`, `links` [into NAME] | gives back its words (a field: what's in it; a checkbox: checked or unchecked). `all`: every match, a line each. `after`: what's beside it (a `<dt>`'s `<dd>`, the next cell, the field a label names). `page`: all its text. `links`: every link, its words, a tab and its address; `links` THING: the links among what THING names (each one's own, or the one it's in) |
+| `js` | CODE [into NAME] | runs JavaScript in the page and gives back what it gives (an expression, or statements with a `return`); a list comes back a line each |
 | `set` | NAME TEXT | remembers TEXT as `{NAME}` |
 | `print` | TEXT | gives TEXT back, as the script's output |
 | `ask` | NAME QUESTION | asks on the Mac, with a field to type in, and keeps the answer as `{NAME}` (Stop ends the script) |
@@ -164,7 +171,7 @@ The run stops at that line and says why, with the fix:
 
 ```
 ❌ Nothing on the page is called "Sign up". Near it on the page: "Sign in", "Sign out".
-❌ 2 things on the page are called "Delete". Say which, by what's beside it: click "Delete" in "alpha-key"
+❌ 2 things on the page are called "Delete". Say which, by what's beside it: click "Delete" in "alpha-key" (or click first "Delete": the one highest on the page)
 ❌ "Results" didn't show in 15 seconds. The page in front is “Search – Example”.
 ❌ "Country" has no option "France". Its options: Ghana, Nigeria, Kenya
 ```
@@ -183,6 +190,27 @@ The Browser grid's **Add the Examples** puts these in the `browser` folder (with
 | `page-outline.straw` | the page in front: its title, address and headings |
 | `dismiss-cookies.straw` | clicks away the cookie banner on the page in front, if it has one |
 | `fill-search.straw` | types into the page's own search box, presses Enter, gives back the new title |
+| `youtube-videos.straw` | searches YouTube: the top videos, a line each (the title, a tab, the address) |
+| `youtube-play.straw` | plays the first video for what you search for (`click first`) |
+| `youtube-latest.straw` | a channel's newest videos (`{1}` is its handle: `LofiGirl`) |
+| `github-repos.straw` | searches GitHub's repositories (`read links css "…"`) |
+| `hn-search.straw` | searches every Hacker News story (through Algolia) |
+| `arxiv-search.straw` | the newest papers on arXiv that match (a `js` line that gives back a list) |
 
-And the flows `hn-briefing` (the top five stories, the first said out loud) and `clean-read`
-(the cookie banner clicked away, then the page's outline) put them together with other scripts.
+Beside them, `site-search.sh` opens the results of any of 50 well-known sites by name
+(`site-search amazon usb-c hub`, `site-search maps coffee`, `site-search list`), for the sites
+that are better read by you than by a script.
+
+Two Straw scripts are utilities, in the `utilities` folder, for other scripts and flows to build
+on (the Utilities grid's **Add the Examples** brings `straw.py` and `browser.sh` with them):
+`selected-text.straw` (what's selected on the page in front, or in the field you're typing in)
+and `page-word-count.straw` (its words, and the minutes it takes to read).
+
+The flows put them together with other scripts: `hn-briefing` (the top five stories, the first
+said out loud), `clean-read` (the cookie banner clicked away, then the page's outline),
+`search-everywhere` (YouTube, GitHub, Hacker News and arXiv, the top three of each),
+`youtube-channels` (the newest from the channels you name), and `explain-selection`,
+`translate-selection` and `read-selection-aloud`, which start from what you've selected.
+
+A Straw script drives **the tab in front**, so two at once would share it: a flow runs them one
+after another (`attempt`, a line each), not in `parallel`.

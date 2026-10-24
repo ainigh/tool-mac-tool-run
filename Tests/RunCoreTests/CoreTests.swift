@@ -344,6 +344,7 @@ final class CautionTests: XCTestCase {
         // A Straw script's click on a button that can't be taken back; one that can is fine.
         XCTAssertEqual(Caution.dangers(in: "open mail.example.com\nclick \"Send\""), ["clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"])
         XCTAssertEqual(Caution.dangers(in: "  click \"Delete\" in \"old-key\""), ["clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"])
+        XCTAssertEqual(Caution.dangers(in: "click first \"Delete\""), ["clicks a button on a web page that can't be taken back (Delete, Send, Buy, Publish…)"])
         XCTAssertEqual(Caution.dangers(in: "click \"More\"\nclick \"Sender settings\"\nread \"Delete\""), [])
         for (_, source) in Examples.allScripts + Examples.flows + Examples.toolFlows { XCTAssertEqual(Caution.dangers(in: source), [], source) }
     }
@@ -358,6 +359,9 @@ final class CautionTests: XCTestCase {
         XCTAssertFalse(Caution.asksForInput("# read -p in a comment\necho hi"))
         XCTAssertFalse(Caution.asksForInput("print('Is it the page? (read url)')", language: .python), "read is the shell's only")
         XCTAssertTrue(Caution.asksForInput("read -r reply", language: .bash))
+        XCTAssertFalse(Caution.asksForInput("ls | while read -r f; do echo \"$f\"; done", language: .bash), "it reads the pipe")
+        XCTAssertFalse(Caution.asksForInput("printf '%s\\n' \"$x\" | while IFS='|' read -r a b; do :; done", language: .bash))
+        XCTAssertTrue(Caution.asksForInput("ls | head\nread -r reply", language: .bash), "a read of its own still asks")
         XCTAssertFalse(Caution.asksForInput("read title\nread all css \"h2\"", language: .straw))
         for (id, source) in Examples.allScripts {
             let language = ScriptLanguage.detect(fileName: id, contents: source)

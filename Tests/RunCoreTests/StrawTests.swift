@@ -171,6 +171,42 @@ final class StrawTests: XCTestCase {
         XCTAssertTrue(r2.err.contains("needs {1} (A word): run it with an argument."), r2.err)
     }
 
+    /// first takes the highest of several, read links THING the links among what it names, a js
+    /// list comes back a line each, and a backslash before anything but the quote stays (\t, \s).
+    func testFirstLinksListsAndBackslashes() throws {
+        try XCTSkipIf(!python || ShellEnvironment.shared.find("bash") == nil, "needs python3 and bash")
+        _ = try write("browser/straw.py", runner)
+        let log = folder.appendingPathComponent("page.log")
+        let fake = try write("fake-browser.sh", """
+        #!/bin/bash
+        [ "$1" = js ] && printf '%s\\n' "$2" | tail -n 2 >> \(ShellEnvironment.quote(log.path))
+        case "$2" in
+          *'DO.click(P)'*) echo '{"ok": true}' ;;
+          *'DO.read(P)'*) printf '%s\\n' '{"ok": true, "text": "One\\thttps://one.example"}' ;;
+          *) echo '["a", "b", 3]' ;;
+        esac
+        """ + "\n")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let script = try write("browser/results.straw", #"""
+        click first css "h3 a"
+        read links css "h3 a"
+        js "[1].map(n => 'x\ty'.replace(/\s/g, ' \"quoted\"'))"
+        """# + "\n")
+        var env = ShellEnvironment.shared.environment
+        env["STRAW_BROWSER"] = fake.path
+        let r = try ScriptProcess(script: script, language: .straw, workingDirectory: folder, environment: env).runToEnd()
+        XCTAssertEqual(r.code, 0, r.err)
+        XCTAssertEqual(r.out, "One\thttps://one.example\na\nb\n3\n")
+        let sent = try String(contentsOf: log, encoding: .utf8)
+        XCTAssertTrue(sent.contains(#""thing": {"kind": "css", "name": "h3 a", "first": true}"#), sent)
+        XCTAssertTrue(sent.contains(#""mode": "links", "thing": {"kind": "css", "name": "h3 a"}"#), sent)
+        XCTAssertTrue(sent.contains(#"[1].map(n => 'x\ty'.replace(/\s/g, ' "quoted"'))"#), "\\t and \\s stay, \\\" is a quote: \(sent)")
+        XCTAssertTrue(Caution.dangers(in: "click first \"Delete\"").count == 1)
+        let check = try ScriptProcess(script: write("browser/bad.straw", "click first\n"), language: .straw, workingDirectory: folder, environment: env).runToEnd()
+        XCTAssertEqual(check.code, 2)
+        XCTAssertTrue(check.err.contains("first needs the thing after it."), check.err)
+    }
+
     /// Check Setup says when straw.py is missing, and which Straw script has a mistake (and where).
     func testCheckSetupLooksAtThem() throws {
         _ = try write("browser/fine.straw", "# Fine\nread title\n")

@@ -90,21 +90,25 @@ final class GridGroupTests: XCTestCase {
 
     func testEachGridsExamplesAndTheFlowsThatNeedThemAll() throws {
         let lib = Library(root: folder)
-        // The weather, news and cloud flows need only utilities: they come with them. The rest
-        // wait for the browser scripts they run.
+        // The weather, news, cloud and file flows need only utilities: they come with them (and so
+        // does page-aloud, which needs browser.sh too: the Straw utilities bring it, with straw.py).
+        // The rest wait for the browser scripts they run.
         let utilityFlows = ["weather-now.flow", "news-briefing.flow", "urgent-news.flow", "cloud-check.flow", "morning-briefing.flow",
                             "travel-check.flow", "site-watch.flow", "new-password.flow", "today-briefing.flow", "open-apps.flow",
-                            "countdown.flow", "network-check.flow", "dev-check.flow", "presentation-mode.flow"]
+                            "countdown.flow", "network-check.flow", "dev-check.flow", "presentation-mode.flow", "page-aloud.flow",
+                            "find-and-open.flow", "spotlight-search.flow", "latest-screenshot.flow", "downloads-report.flow",
+                            "explain-selection.flow", "read-selection-aloud.flow"]
         // mac-health also runs disk-space, from the Scripts grid's examples: it comes with them.
         let withScripts = ["mac-health.flow"]
         let utilities = try lib.addExamples(for: .utilities)
-        XCTAssertEqual(utilities.count, Examples.utilities.count + utilityFlows.count)
+        XCTAssertEqual(utilities.count, Examples.utilities.count + Examples.strawRunner.count + utilityFlows.count)
+        XCTAssertEqual(Set(lib.items(.browser).map(\.id)), ["browser/straw.py", "browser/browser.sh"], "what runs the Straw utilities")
         XCTAssertEqual(Set(lib.items(.utilities).map(\.id)), Set(Examples.utilities.map(\.0)))
         XCTAssertTrue(lib.items(.scripts).isEmpty, "the Utilities grid's examples are its own")
         XCTAssertEqual(Set(lib.flows().map(\.id)), Set(utilityFlows))
 
         let browser = try lib.addExamples(for: .browser)
-        XCTAssertEqual(browser.count, Examples.browser.count + Examples.toolFlows.count - utilityFlows.count - withScripts.count)
+        XCTAssertEqual(browser.count, Examples.browser.count - Examples.strawRunner.count + Examples.toolFlows.count - utilityFlows.count - withScripts.count)
         XCTAssertEqual(Set(lib.flows().map(\.id)), Set(Examples.toolFlows.map(\.0)).subtracting(withScripts))
         XCTAssertTrue(try lib.addExamples(for: .browser).isEmpty)
 
@@ -355,6 +359,14 @@ final class GridGroupTests: XCTestCase {
         XCTAssertFalse(statements.out.contains("return (\nconst"), statements.out)
         let nested = try browse("browser.sh", ["js", "[1].map(x => { return x })"])
         XCTAssertTrue(nested.out.contains("return (\n[1].map"), "a return inside a function is still one expression: \(nested.out)")
+        // A ; and a return inside a function (on one line) don't make it statements either: it once gave back nothing.
+        let oneLine = try browse("browser.sh", ["js", "[...document.links].map(a => { const t = a.title; return t })"])
+        XCTAssertTrue(oneLine.out.contains("return (\n[...document.links]"), oneLine.out)
+        for (code, statements) in [("if (x) { return 1 }\nreturn 2", true), ("let n = 2; return n", true), ("'; return'", false),
+                                   ("a.replace(/return/g, \"\") // return", false), ("x.returned", false)] {
+            let r = try browse("browser.sh", ["js", code])
+            XCTAssertEqual(r.out.contains("return (\n"), !statements, "\(code): \(r.out)")
+        }
 
         // Reading a page: a tab of its own behind the one in front, closed after.
         try? FileManager.default.removeItem(at: log)
@@ -375,6 +387,21 @@ final class GridGroupTests: XCTestCase {
         XCTAssertEqual(none.code, 1)
         XCTAssertTrue(none.err.contains("What should YouTube be searched for?"), none.err)
 
+        // A site searched by name: its own results page, in front; --url gives just the address.
+        try? FileManager.default.removeItem(at: log)
+        let site = try browse("site-search", ["YouTube", "lofi", "hip hop"])
+        XCTAssertEqual(site.code, 0, site.err)
+        XCTAssertTrue(try String(contentsOf: log, encoding: .utf8).contains("opened https://www.youtube.com/results?search_query=lofi%20hip%20hop front"))
+        XCTAssertEqual(try browse("site-search", ["--url", "maps", "café & bar"]).out, "https://www.google.com/maps/search/caf%C3%A9%20%26%20bar\n")
+        XCTAssertEqual(try browse("site-search", ["--url", "so", "swift async"]).out, "https://stackoverflow.com/search?q=swift%20async\n")
+        let sites = try browse("site-search", ["list"])
+        XCTAssertEqual(sites.code, 0)
+        XCTAssertGreaterThanOrEqual(sites.out.split(separator: "\n").count, 50)
+        XCTAssertTrue(sites.out.contains("github           github.com (or: gh)"), sites.out)
+        let nowhere = try browse("site-search", ["myspace", "x"])
+        XCTAssertEqual(nowhere.code, 1)
+        XCTAssertTrue(nowhere.err.contains("site-search.sh list says every site it knows"), nowhere.err)
+
         let unknown = try browse("browser.sh", ["fly"])
         XCTAssertEqual(unknown.code, 1)
         XCTAssertTrue(unknown.err.contains("It knows: open, read"), unknown.err)
@@ -383,6 +410,66 @@ final class GridGroupTests: XCTestCase {
         let links = try browse("page-links", [], ["FAKE_NO_JS": "1"])
         XCTAssertEqual(links.code, 1)
         XCTAssertTrue(links.err.contains("View > Developer > Allow JavaScript from Apple Events"), links.err)
+    }
+
+    /// Finding files: by name, by text, the biggest, the copies, the newest downloads. Spotlight
+    /// (mdfind) answers on a Mac; where there's none (and here), find and grep do, the same way.
+    func testTheFileFindersFindFiles() throws {
+        try XCTSkipIf(ShellEnvironment.shared.find("bash") == nil || ShellEnvironment.shared.find("python3") == nil, "needs bash and python3")
+        try XCTSkipIf(ShellEnvironment.shared.find("mdfind") != nil, "on a Mac, Spotlight answers, and it hasn't indexed a folder made a moment ago")
+        try Library(root: folder).addExamples(for: .utilities)
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let fm = FileManager.default
+        for dir in ["Documents/old", "Downloads/sub", "Library", ".hidden"] {
+            try fm.createDirectory(at: home.appendingPathComponent(dir), withIntermediateDirectories: true)
+        }
+        func put(_ path: String, _ text: String, daysAgo: Double = 0) throws {
+            let url = home.appendingPathComponent(path)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-daysAgo * 86400)], ofItemAtPath: url.path)
+        }
+        try put("Documents/old/Invoice-January.pdf", "January", daysAgo: 30)
+        try put("Documents/invoice-october.pdf", "TODO: pay it")
+        try put("Library/invoice.plist", "not yours")
+        try put(".hidden/invoice.txt", "hidden")
+        let big = String(repeating: "x", count: 3 * 1024 * 1024)
+        try put("Downloads/big.bin", big)
+        try put("Downloads/sub/big-copy.bin", big, daysAgo: 2)
+        try put("Downloads/notes.txt", "just one")
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-3 * 86400)], ofItemAtPath: home.appendingPathComponent("Downloads/sub").path)
+
+        func inHome(_ id: String, _ args: [String]) throws -> RunResult {
+            let item = try XCTUnwrap(Library(root: folder).script(named: id), id)
+            var env = ShellEnvironment.shared.environment
+            env["HOME"] = home.path
+            return try ScriptProcess(script: item.url, language: item.language, arguments: args, workingDirectory: folder, environment: env).runToEnd()
+        }
+        // By name, any case, the newest first, ~ for home; not in Library or what's hidden.
+        let named = try inHome("find-file", ["invoice"])
+        XCTAssertEqual(named.code, 0, named.err)
+        XCTAssertEqual(named.out, "~/Documents/invoice-october.pdf\n~/Documents/old/Invoice-January.pdf\n")
+        XCTAssertEqual(try inHome("find-file", ["invoice", home.appendingPathComponent("Documents/old").path]).out, "~/Documents/old/Invoice-January.pdf\n")
+        let none = try inHome("find-file", ["nothing-like-it"])
+        XCTAssertEqual(none.code, 1)
+        XCTAssertTrue(none.err.contains("No file with \"nothing-like-it\" in its name in ~."), none.err)
+        // By what's written in them.
+        let text = try inHome("find-text", ["todo"])
+        XCTAssertEqual(text.code, 0, text.err)
+        XCTAssertTrue(text.out.contains("~/Documents/invoice-october.pdf:1:TODO: pay it"), text.out)
+        // The biggest, the copies (and only them), the newest downloads.
+        let large = try inHome("large-files", ["2MB", "~/Downloads"])
+        XCTAssertEqual(large.out.split(separator: "\n").count, 2, large.out)
+        XCTAssertTrue(large.out.contains("3.0 MB  ~/Downloads/big.bin"), large.out)
+        XCTAssertEqual(try inHome("large-files", ["lots"]).code, 1)
+        let copies = try inHome("find-duplicates", [])
+        XCTAssertTrue(copies.out.hasPrefix("1 set of copies in ~/Downloads; the copies take 3.0 MB:"), copies.out)
+        XCTAssertTrue(copies.out.contains("  ~/Downloads/big.bin\n  ~/Downloads/sub/big-copy.bin"), "the newest first: \(copies.out)")
+        XCTAssertFalse(copies.out.contains("notes.txt"))
+        let recent = try inHome("recent-downloads", ["2"])
+        XCTAssertEqual(recent.out.split(separator: "\n").count, 2, recent.out)
+        XCTAssertFalse(recent.out.contains("sub "), "the oldest isn't among the newest two: \(recent.out)")
+        XCTAssertTrue(try inHome("file-info", ["~/Downloads/notes.txt"]).out.hasPrefix("notes.txt\n  Where:     ~/Downloads\n"))
+        XCTAssertEqual(try inHome("spotlight", ["--kind", "sculpture", "x"]).code, 1)
     }
 
     /// The weather, the news and the cloud services need the internet; what they say before
