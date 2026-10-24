@@ -66,7 +66,7 @@ public enum APIRoutes {
         Group(id: "straw", title: "Straw: Chrome by what's on the page", about: "Straw's words and scripts, checking Straw code, and running it in Chrome", endpoint: nil, tags: "straw chrome browser automate web page click type drive site", routes: [
             Route("GET", "/api/straw", "Straw's words (what each takes and does, with an example) and the Straw scripts in the folder", tags: "words vocabulary list scripts"),
             Route("POST", "/api/straw/check", "check Straw code without running it {\"source\"}: what it would do, or its mistake, line and fix", tags: "check validate plan"),
-            Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome: it opens pages, goes to addresses, clicks and types (open example.com, click \"More\")", asks: true, tags: "run execute open go goto navigate visit url address website browse click type fill press automate"),
+            Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome: it opens pages, goes to addresses, clicks and types (open example.com, click \"More\")", asks: true, tags: "run execute click type fill press submit form login automate drive steps"),
         ]),
         Group(id: "library", title: "File library", about: "The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no extension): answered at once, without asking on the Mac",
               endpoint: .library, tags: "library note notes file files text markdown document doc key value store save", routes: [
@@ -162,8 +162,16 @@ public enum APIRoutes {
             Route("GET", "/api/clipboard", "what it takes", tags: "clipboard how"),
             Route("POST", "/api/clipboard", "copy {\"text\"}, a file {\"shelf\", \"name\"}, or a node {\"mind\"}", tags: "copy clipboard paste"),
         ]),
-        Group(id: "browser", title: "Chrome's page (reads only)", about: "The page already in front of Chrome, to guide the person through a site: what's open, what it says, whether words are on it, where a thing is, and a ring to show them. READS ONLY: it never opens a page, goes to an address, searches, clicks or types. To open a page or search Google, run a browser script (browser/open-page.sh, browser/google.sh, browser/site-search.sh: POST /api/run) or Straw (POST /api/straw/run)",
-              endpoint: .browser, tags: "chrome browser page tab site guide read current front !open !go !goto !navigate !visit !load !launch !browse !click !type !fill !press !google", routes: RunAPI.browserRoutes.map { Route($0.method, $0.path, $0.summary, tags: RunAPI.browserTags[$0.path] ?? "") }),
+        Group(id: "browser", title: "Chrome's page", about: "Google Chrome, as the person sees it: open a page in a new tab, read the page in front (its text and links), whether words are on it, where a thing is, and a red ring to show them. It never clicks, types or fills anything in (Straw does that, POST /api/straw/run, after Run on the Mac). To find something out without Chrome: the web's routes (GET /api/web/search, /api/web/fetch)",
+              endpoint: .browser, tags: "chrome browser page tab site guide read current front show !click !type !fill !press !submit", routes: RunAPI.browserRoutes.map { Route($0.method, $0.path, $0.summary, tags: RunAPI.browserTags[$0.path] ?? "") }),
+        Group(id: "web", title: "The web", about: "The web, read from this Mac without Chrome: search it, and read any address (a page's text and links, a JSON API's answer, text). GET only, nothing sent but the address, never this Mac or its local network; answered at once",
+              endpoint: .web, tags: "web internet online site website http https url search lookup api read", routes: RunAPI.webRoutes.map { Route($0.method, $0.path, $0.summary, tags: $0.tags) }),
+        Group(id: "tools", title: "Tools, for a model", about: "Everything here as a short list of tools a model calls by name, each with its arguments, what it's for and how it answers (GET /api/tools), and one call that runs any of them (POST /api/tools/{name}). A client can hand the list to its model as is: what's added here later is there the day it ships",
+              endpoint: nil, tags: "tools tool model llm agent assistant function functions calling manifest schema prompt", routes: [
+            Route("GET", "/api/tools", "every tool: its name, what it's for, its arguments, whether it waits for Run on the Mac; with a guide and examples for a model's instructions", tags: "list all manifest schema describe"),
+            Route("GET", "/api/tools/{name}", "one tool", tags: "one describe"),
+            Route("POST", "/api/tools/{name}", "call a tool {\"arguments\": {…}} (and \"client\", \"why\", \"stream\"?): the answer of the route it calls; one that runs something waits for Run on the Mac", tags: "call run invoke use execute"),
+        ]),
         Group(id: "automation", title: "Automation", about: "Scripts and flows that run by themselves", endpoint: nil, tags: "automation automate schedule cron trigger every recurring timer tag", routes: [
             Route("GET", "/api/automation", "the tags there are, and what runs by itself", tags: "list tags scheduled"),
             Route("POST", "/api/automation", "tag a script or a flow to run by itself {\"script\"|\"flow\", \"automation\": [tags]}", asks: true, tags: "schedule tag automate set"),

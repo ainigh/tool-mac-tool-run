@@ -203,18 +203,21 @@ public final class RunAPI: @unchecked Sendable {
     let shelves: @Sendable () -> Shelves
     /// The page in front of Chrome.
     let chrome: ChromePage
+    /// The web, read from this Mac.
+    let web: Web
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
 
     public init(host: RunHost, version: String, library: @escaping @Sendable () -> FileLibrary = { FileLibrary() },
                 shelves: @escaping @Sendable () -> Shelves = { Shelves() }, chrome: ChromePage = ChromePage(),
-                settings: @escaping @Sendable () -> APISettings) {
+                web: Web = Web(), settings: @escaping @Sendable () -> APISettings) {
         self.host = host
         self.version = version
         self.library = library
         self.shelves = shelves
         self.chrome = chrome
+        self.web = web
         self.settings = settings
     }
 
@@ -246,7 +249,7 @@ public final class RunAPI: @unchecked Sendable {
         "/api/run": "POST", "/api/compose": "POST", "/api/check": "POST",
     ]
 
-    private func route(_ req: HTTPRequest, _ s: APISettings) async throws -> HTTPResponse {
+    func route(_ req: HTTPRequest, _ s: APISettings) async throws -> HTTPResponse {
         var path = req.path
         if path.count > 1, path.hasSuffix("/") { path.removeLast() }
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
@@ -257,6 +260,8 @@ public final class RunAPI: @unchecked Sendable {
         if path == "/api/browser" || path.hasPrefix("/api/browser/") { return try await browserRoute(req, path: path, s) }
         if path == "/api/present" || path == "/api/clipboard" { return try await screenRoute(req, path: path, s) }
         if path == "/api/straw" || path.hasPrefix("/api/straw/") { return try await strawRoute(req, path: path, s) }
+        if path == "/api/web" || path.hasPrefix("/api/web/") { return try await webRoute(req, path: path, s) }
+        if path == "/api/tools" || path.hasPrefix("/api/tools/") { return try await toolsRoute(req, path: path, s) }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (GET /api/endpoints lists every route)")
         }
@@ -681,7 +686,7 @@ public final class RunAPI: @unchecked Sendable {
         let limit = min(50, max(1, Int(req.query["limit"] ?? "") ?? 10))
         // Scripts and flows only while the catalog is on and a folder is chosen; routes always.
         let catalog = s.isOn(.catalog) && (scopes.contains(.scripts) || scopes.contains(.flows)) ? await host.catalog() : nil
-        let (hits, total) = APISearch.search(q, scopes: scopes, group: group, catalog: catalog, limit: limit)
+        let (hits, total) = APISearch.search(q, scopes: scopes, group: group, catalog: catalog, settings: s, limit: limit)
         let results: [[String: Any]] = hits.map { h in
             var out = h.json
             out["kind"] = h.kind
@@ -691,7 +696,9 @@ public final class RunAPI: @unchecked Sendable {
         }
         var next: [APINext.Hint] = []
         if let top = hits.first {
-            if top.kind == "route", let path = top.json["path"] as? String, let method = top.json["method"] as? String {
+            if top.kind == "tool", let name = top.json["name"] as? String {
+                next.append(APINext.Hint("POST", "/api/tools/\(name)", "call the best match, the \(name) tool {\"arguments\": {…}}"))
+            } else if top.kind == "route", let path = top.json["path"] as? String, let method = top.json["method"] as? String {
                 next.append(APINext.Hint(method, path, "the best match: \(top.json["summary"] as? String ?? "")"))
                 if let g = top.json["group"] as? String { next.append(APINext.Hint("GET", "/api/endpoints?group=\(g)", "the rest of its group's routes")) }
             } else if let run = top.json["run"] as? [String: Any], let path = run["path"] as? String {
@@ -702,7 +709,7 @@ public final class RunAPI: @unchecked Sendable {
         }
         if total > hits.count { next.append(APINext.Hint("GET", "/api/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q)&limit=\(min(50, total))", "all \(total) matches")) }
         return JSON.response(["ok": true, "q": q, "words": APISearch.query(q), "count": results.count, "total": total,
-                              "results": results, "next": next.map(\.json)])
+                              "results": results, "lines": hits.map(Self.line), "next": next.map(\.json)])
     }
 
     /// A string as JSON writes it, quotes and all ("a \"b\"").

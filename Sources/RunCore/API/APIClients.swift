@@ -341,7 +341,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         Rules:
         1. Nothing runs without the user's click. Every run request shows a card on their Mac; they click Run or Don't Run, and no click in two minutes is Don't Run. You can't click for them: say "it's waiting for you to click Run on your Mac".
         2. Send "client" (your name, shown on the card) and "why" (why you want it, in the user's terms, a sentence they read before clicking) with every run.
-        3. Don't load every route. To find the call for something, search by a few words: GET \(base)/api/search?q=<what you want> (?in=scripts,flows for the user's scripts and flows only). It answers only what matches, the best first; a script or flow comes with "run": the request that runs it, its inputs as <placeholders>. Never guess a name.
+        3. If you call tools by name, GET \(base)/api/tools gives them (each with its arguments), and POST \(base)/api/tools/<name> {"arguments": {…}} calls one: use those instead of the routes below. Don't load every route. To find the call for something, search by a few words: GET \(base)/api/search?q=<what you want> (?in=scripts,flows for the user's scripts and flows only). It answers only what matches, the best first; a script or flow comes with "run": the request that runs it, its inputs as <placeholders>. Never guess a name.
         4. Every JSON answer has "next": the calls that usually come after it, with ids filled in. Follow it rather than guessing a path; errors have "fix" and "next" too.
         5. Send runs with "async": true and keep the request id ("request" in the JSON, and the X-Request-Id header). GET \(base)/api/requests/{id} says where it is: "delivery" is "pending" while it waits for the click or runs (ask again in a few seconds, or later). Once it's over, that read hands over the result ("delivered", with "run": its output) once; asked again, it says how it ended without the output. So use the output when you get it.
         6. Lost track? GET \(base)/api/requests/open lists every request not collected yet, oldest first, each "pending" or "ready". DELETE /api/requests/{id} takes back one still waiting for the click (nothing runs).
@@ -362,8 +362,10 @@ public enum APIClient: String, CaseIterable, Sendable {
         POST /api/runs/{id}/stop          stops a run you asked for (one the user started asks them first)
         POST /api/library                 {"op": "list"|"names"|"read"|"read_many"|"write"|"create"|"append"|"rename"|"copy"|"delete"|"restore"|"trash"|"search"|"find"|"recent"|"stats"|"outline"|"backlinks", "name"?, "text"?, "q"?, …}: the notes, answered at once
                                           e.g. {"op": "search", "q": "bank"} → {"results": [{"name", "score", "lines": [{"line", "text"}]}]}; {"op": "read", "name": "groceries"} → {"text", …}
-        Chrome: to OPEN a page or SEARCH, run a browser script: POST /api/run {"script": "browser/open-page.sh", "args": ["<address>"]}, {"script": "browser/google.sh", "args": ["<question>"]} (gives back Google's answer), {"script": "browser/site-search.sh", "args": ["youtube <words>"]}; to click and type, Straw (below).
-        GET  /api/browser/page            the page ALREADY in front of Chrome: its text (also /url, /has?text=, /find?text=). Reads only: it can't open or go anywhere
+        GET  /api/web/search?q=<words>    search the web from this Mac, at once: each result's title, address and words
+        GET  /api/web/fetch?url=<address> read any address, at once: a page's text and links, or a JSON API's answer (?find=<words>: the lines with them)
+        POST /api/browser/open            {"url"}: opens it in the user's Chrome, in a new tab, and reads it back, at once
+        GET  /api/browser/page            the page in front of Chrome: its text and links (also /url, /has?text=, /find?text=; POST /api/browser/highlight rings a thing in red). It never clicks or types: Straw does
         GET  /api/straw                   Straw's words and the Straw scripts (Straw drives Chrome by what's on the page)
         POST /api/straw/check             {"source": "<Straw code>"} → what it would do, or its mistake; runs nothing
         POST /api/straw/run               {"script": "<name>"} or {"source": "<Straw code>"}, with "client" and "why": runs it in Chrome once the user clicks Run

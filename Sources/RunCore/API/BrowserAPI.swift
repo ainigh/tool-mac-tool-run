@@ -1,8 +1,9 @@
 import Foundation
 
 /// The page in front of Chrome, for an app guiding the person through a site (`/api/browser…`):
-/// what's open, what it says, whether some words are on it, where a thing is, and a red ring to
-/// show them. It only reads (and rings); it never clicks, types or opens a page.
+/// what's open, what it says, whether some words are on it, where a thing is, a red ring to show
+/// them, and a page opened in a new tab for them to see. It never clicks or types (Straw does,
+/// after Run): what it does is seen and undone in a click, so it's answered at once.
 extension RunAPI {
     static let browserRoutes: [(method: String, path: String, summary: String)] = [
         ("GET", "/api/browser", "whether Chrome is open and what's in front (and whether apps may read inside its pages)"),
@@ -12,6 +13,7 @@ extension RunAPI {
         ("GET", "/api/browser/has", "whether words are on the page: ?text=Compute (?case_sensitive, ?whole_words): true or false, how many times, the lines"),
         ("GET", "/api/browser/find", "where a thing is: ?text=Compute — each match's kind (link, button…), whether it's in view, above, below, or in a closed menu, and what it's in"),
         ("POST", "/api/browser/highlight", "shows the person where: {\"text\": \"Compute\", \"seconds\"?: 4} scrolls to it and rings it in red (or the closed menu it's in)"),
+        ("POST", "/api/browser/open", "opens an address in Chrome, in a new tab in front {\"url\", \"new_tab\"?: true}, waits for it to load, and reads it (as /page; ?max=8000): for the person to see it, or to read a site as they would"),
         ("GET", "/api/browser/outline", "the page's outline: headings, landmarks, navigation, buttons, fields, links"),
     ]
 
@@ -20,7 +22,8 @@ extension RunAPI {
         "/api/browser": "status javascript front ready",
         "/api/browser/url": "address title current front tab which where",
         "/api/browser/tabs": "tabs windows list",
-        "/api/browser/page": "page text read content selection scroll",
+        "/api/browser/page": "page text read content selection scroll links",
+        "/api/browser/open": "open go goto navigate visit load url address website link tab show",
         "/api/browser/has": "has contains present check words text there",
         "/api/browser/find": "find where locate button link element",
         "/api/browser/highlight": "highlight point show ring mark where",
@@ -45,23 +48,24 @@ extension RunAPI {
         case ("GET", "has", 1), ("POST", "has", 1): op = "has"
         case ("GET", "find", 1), ("POST", "find", 1), ("GET", "where", 1): op = "find"
         case ("POST", "highlight", 1), ("POST", "show", 1): op = "highlight"
+        case ("POST", "open", 1), ("GET", "open", 1), ("POST", "go", 1), ("POST", "goto", 1), ("POST", "navigate", 1), ("POST", "visit", 1), ("POST", "load", 1): op = "open"
         case ("GET", "outline", 1): op = "outline"
         case ("GET", "operations", 1):
             let limit = min(500, max(1, Int(req.query["limit"] ?? "") ?? 20))
             return JSON.response(["operations": await libraryLog.recent(500).filter { $0.kind == "browser" }.prefix(limit).map(LibraryLog.json)])
-        case (_, let first?, 1) where ["url", "tabs", "page", "has", "find", "highlight", "outline"].contains(first):
-            throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes \(first == "highlight" ? "POST" : "GET")")
+        case (_, let first?, 1) where ["url", "tabs", "page", "has", "find", "highlight", "outline", "open"].contains(first):
+            throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes \(first == "highlight" || first == "open" ? "POST" : "GET")")
         case (_, let first?, _) where Self.actions.contains(first.lowercased()):
-            // Asked to act (open, search, click…): it only reads. Said, with what does.
+            // Asked to act (search, click, type…): it doesn't. Said, with what does.
             let wanted = f.text("text") ?? f.text("q") ?? f.text("url") ?? f.text("address") ?? ""
             throw HTTPError(status: 400, code: "browser_reads_only",
-                            message: "Chrome's page only reads the tab already in front: it can't \(first.lowercased())\(wanted.isEmpty ? "" : " \"\(wanted)\""). " + Self.whatActs(wanted))
+                            message: "Chrome's page reads the tab in front and opens pages; it can't \(first.lowercased())\(wanted.isEmpty ? "" : " \"\(wanted)\""). " + Self.whatActs(wanted))
         default:
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (GET /api/browser lists Chrome's routes; they only read)")
         }
         // An address or words sent to a read (url, page…): it doesn't go there. Said in the answer,
         // with the call that does, so the page in front isn't taken for the one asked for.
-        let elsewhere = f.text("url") ?? f.text("address") ?? f.text("go") ?? f.text("open")
+        let elsewhere = op == "open" ? nil : f.text("url") ?? f.text("address") ?? f.text("go") ?? f.text("open")
             ?? (["status", "url", "tabs", "page", "outline"].contains(op) ? f.text("text") ?? f.text("q") : nil)
         let response = await logged("browser", op, f, req) {
             func text() throws -> String {
@@ -73,7 +77,7 @@ extension RunAPI {
             switch op {
             case "status":
                 var out: [String: Any] = ["routes": Self.browserRoutes.map { ["method": $0.method, "path": $0.path, "summary": $0.summary] },
-                                          "reads_only": "it never opens a page, goes to an address, searches, clicks or types. To open a page: POST /api/run {\"script\": \"browser/open-page.sh\", \"args\": [\"<address>\"]}; to search Google: browser/google.sh; a site's own search: browser/site-search.sh; to click and type: Straw (POST /api/straw/run). Each waits for Run on the Mac"]
+                                          "never": "it never clicks, types or fills in anything: that's Straw (POST /api/straw/run, which waits for Run on the Mac). To open a page: POST /api/browser/open {\"url\"}. To find something out without Chrome: GET /api/web/search?q=…, GET /api/web/fetch?url=…"]
                 do {
                     let t = try await Self.offThread { try chrome.front() }
                     out["chrome"] = "open"
@@ -91,6 +95,30 @@ extension RunAPI {
                     if let fix = e.fix { out["fix"] = fix }
                 }
                 return .json(out, summary: "Chrome: \(out["chrome"] ?? "")")
+            case "open":
+                guard let raw = f.text("url") ?? f.text("address") ?? f.text("text") ?? f.text("q"), !raw.trimmingCharacters(in: .whitespaces).isEmpty else {
+                    throw HTTPError(status: 400, code: "bad_request", message: "say which address to open: \"url\" (https://example.com)")
+                }
+                let url = Self.isAddress(raw) ? (raw.contains("://") ? raw : "https://" + raw)
+                    : "https://www.google.com/search?q=" + (raw.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? raw)
+                guard let u = URL(string: url), ["http", "https"].contains(u.scheme?.lowercased() ?? "") else {
+                    throw HTTPError(status: 400, code: "bad_url", message: "\(raw) isn't a web address: give one like https://example.com")
+                }
+                let newTab = f.bool("new_tab") ?? f.bool("tab") ?? true
+                let t = try await Self.offThread { try chrome.open(u.absoluteString, newTab: newTab) }
+                var out: [String: Any] = ["opened": true, "title": t.title, "url": t.url, "loading": t.loading, "new_tab": newTab]
+                if !Self.isAddress(raw) { out["searched"] = raw }
+                // Read as it stands now, so what's on it comes back in the same answer.
+                do {
+                    let max = Swift.max(100, Swift.min(100_000, f.int("max") ?? 8000))
+                    let page = try await Self.offThread { try chrome.page(max: max) }
+                    for (k, v) in page where out[k] == nil || k == "title" || k == "url" { out[k] = v }
+                } catch let e as ChromeError {
+                    out["read"] = false
+                    out["read_problem"] = e.message
+                    if let fix = e.fix { out["fix"] = fix }
+                }
+                return .json(out, summary: "opened \(t.url)")
             case "url":
                 let t = try await Self.offThread { try chrome.front() }
                 return .json(["title": t.title, "url": t.url, "loading": t.loading, "text": t.url, "lines": [t.title, t.url]], summary: t.url)
@@ -130,7 +158,7 @@ extension RunAPI {
         guard let asked = elsewhere?.trimmingCharacters(in: .whitespaces), !asked.isEmpty,
               let data = response.bodyData, var out = JSON.object(data) else { return response }
         out["not_opened"] = asked
-        out["note"] = "This read the tab already in front of Chrome\((out["url"] as? String).map { " (\($0))" } ?? ""); it never goes anywhere, so it didn't open \"\(asked)\". " + Self.whatActs(asked)
+        out["note"] = "This read the tab already in front of Chrome\((out["url"] as? String).map { " (\($0))" } ?? ""); a read goes nowhere, so it didn't open \"\(asked)\". " + Self.whatActs(asked)
         out["next"] = Self.actHints(asked).map(\.json)
         var changed = response
         changed.body = .data(JSON.data(out))
@@ -138,7 +166,7 @@ extension RunAPI {
     }
 
     /// Words that ask the page to do something rather than be read.
-    static let actions: Set<String> = ["search", "open", "go", "goto", "navigate", "visit", "load", "google", "click", "type", "fill", "press", "submit", "browse", "launch"]
+    static let actions: Set<String> = ["search", "google", "click", "type", "fill", "press", "submit", "browse", "launch", "scroll", "select", "tap"]
 
     /// Looks like an address (google.com, https://…), not words to search for.
     static func isAddress(_ s: String) -> Bool {
@@ -146,21 +174,24 @@ extension RunAPI {
         return t.contains("://") || (!t.contains(" ") && t.contains(".") && t.last != ".")
     }
 
-    /// What does what was asked: open an address, search Google, or Straw to click and type.
+    /// What does what was asked: open an address, search the web, or Straw to click and type.
     static func whatActs(_ wanted: String) -> String {
         let quoted = RunAPI.jsonString(wanted.isEmpty ? "<address>" : wanted)
-        let words = RunAPI.jsonString(wanted.isEmpty ? "<question>" : wanted)
+        let words = RunAPI.jsonString(wanted.isEmpty ? "<words>" : wanted)
         return (isAddress(wanted) || wanted.isEmpty
-                ? "To open it: POST /api/run {\"script\": \"browser/open-page.sh\", \"args\": [\(quoted)]}. To search Google: {\"script\": \"browser/google.sh\", \"args\": [\(words)]}."
-                : "To search Google for it: POST /api/run {\"script\": \"browser/google.sh\", \"args\": [\(words)]} (it gives back the answer). To open an address: {\"script\": \"browser/open-page.sh\", \"args\": [\"<address>\"]}.")
-            + " To click and type: Straw, POST /api/straw/run {\"source\"}. Each waits for Run on the Mac; then read the page here."
+                ? "To open it in Chrome: POST /api/browser/open {\"url\": \(quoted)}. To read it without Chrome: GET /api/web/fetch?url=…."
+                : "To search the web for it: GET /api/web/search?q=… (\(words)), then read a result with GET /api/web/fetch?url=…. To open an address in Chrome: POST /api/browser/open {\"url\"}.")
+            + " To click and type: Straw, POST /api/straw/run {\"source\"}, which waits for Run on the Mac."
     }
 
     static func actHints(_ wanted: String) -> [APINext.Hint] {
-        let open = APINext.Hint("POST", "/api/run", "open it: {\"script\": \"browser/open-page.sh\", \"args\": [\(RunAPI.jsonString(isAddress(wanted) ? wanted : "<address>"))], \"why\"} (waits for Run on the Mac)")
-        let google = APINext.Hint("POST", "/api/run", "search Google: {\"script\": \"browser/google.sh\", \"args\": [\(RunAPI.jsonString(isAddress(wanted) || wanted.isEmpty ? "<question>" : wanted))], \"why\"} (gives back the answer; waits for Run)")
-        let straw = APINext.Hint("POST", "/api/straw/run", "click and type on a page: Straw {\"source\": \"open example.com\\nclick \\\"More\\\"\", \"why\"}")
-        return isAddress(wanted) || wanted.isEmpty ? [open, google, straw] : [google, open, straw]
+        let address = isAddress(wanted) ? wanted : "<address>"
+        let open = APINext.Hint("POST", "/api/browser/open", "open it in Chrome, in a new tab, and read it: {\"url\": \(RunAPI.jsonString(address))} (at once)")
+        let fetch = APINext.Hint("GET", "/api/web/fetch?url=\(address.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? address)", "read it without Chrome (at once)")
+        let q = isAddress(wanted) || wanted.isEmpty ? "<words>" : wanted
+        let search = APINext.Hint("GET", "/api/web/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? q)", "search the web (at once)")
+        let straw = APINext.Hint("POST", "/api/straw/run", "click and type on a page: Straw {\"source\": \"open example.com\\nclick \\\"More\\\"\", \"why\"} (waits for Run on the Mac)")
+        return isAddress(wanted) || wanted.isEmpty ? [open, fetch, straw] : [search, open, straw]
     }
 
     /// A match, in a sentence a person can follow: "The link “Compute” is in view, at the top

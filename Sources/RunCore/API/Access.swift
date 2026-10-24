@@ -4,7 +4,7 @@ import Foundation
 public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
     case run, compose, catalog, runs, library, memory, mind
     case systemDocs = "system_docs"
-    case screen, browser
+    case screen, browser, web
 
     public var title: String {
         switch self {
@@ -17,7 +17,8 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .mind: return "The mind"
         case .systemDocs: return "System docs"
         case .screen: return "Show and copy"
-        case .browser: return "Read Chrome's page"
+        case .browser: return "Chrome's page"
+        case .web: return "Read the web"
         }
     }
 
@@ -32,7 +33,8 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .mind: return "/api/mind (no asking; append only)"
         case .systemDocs: return "/api/system-docs (read only)"
         case .screen: return "POST /api/present · /api/clipboard"
-        case .browser: return "GET /api/browser/… (reads, never clicks)"
+        case .browser: return "/api/browser/… (reads and opens pages, never clicks)"
+        case .web: return "GET /api/web/search · /api/web/fetch (reads only)"
         }
     }
 
@@ -48,7 +50,8 @@ public enum APIEndpoint: String, CaseIterable, Codable, Sendable {
         case .mind: return "Other apps can ask the mind (what's linked to what) and add to it, without asking you each time. It's append only: what was there stays in its log."
         case .systemDocs: return "Other apps can read the docs on how this app works (SYSTEM-DOCS), with prompts and recipes for models. Nobody can change them."
         case .screen: return "Other apps can show you something in a window in front of everything (a file, a result), with copy buttons, and put text on your clipboard."
-        case .browser: return "Other apps can see the page in front of Chrome (its title, address and text), whether some words are on it, and where something is on it, and ring it in red to show you. They can't click or type."
+        case .browser: return "Other apps can see the page in front of Chrome (its title, address and text), whether some words are on it, and where something is on it, and ring it in red to show you, and open a page in a new tab. They can't click or type."
+        case .web: return "Other apps can search the web and read pages and APIs on the internet through this Mac, without asking you each time. It only reads (GET): nothing is sent but the address, no cookies, and never this Mac's own or its local network's addresses."
         }
     }
 }

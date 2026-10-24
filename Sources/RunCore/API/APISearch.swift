@@ -22,7 +22,7 @@ public enum APISearch {
 
     /// What a search looks in.
     public enum Scope: String, CaseIterable, Sendable {
-        case routes, scripts, flows
+        case tools, routes, scripts, flows
     }
 
     /// Words a question has that say nothing about what's wanted.
@@ -120,6 +120,14 @@ public enum APISearch {
         "utilities/weather.py": "forecast rain temperature",
     ]
 
+    static func doc(_ t: Tools.Tool) -> Doc {
+        Doc(fields: [
+            (set([t.name.replacingOccurrences(of: "_", with: " "), t.tags] + t.aliases.map { $0.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: ":", with: " ") }), 4),
+            (set([t.description]), 3),
+            (set(t.args.map(\.about)), 1),
+        ])
+    }
+
     static func doc(_ s: ScriptItem) -> Doc {
         Doc(fields: [
             (set([s.title] + s.tags + [APICatalog.topic(of: s) ?? "", exampleTags[s.id] ?? ""]), 4),
@@ -134,7 +142,7 @@ public enum APISearch {
     /// A word few things have counts for more than one most things have ("cancel a running
     /// script": cancel says the most).
     public static func search(_ q: String, scopes: Set<Scope> = Set(Scope.allCases), group: String? = nil,
-                              catalog: Catalog?, limit: Int = 10) -> (hits: [Hit], total: Int) {
+                              catalog: Catalog?, settings: APISettings? = nil, limit: Int = 10) -> (hits: [Hit], total: Int) {
         let terms = query(q)
         guard !terms.isEmpty else { return ([], 0) }
         // Each thing's score for each word, then how rare each word is among them all.
@@ -154,6 +162,13 @@ public enum APISearch {
             scored.append((scores, hit))
         }
         var order = 0
+        if scopes.contains(.tools), group == nil || group == "tools" {
+            let s = settings ?? APISettings()
+            for t in Tools.all where t.endpoint.map(s.isOn) ?? true {
+                order += 1
+                consider(doc(t), kind: "tool", order: order, json: toolJSON(t))
+            }
+        }
         if scopes.contains(.routes) {
             for g in APIRoutes.groups where group == nil || g.id == group {
                 for r in g.routes {
@@ -197,6 +212,11 @@ public enum APISearch {
     }
 
     // MARK: what each hit says
+
+    static func toolJSON(_ t: Tools.Tool) -> [String: Any] {
+        ["name": t.name, "description": t.description, "args": t.args.map(\.json), "takes": t.takes, "asks_on_the_mac": t.asks, "tags": t.tags.split(separator: " ").map(String.init),
+         "call": ["method": "POST", "path": "/api/tools/\(t.name)", "body": ["arguments": Dictionary(uniqueKeysWithValues: t.args.filter(\.required).map { ($0.name, "<\($0.about)>") })]] as [String: Any]]
+    }
 
     static func routeJSON(_ r: APIRoutes.Route, _ g: APIRoutes.Group) -> [String: Any] {
         var out: [String: Any] = ["method": r.method, "path": r.path, "summary": r.summary, "group": g.id, "asks_on_the_mac": r.asks,

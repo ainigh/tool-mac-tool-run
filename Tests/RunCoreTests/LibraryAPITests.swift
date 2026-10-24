@@ -160,7 +160,7 @@ final class LibraryAPITests: XCTestCase {
         let (r, d) = await api.send("GET", "/api/endpoints")
         XCTAssertEqual(r.status, 200)
         let groups = json(d)["groups"] as? [[String: Any]] ?? []
-        XCTAssertEqual(groups.compactMap { $0["id"] as? String }, ["about", "scripts", "straw", "library", "memory", "mind", "system-docs", "screen", "browser", "automation", "runs"])
+        XCTAssertEqual(groups.compactMap { $0["id"] as? String }, ["about", "scripts", "straw", "library", "memory", "mind", "system-docs", "screen", "browser", "web", "tools", "automation", "runs"])
         XCTAssertEqual(json(d)["count"] as? Int, APIRoutes.all.count)
         let (_, one) = await api.send("GET", "/api?group=library")
         XCTAssertEqual((json(one)["groups"] as? [[String: Any]])?.count, 1)

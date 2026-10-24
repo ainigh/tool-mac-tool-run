@@ -285,7 +285,12 @@ everything, with copy buttons (`POST /api/present`: a file, a node of the mind, 
 **copy** to your clipboard (`POST /api/clipboard`, or `"copy": true` on any answer). And to guide
 you through a website, they can **see the page in Chrome** (`/api/browser`): its address, its
 text, whether some words are on it, where a thing is (in view, above, below, inside a closed menu),
-and ring it in red so you see it. It only reads: it never clicks or types.
+and ring it in red so you see it, and open a page there for you (a new tab). It never clicks or
+types. They can also **read the web** themselves, without Chrome (`/api/web`): search it, and read
+any address (a page's text and links, or a JSON API's answer), only ever reading, and never this
+Mac or your network. And an app with a model hands it **the tools** (`GET /api/tools`): all of
+this as a short list a model calls by name (`POST /api/tools/{name}`), with a guide and examples
+for its instructions, so the app needs no wrappers of its own.
 
 From a terminal or a flow, `utilities/tmr.py` speaks to all of it (`tmr.py remember PEOPLE "Ada
 Lovelace" met at the conference`, `tmr.py recall ada`, `tmr.py show memory PEOPLE`, `tmr.py has
