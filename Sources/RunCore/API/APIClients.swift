@@ -43,7 +43,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         case .swift: "Copy a Swift helper (URLSession, async): for a Mac app or a command-line tool"
         case .shortcuts: "Copy the steps for a shortcut in Apple's Shortcuts that runs a script here"
         case .agent: "Copy instructions for an AI agent (Claude, ChatGPT, a local model): the rules, the endpoints, the request id"
-        case .smallModel: "Copy what a small model needs to talk to it in plain words: one line for its instructions, one tool (say), and how the app passes it on"
+        case .smallModel: "Copy what a small model needs to talk to it in plain words, through Peter (Tool Mac Agent): one line for its instructions, and how the app passes it on"
         }
     }
 
@@ -387,25 +387,21 @@ public enum APIClient: String, CaseIterable, Sendable {
     }
 
     private static func smallModel(_ base: String, _ token: String?) -> String {
-        let auth = token.map { " -H 'Authorization: Bearer \($0)'" } ?? ""
+        _ = token
         return """
-        # A model that only knows how to talk: one line for its instructions, one tool.
+        # A model that only knows how to talk: Peter (Tool Mac Agent) is the way in.
+        # He reads what it says, carries it out here (\(base)), and answers in plain words:
+        # https://github.com/ainigh/tool-mac-tool-run-agent
 
         ## The instructions
-        To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and say it back.
+        To get anything done on the Mac or the web, ask Peter in plain words. If he answers with templates, fill one in and say it back.
 
-        ## The tool
-        {"name": "say", "description": "Talk to the Mac's tools in plain words. Say what you want; if it answers with templates, fill one in and say it back.", "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "what you want, or a template filled in"}}, "required": ["text"]}}
-
-        ## Passing a call on (your app, not the model)
-        # Send the model's text as is; ?client= names your app on the Mac's cards (and gives it its own conversation).
-        # The answer is plain text: hand it back to the model as the tool's result. No ids, no polling, no JSON.
-        curl -s\(auth) '\(base)/api/say?client=My+Assistant' -H 'Content-Type: text/plain' --data-binary "what's the weather in Lagos"
+        ## Passing it on (your app, not the model)
+        # ?client= names your app on the Mac's cards, and a run's card shows why, in the model's own words.
+        # The answer is plain text: hand it back to the model.
+        # X-Reply-To (an address on this Mac): told the moment a run is over, or something scheduled is due.
+        curl -s 'http://127.0.0.1:8770/api/say?client=My+Assistant' -H 'Content-Type: text/plain' --data-binary "what's the weather in Lagos"
         # Asked for the weather. I'll tell you how it goes.
-
-        # A run still waits for the person's OK on the Mac (the card shows why, in the model's own words),
-        # but neither the model nor your app has to know: the answers say what happened, in words to pass on.
-        # What changed comes at the start of the next answer ("Meanwhile: …"). Start over: POST \(base)/api/say/reset?client=My+Assistant
         """
     }
 }

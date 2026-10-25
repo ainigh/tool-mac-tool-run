@@ -111,26 +111,6 @@ enum Windows {
         }
     }
 
-    /// The Automation board: everything that runs by itself, grouped by its tag (and the rest,
-    /// ready to be tagged). It fills 90% of the screen, as the API board does.
-    static func showAutomationBoard() {
-        let id = "automation-board"
-        let frame = ninetyPercent
-        let isNew = windows[id] == nil
-        AppModel.shared.reload()
-        show(id, title: "Automation", size: frame.size, minSize: NSSize(width: 640, height: 440), autosave: false) {
-            AutomationBoardView(app: AppModel.shared, runs: AppModel.shared.runs)
-        }
-        guard let w = windows[id] else { return }
-        w.setFrame(frame, display: true, animate: false)
-        if isNew {
-            let token = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { _ in
-                MainActor.assumeIsolated { AppModel.shared.reload() }
-            }
-            observers.append(token)
-        }
-    }
-
     /// The Library board: the notes in LIBRARY, a tile each, one open to edit. It fills 90% of
     /// the screen, as the other boards do.
     static func showLibraryBoard() { showShelfBoard(.library) }

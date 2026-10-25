@@ -3,14 +3,13 @@ import RunCore
 import SwiftUI
 
 /// The boards that aren't grids, in the order the panel and the switcher show them, each with its
-/// title, look and key: API ⌘5, Automation ⌘6, Library ⌘7, Memory ⌘8, Mind ⌘9, System Docs ⌘0.
+/// title, look and key: API ⌘5, Library ⌘6, Memory ⌘7, Mind ⌘8, System Docs ⌘9.
 enum Board: String, CaseIterable {
-    case api, automation, library, memory, mind, systemDocs
+    case api, library, memory, mind, systemDocs
 
     var title: String {
         switch self {
         case .api: "API"
-        case .automation: "Automation"
         case .library: "Library"
         case .memory: "Memory"
         case .mind: "Mind"
@@ -24,7 +23,6 @@ enum Board: String, CaseIterable {
     @MainActor var symbol: String {
         switch self {
         case .api: APIBoardView.symbol
-        case .automation: AutomationBoardView.symbol
         case .library: "books.vertical.fill"
         case .memory: "brain.head.profile"
         case .mind: "point.3.filled.connected.trianglepath.dotted"
@@ -35,7 +33,6 @@ enum Board: String, CaseIterable {
     @MainActor var colors: [Color] {
         switch self {
         case .api: APIBoardView.colors
-        case .automation: AutomationBoardView.colors
         case .library: [Color(red: 0.36, green: 0.55, blue: 0.27), Color(red: 0.16, green: 0.50, blue: 0.47)]
         case .memory: [Color(red: 0.85, green: 0.38, blue: 0.55), Color(red: 0.62, green: 0.30, blue: 0.80)]
         case .mind: [Color(red: 0.42, green: 0.36, blue: 0.92), Color(red: 0.20, green: 0.62, blue: 0.86)]
@@ -62,7 +59,6 @@ enum Board: String, CaseIterable {
     @MainActor func show() {
         switch self {
         case .api: Windows.showAPIBoard()
-        case .automation: Windows.showAutomationBoard()
         case .library, .memory, .systemDocs: Windows.showShelfBoard(shelf!)
         case .mind: Windows.showMindBoard()
         }

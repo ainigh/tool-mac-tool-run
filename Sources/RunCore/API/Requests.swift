@@ -1,7 +1,7 @@
 import Foundation
 
 /// Every request another app makes that reaches the card on the Mac (a run, a flow, Flow code, or
-/// an automation), by its id, from the moment it arrives: waiting for the click, how the person
+/// a stop), by its id, from the moment it arrives: waiting for the click, how the person
 /// answered, the run it became and how that went. The id goes back to the app at once
 /// (`X-Request-Id`, and `request` in every answer), so the app can ask `GET /api/requests/{id}`
 /// any time later, whether it waited for the answer, streamed it, or hung up.
@@ -19,11 +19,9 @@ public actor RequestLedger {
         case notAnswered
         /// Started: the run's id.
         case running(UUID)
-        /// Tagged to run by itself (an automation request).
-        case automated
         /// Allowed to stop this run (a stop request), and told to stop.
         case stopped(UUID)
-        /// Allowed, but it couldn't be started (or tagged): why.
+        /// Allowed, but it couldn't be started: why.
         case failed(HTTPError)
         /// Taken back by the app that asked, before anyone clicked (the card went away).
         case withdrawn
@@ -49,7 +47,7 @@ public actor RequestLedger {
         public var outcome: Outcome = .waiting
         /// When the person answered (or the two minutes ran out).
         public var answered: Date?
-        /// How it was asked for: `run`, `compose`, `automation` or `stop` (which endpoint).
+        /// How it was asked for: `run`, `compose` or `stop` (which endpoint).
         public let via: String
         /// When its result was handed over, or it was cleared without it (nil: it's open).
         public var cleared: Date?

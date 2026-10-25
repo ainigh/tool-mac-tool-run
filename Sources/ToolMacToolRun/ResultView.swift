@@ -29,10 +29,7 @@ struct RunResultView: View {
             VStack(alignment: .leading, spacing: 12) {
                 header
                 if let by = run.requestedBy {
-                    Label(run.isAutomated
-                          ? "Started by itself: \(by.dropFirst(RunRecord.automationPrefix.count + 2)) (the Automation board has its tags)"
-                          : "Asked for over the HTTP API by \(by), and allowed",
-                          systemImage: run.isAutomated ? "clock.badge.checkmark" : "network")
+                    Label("Asked for over the HTTP API by \(by), and allowed", systemImage: "network")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

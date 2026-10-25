@@ -68,7 +68,6 @@ public struct RunRecord: Codable, Identifiable, Equatable, Sendable {
     /// Earlier output was dropped to keep it to `maxOutput` bytes.
     public var trimmed: Bool
     /// Another app asked for it, over the API, and the person allowed it: who ("curl, on this Mac").
-    /// The automation started it: "Automation: every morning".
     public var requestedBy: String?
     /// Why it was asked for, in the asker's words (the API's `why`), when it said.
     public var why: String?

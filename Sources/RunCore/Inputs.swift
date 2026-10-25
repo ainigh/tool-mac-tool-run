@@ -65,7 +65,7 @@ public struct ScriptInput: Equatable, Hashable, Sendable, Codable {
     }
 
     /// The sentences a header's `Say:` lines give (`# Say: what's the weather in {a city}`): how
-    /// the template adapter (`POST /api/say`) offers it, each `{…}` one of its inputs, in order.
+    /// Peter (Tool Mac Agent: `POST /api/say`, in words) offers it, each `{…}` one of its inputs, in order.
     /// Only the comment lines at its top count.
     public static func declaredSay(in contents: String) -> [String] {
         var found: [String] = []

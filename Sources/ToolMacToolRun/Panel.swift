@@ -277,7 +277,7 @@ struct PanelView: View {
         if let first = approvals.pending.first {
             let n = approvals.pending.count
             Banner(symbol: "hand.raised.fill", color: first.request.dangers.isEmpty ? .orange : .red,
-                   text: n == 1 ? "\(first.request.client) wants to \(first.request.automation == nil ? "run" : "automate") \(first.request.name)" : "\(n) requests are waiting for you",
+                   text: n == 1 ? "\(first.request.client) wants to \(first.request.isStop ? "stop" : "run") \(first.request.name)" : "\(n) requests are waiting for you",
                    action: "Show") { go { ApprovalCenter.shared.show() } }
         }
         if !prompts.pending.isEmpty {
@@ -339,7 +339,6 @@ struct PanelView: View {
     private func boardDetail(_ board: Board) -> String {
         switch board {
         case .api: return "Everything other apps can run: try each"
-        case .automation: return automationDetail
         case .library:
             let n = FileLibrary().list().count
             return n == 0 ? "Notes by name, on your Desktop" : "\(n) note\(n == 1 ? "" : "s") on your Desktop"
@@ -351,13 +350,6 @@ struct PanelView: View {
             return n == 0 ? "What links to what, as a picture" : "\(n) thing\(n == 1 ? "" : "s"), and how they link"
         case .systemDocs: return "How it all works, for you and models"
         }
-    }
-
-    /// What the Automation tile says: how many run by themselves, or what it's for.
-    private var automationDetail: String {
-        guard app.library != nil else { return "Scripts and flows that run by themselves" }
-        let n = GridKind.allCases.reduce(0) { $0 + app.settings($1).automation.count }
-        return n == 0 ? "Tag anything to run on a schedule" : "\(n) running by \(n == 1 ? "itself" : "themselves")"
     }
 
     /// What a grid's tile says under its name: what's on it, or (with no folder yet) what it's for.
@@ -453,8 +445,8 @@ struct PanelView: View {
         seconds < 60 ? "\(seconds) s" : "\(seconds / 60) min"
     }
 
-    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 to ⌘0 the other boards
-    /// (API, Automation, Library, Memory, Mind, System Docs), ⌘R the runs, ⌘Q quits.
+    /// The menu's keys, while the panel is up: ⌘1 to ⌘4 the grids, ⌘5 to ⌘9 the other boards
+    /// (API, Library, Memory, Mind, System Docs), ⌘R the runs, ⌘Q quits.
     private var shortcuts: some View {
         ZStack {
             ForEach(GridKind.allCases, id: \.self) { kind in

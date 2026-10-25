@@ -57,8 +57,6 @@ struct RunsView: View {
                         }
                         Button { Windows.showAPIBoard() } label: { Label("API", systemImage: APIBoardView.symbol) }
                             .help("Open the API board: everything other apps can run, each a click away")
-                        Button { Windows.showAutomationBoard() } label: { Label("Automation", systemImage: AutomationBoardView.symbol) }
-                            .help("Open the Automation board: what runs by itself, by schedule or trigger")
                     }
                     .buttonStyle(SoftButtonStyle(large: true))
                     .padding(.top, 4)
@@ -104,10 +102,10 @@ struct RunRow: View {
                         .lineLimit(1)
                         .font(indent ? .callout : .body.weight(.medium))
                     if let by = run.requestedBy {
-                        Image(systemName: run.isAutomated ? "clock.badge.checkmark" : "network")
+                        Image(systemName: "network")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .help(run.isAutomated ? "Started by itself (\(by.dropFirst(RunRecord.automationPrefix.count + 2)))" : "Asked for over the HTTP API by \(by)")
+                            .help("Asked for over the HTTP API by \(by)")
                     }
                 }
                 HStack(spacing: 4) {

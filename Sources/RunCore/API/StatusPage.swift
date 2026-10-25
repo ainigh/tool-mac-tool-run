@@ -46,14 +46,6 @@ enum StatusPage {
   <section class="card"><h2>Status</h2><div class="pills" id="status">Checking…</div></section>
 
   <section class="card">
-    <h2>Say it in words</h2>
-    <p class="sub" style="margin:0 0 10px">What a small model would say (<code>POST /api/say</code>): what you want, in words. If it isn't sure, it answers with templates to fill in and say back. ⌘↩ says it.</p>
-    <textarea id="saytext" style="min-height:60px">what can you do</textarea>
-    <div class="row"><button id="say">Say</button><button class="quiet" id="sayreset">Start over</button></div>
-    <pre id="sayout" hidden></pre>
-  </section>
-
-  <section class="card">
     <h2>Run a script</h2>
     <div class="row"><select id="script"></select><input type="text" id="args" placeholder="arguments, as in a terminal"></div>
     <div class="row"><button id="run">Run</button><span id="runnote" class="sub"></span></div>
@@ -153,23 +145,6 @@ async function stream(path, body, stateEl, outEl, button) {
   finally { button.disabled = false; }
 }
 
-const sayClient = "The API's page";
-async function say(text) {
-  const out = $("sayout");
-  out.hidden = false;
-  out.textContent += (out.textContent ? "\n" : "") + "› " + text.replace(/\n/g, "\n  ") + "\n";
-  try {
-    const r = await fetch("/api/say?client=" + encodeURIComponent(sayClient), {method: "POST", headers: {"Content-Type": "text/plain"}, body: text});
-    out.textContent += await r.text();
-  } catch (e) { out.textContent += "❌ " + e + "\n"; }
-  out.scrollTop = out.scrollHeight;
-}
-$("say").onclick = () => { const t = $("saytext").value.trim(); if (t) { $("saytext").value = ""; say(t); } };
-$("saytext").onkeydown = e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("say").onclick(); } };
-$("sayreset").onclick = async () => {
-  await fetch("/api/say/reset?client=" + encodeURIComponent(sayClient), {method: "POST"});
-  $("sayout").textContent = ""; $("sayout").hidden = true;
-};
 $("run").onclick = () => stream("/api/run", {script: $("script").value, args: $("args").value}, $("runstate"), $("runout"), $("run"));
 $("compose").onclick = () => stream("/api/compose", {source: $("code").value, name: "Flow from the API's page"}, $("flowstate"), $("flowout"), $("compose"));
 $("check").onclick = async () => {

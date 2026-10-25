@@ -143,16 +143,10 @@ Flows use them too (`libraryRead`, `libraryWrite`, `libraryAppend`, `libraryFind
 the Utilities grid's `library` scripts (`library-search`, `library-find`, `library-append`…) and
 the flows `quick-note`, `journal`, `find-note`, `library-digest`, `save-page` and `clip-selection`.
 
-**The Automation board** (⌘6) is everything that runs by itself, the same tiles grouped by what
-makes them run: a **schedule** (every minute, every 5, 10 or 30 minutes, every hour, every
-morning, afternoon or evening, every day, week or month) or a **trigger** (when the API is
-called, when a script, a flow, a utility or a browser script runs, after an item you pick, when
-anything runs). The tags are a fixed set, never made up; an item can wear several, and **One
-Time Only** takes them off once it has run. Right-click any cell or tile → **Automation** to tag
-it; the tag shows on the cell, with its next time under the pointer. A run started this way is
-marked in Runs (*Started by itself: every morning*), uses the cell's remembered arguments, asks
-on a card first if the cell would, and gets a notice if it fails. Other apps can tag things over
-the API too (`"automation": ["every evening"]`), and you're asked first.
+**Running by itself, and talking in words, are Peter's.** [Peter](https://github.com/ainigh/tool-mac-tool-run-agent)
+(Tool Mac Agent) is a separate app in front of this one: say what you want in plain words ("every
+morning at 7, run the nightly backup", "remind me at 5 to call Sam") and he does it here, when it's
+due. Each run he asks for waits for **Run** on the Mac, as any app's does.
 
 **Every question says why.** Before you answer anything, the screen says what the answer
 decides: a flow's question carries its reason (`confirmBecause "Delete them?" "They're 30 days
@@ -175,7 +169,7 @@ The same panel has **Runs**: every run of a script or a flow, with how it went a
 printed (live while it runs), the command to run it yourself in a terminal, Stop and Run Again.
 
 **Every route, in its groups**: `GET /api/endpoints` lists them (About the API, Scripts and flows,
-Straw, File library, Automation, Runs and requests), and so do `/api/doc` and the API's own page.
+Straw, File library, Runs and requests), and so do `/api/doc` and the API's own page.
 **Or only what's wanted**: `GET /api/search?q=remember a birthday` answers just the routes,
 scripts and flows that match a few words, each with how to call it (every route has tags, the
 words someone would say for it; a script's header can give its own: `# Tags: weather forecast`).
@@ -229,19 +223,11 @@ SES, MailUp, Microsoft 365, Google, Freshdesk), run from the grids.
 
 ## For other apps
 
-**Or just talk to it.** `POST /api/say` is one way in for any client, a small model most of all:
-say what you want as text, get plain words back. What it can't place yet is answered with a few
-templates to fill in (`search the web for {what to look for}`, `what's the weather in {a place}`,
-or a short form with a line for each value); one said back filled in is done, or put to you on the
-card. It follows each request itself and starts every answer with what changed (*Meanwhile: the
-nightly backup finished*), so the client never keeps an id, polls or reads JSON. A model's
-instructions need one line: *"To use the Mac's tools, use `say`. Say what you want; if it offers
-templates, fill one in and say it back."* A script's header can say how it's offered: `# Say:
-what's the weather in {a city}`. Words that aren't a template are read by a model whose only job
-is that (stateless, Ollama on this Mac by default, or Claude), and the reply says how it took them
-(*Taken as: what's the weather in Lagos*). → [API-SAY.md](API-SAY.md) (the contract, and how each
-template maps to what's done), [BENCH.md](BENCH.md) (which model translates best), and the thinking
-behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).
+**Or just talk to it, through Peter.** [Peter](https://github.com/ainigh/tool-mac-tool-run-agent)
+(Tool Mac Agent, `http://127.0.0.1:8770/api/say`) is one way in for any client, a small model
+most of all: say what you want as text, get plain words back. He makes his templates from what
+this app lists (its tools, scripts and flows), so a script's header can say how he offers it:
+`# Say: what's the weather in {a city}`. [ARCHITECTURE.md](ARCHITECTURE.md) shows how it fits.
 
 **[API.md](API.md)** is what client apps need: `http://127.0.0.1:8768`, with `/api/scripts`,
 `/api/flows`, `/api/run`, `/api/compose` (a flow, or Flow code you send), `/api/check`,
@@ -256,7 +242,6 @@ curl -s localhost:8768/api/run -d '{"script": "hello.sh", "args": ["world"], "cl
 curl -sN localhost:8768/api/run -d '{"script": "backup.sh", "stream": true}'
 curl -si localhost:8768/api/run -d '{"script": "backup.sh", "async": true, "client": "My App"}'   # 202 now, with X-Request-Id
 curl -s localhost:8768/api/requests/<the id>
-curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App"}'
 ```
 
 The panel's **HTTP API** section starts and stops it, has a switch for each group of endpoints
@@ -274,19 +259,19 @@ on the network too; callers from elsewhere need the token shown there.
 ## TOOL-MAC-RUN: Library, Memory, Mind and System Docs
 
 The app keeps its own shelves in one folder, **TOOL-MAC-RUN on your Desktop**, each with its board
-(from the panel, or ⌘7 to ⌘0 on any board) and its API:
+(from the panel, or ⌘6 to ⌘9 on any board) and its API:
 
-- **Library** (⌘7, `/api/library`): your notes, Markdown files known by their names.
-- **Memory** (⌘8, `/api/memory`): what's remembered, a file for each kind of thing — PEOPLE,
+- **Library** (⌘6, `/api/library`): your notes, Markdown files known by their names.
+- **Memory** (⌘7, `/api/memory`): what's remembered, a file for each kind of thing — PEOPLE,
   ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS — each a
   node of the mind. Apps `remember` (a line in the file, and links in the mind) and `recall`
   (everything known about a name), and ask what's `upcoming`.
-- **Mind** (⌘9, `/api/mind`): what links to what, in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
+- **Mind** (⌘8, `/api/mind`): what links to what, in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
   (`| ada lovelace - works at | acme`): a picture to move around in, or its text. It's only ever
   added to. Apps ask it in plain fields (about, neighbours, path, find, dates) or in the notation's
   own queries (`| x - works at | acme`), and add to it the same two ways; a model's reply can be
   appended as it is, checked first.
-- **System Docs** (⌘0, `/api/system-docs`): how the app works, for you and for models — the
+- **System Docs** (⌘9, `/api/system-docs`): how the app works, for you and for models — the
   guides, the API, prompts (PROMPT-ASSISTANT, PROMPT-MIND-KEEPER, PROMPT-SITE-GUIDE), recipes and
   example exchanges. The app writes it each time it starts; nobody changes it. The sources are
   [docs/system](docs/system).
@@ -387,7 +372,7 @@ forgotten, and it opens again: it asks for a scripts folder, and the examples co
 | Copy the terminal command | right-click → **Copy Command for Terminal** |
 | Remove it | right-click → **Move to Trash…** (you can put it back from the Trash) |
 | Be asked before it runs | right-click → **Ask Before Running** (on by itself for a script that looks like it deletes files, uses `sudo`, force-pushes… ✋ on its cell says so) |
-| Make it run by itself | right-click → **Automation** → tick a schedule or a trigger (the Automation board, ⌘6, shows everything that does) |
+| Make it run by itself | ask [Peter](https://github.com/ainigh/tool-mac-tool-run-agent): "every morning at 7, run the nightly backup" (each run still waits for Run) |
 | Answer a flow's question | the window that comes forward, or click the cell that says **Waiting for your answer** |
 | Type into a script that asks (`read -p`, `input()`…) | the result pane (or Runs, or under the editor) has a line to type in |
 
@@ -499,11 +484,9 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/EPA.swift`, `EPARecipes.swift` | EPA: its commands, running `epa --ask-json` (its words shown, its questions asked here), the recipes |
 | `scripts/setup-epa.sh` | installs or updates EPA (the installer runs it; the app puts the same file in the folder) |
 | `Sources/flow/` | the `flow` command |
-| `Sources/RunCore/Automation.swift` | the automation tags, when a schedule next runs, what sets a trigger off |
-| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`), the clock and triggers that start what's automated and the Automation board (`AutomationCenter.swift`, `AutomationBoard.swift`) |
+| `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`) |
 | `API.md` | the HTTP API, for client apps |
-| `API-SAY.md` | `POST /api/say`, the way in for clients: how what's said is read, the templates and what each does, the translator |
-| `BENCH.md` | what a client says and the template it should become: the cases for trying translator models (`scripts/bench-say.py`) |
+| `ARCHITECTURE.md` | how Super Face, Peter (Tool Mac Agent) and this app fit together, and the plan |
 | `docs/AGENTS-GUIDE.md` | the API from an agent's loop (Super Voice's Tom and Jerry): request ids, `async`, polling, what to tell the person |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
 | `docs/STRAW-GUIDE.md` | the Straw guide, for `.straw` scripts that drive Chrome (also shown inside the app); `straw.py`, which runs them, is an example in `Sources/RunCore/ExampleTools.swift`, and `Straw.swift` finds it |

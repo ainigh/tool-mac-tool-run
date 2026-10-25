@@ -66,31 +66,10 @@ final class FakeRunHost: RunHost, @unchecked Sendable {
         }
     }
 
-    /// What's been tagged to run by itself (by `automate`), by the item's id.
-    private(set) var automated: [String: Automation] = [:]
-    private(set) var automateRequests: [RunRequest] = []
-
-    func automations() async -> [AutomationEntry] {
-        lock.withLock {
-            automated.map { AutomationEntry(id: $0.key, grid: GridKind.of(scriptID: $0.key), title: $0.key, automation: $0.value, next: nil) }
-                .sorted { $0.id < $1.id }
-        }
-    }
-
     var screen = ScreenLog()
 
     func present(_ p: Presentation) async throws { screen.show(p) }
     func copy(_ text: String) async throws { screen.copy(text) }
-
-    func automate(_ request: RunRequest) async throws -> AutomationEntry {
-        try lock.withLock {
-            automateRequests.append(request)
-            guard let id = request.itemID, let a = request.automation else { throw HTTPError(status: 400, code: "bad_request", message: "nothing to tag") }
-            if a.isEmpty { automated[id] = nil } else { automated[id] = a }
-            return AutomationEntry(id: id, grid: request.isScript ? .scripts : .composer, title: id, automation: a,
-                                   next: a.schedules.isEmpty ? nil : Date(timeIntervalSince1970: 1_800_000_000))
-        }
-    }
 }
 
 /// What a pretend screen was given.
@@ -253,73 +232,17 @@ final class APITests: XCTestCase {
         XCTAssertEqual(host.asked.last?.why, "ab\nc")
     }
 
-    func testAutomationIsAskedAboutThenTaggedNotRun() async {
-        let (r, d) = await api.post("/api/run", #"{"script": "hello", "automation": ["every morning", "when-api-called"], "client": "My App", "why": "Keep it fresh"}"#)
-        XCTAssertEqual(r.status, 200, String(decoding: d, as: UTF8.self))
-        XCTAssertEqual(host.asked.count, 1)
-        XCTAssertEqual(host.asked.first?.automation?.tags, [.everyMorning, .whenAPICalled])
-        XCTAssertEqual(host.asked.first?.why, "Keep it fresh")
-        XCTAssertTrue(host.started.isEmpty, "nothing runs now")
-        XCTAssertEqual(host.automateRequests.count, 1)
-        let out = json(d)
-        XCTAssertEqual(out["ok"] as? Bool, true)
-        XCTAssertEqual(out["automated"] as? Bool, true)
-        XCTAssertEqual(out["name"] as? String, "hello.sh")
-        XCTAssertEqual(out["tags"] as? [String], ["every-morning", "when-api-called"])
-        XCTAssertEqual(out["once"] as? Bool, false)
-        XCTAssertEqual(out["summary"] as? String, "every morning, when the API is called")
-        XCTAssertNotNil(out["next"])
-
-        // Listed, with the tags there are.
-        let (_, list) = await api.send("GET", "/api/automation")
-        let items = json(list)["items"] as? [[String: Any]]
-        XCTAssertEqual(items?.map { $0["name"] as? String }, ["hello.sh"])
-        XCTAssertEqual(items?.first?["kind"] as? String, "script")
-        let tags = json(list)["tags"] as? [[String: Any]]
-        XCTAssertEqual(tags?.count, AutomationTag.allCases.count)
-        XCTAssertEqual(tags?.first?["name"] as? String, "every-minute")
-        XCTAssertEqual(tags?.first?["kind"] as? String, "schedule")
-        let (h, _) = await api.send("GET", "/api/health")
-        _ = h
-        let (_, hd) = await api.send("GET", "/api/health")
-        XCTAssertEqual(json(hd)["automated"] as? Int, 1)
-
-        // A flow, once, after an item, through /api/automation; then taken off with an empty list.
-        let (r2, d2) = await api.post("/api/automation", #"{"flow": "greet", "automation": [], "once": true, "after": ["hello"]}"#)
-        XCTAssertEqual(r2.status, 200, String(decoding: d2, as: UTF8.self))
-        XCTAssertEqual(json(d2)["tags"] as? [String], ["after-an-item"])
-        XCTAssertEqual(json(d2)["after"] as? [String], ["hello.sh"])
-        XCTAssertEqual(json(d2)["once"] as? Bool, true)
-        XCTAssertEqual(json(d2)["kind"] as? String, "flow")
-        let (r3, d3) = await api.post("/api/automation", #"{"flow": "greet", "automation": []}"#)
-        XCTAssertEqual(r3.status, 200)
-        XCTAssertEqual(json(d3)["tags"] as? [String], [])
-        let (_, list2) = await api.send("GET", "/api/automation")
-        XCTAssertEqual((json(list2)["items"] as? [[String: Any]])?.count, 1)
-
-        // Don't Run means not tagged.
-        host.answer = .denied
-        let (r4, d4) = await api.post("/api/run", #"{"script": "hello.sh", "automation": "every-day"}"#)
-        XCTAssertEqual(r4.status, 403)
-        XCTAssertTrue((json(d4)["error"] as? String ?? "").contains("wasn't automated"))
-        host.answer = .allowed
-
-        // What can't be: an unknown tag, "after" with nothing to run after, code that isn't a file.
-        let (r5, d5) = await api.post("/api/run", #"{"script": "hello.sh", "automation": ["every blue moon"]}"#)
-        XCTAssertEqual(r5.status, 400)
-        XCTAssertEqual(json(d5)["code"] as? String, "unknown_tag")
-        XCTAssertTrue((json(d5)["error"] as? String ?? "").contains("every-morning"))
-        let (r6, _) = await api.post("/api/run", #"{"script": "hello.sh", "automation": ["after an item"]}"#)
-        XCTAssertEqual(r6.status, 400)
-        let (r7, d7) = await api.post("/api/run", #"{"script": "hello.sh", "after": ["nope.sh"]}"#)
-        XCTAssertEqual(r7.status, 404, String(decoding: d7, as: UTF8.self))
-        let (r8, d8) = await api.post("/api/compose", #"{"source": "print 1", "automation": ["every day"]}"#)
-        XCTAssertEqual(r8.status, 400, String(decoding: d8, as: UTF8.self))
-        let (r9, _) = await api.post("/api/automation", #"{"script": "hello.sh"}"#)
-        XCTAssertEqual(r9.status, 400)
-        let (r10, _) = await api.send("DELETE", "/api/automation")
-        XCTAssertEqual(r10.status, 405)
-        XCTAssertEqual(host.asked.count, 4, "nothing that can't be done is asked about")
+    func testRunningByItselfAndSayAreToldWhereTheyWent() async {
+        let (r, d) = await api.post("/api/run", #"{"script": "hello", "automation": ["every morning"], "client": "My App"}"#)
+        XCTAssertEqual(r.status, 400)
+        XCTAssertEqual(json(d)["code"] as? String, "moved")
+        XCTAssertTrue((json(d)["error"] as? String ?? "").contains("Peter"))
+        XCTAssertTrue(host.asked.isEmpty, "nothing asked on the Mac")
+        for path in ["/api/automation", "/api/say"] {
+            let (m, md) = await api.send("GET", path)
+            XCTAssertEqual(m.status, 404, path)
+            XCTAssertEqual(json(md)["code"] as? String, "moved", path)
+        }
     }
 
     func testArgumentsCanBeOneLine() async {
@@ -481,22 +404,10 @@ final class APITests: XCTestCase {
         XCTAssertEqual(json(q3)["kind"] as? String, "flow")
         XCTAssertEqual(json(q3)["via"] as? String, "compose")
 
-        // Automated: the same.
-        host.answer = .allowed
-        let (r4, d4) = await api.post("/api/automation", #"{"script": "hello.sh", "automation": ["every morning"]}"#)
-        XCTAssertEqual(r4.status, 200)
-        let tagged = json(d4)["request"] as? String ?? ""
-        XCTAssertEqual(r4.header("X-Request-Id"), tagged)
-        let (_, q4) = await api.send("GET", "/api/requests/\(tagged)")
-        XCTAssertEqual(json(q4)["state"] as? String, "automated")
-        XCTAssertEqual(json(q4)["kind"] as? String, "automation")
-        XCTAssertEqual(json(q4)["via"] as? String, "automation")
-        XCTAssertEqual(json(q4)["ok"] as? Bool, true)
-
         // The list: newest first, without the runs' output; an unknown id is said.
         let (_, list) = await api.send("GET", "/api/requests?limit=2")
         let listed = json(list)["requests"] as? [[String: Any]]
-        XCTAssertEqual(listed?.map { $0["request"] as? String }, [tagged, json(d3)["request"] as? String])
+        XCTAssertEqual(listed?.first?["request"] as? String, json(d3)["request"] as? String)
         XCTAssertNil(listed?.first?["run"])
         let (g, gd) = await api.send("GET", "/api/requests/\(UUID().uuidString)")
         XCTAssertEqual(g.status, 404)
@@ -731,10 +642,10 @@ final class APITests: XCTestCase {
         XCTAssertEqual(r.header("Content-Type"), "text/markdown; charset=utf-8")
         let doc = String(decoding: d, as: UTF8.self)
         XCTAssertTrue(doc.contains("Base URL: http://127.0.0.1:8768"))
-        for route in ["/api/health", "/api/scripts", "/api/flows", "/api/run", "/api/compose", "/api/check", "/api/runs", "/api/runs/{id}/stop", "/api/doc", "/api/automation", "/api/requests/{id}"] {
+        for route in ["/api/health", "/api/scripts", "/api/flows", "/api/run", "/api/compose", "/api/check", "/api/runs", "/api/runs/{id}/stop", "/api/doc", "/api/requests/{id}"] {
             XCTAssertTrue(doc.contains(route), route)
         }
-        for word in ["endpoint_off", "not_answered", "flow_mistake", "x-ndjson", "\"stream\": true", "v0.1.9", "\"why\"", "every-morning", "confirmBecause", "unknown_tag", "X-Request-Id", "\"async\": true", "unknown_request"] {
+        for word in ["endpoint_off", "not_answered", "flow_mistake", "x-ndjson", "\"stream\": true", "v0.1.9", "\"why\"", "confirmBecause", "moved", "Peter", "X-Request-Id", "\"async\": true", "unknown_request"] {
             XCTAssertTrue(doc.contains(word), word)
         }
         XCTAssertFalse(doc.contains("Bearer"), "no token while sharing is off")
@@ -839,7 +750,8 @@ final class APIClientTests: XCTestCase {
             XCTAssertTrue(text.contains("why"), "\(client.title) says to send why")
             XCTAssertTrue(text.contains("client") || text.contains("CLIENT"), "\(client.title) names the caller")
             XCTAssertFalse(text.contains("Bearer"), "\(client.title): no token unless sharing is on")
-            XCTAssertTrue(client.text(baseURL: "http://127.0.0.1:8768", token: "tok3n").contains("Bearer tok3n"), client.title)
+            // A small model talks to Peter, on this Mac: no token of this app's is his to send.
+            if client != .smallModel { XCTAssertTrue(client.text(baseURL: "http://127.0.0.1:8768", token: "tok3n").contains("Bearer tok3n"), client.title) }
             XCTAssertFalse(client.help.isEmpty)
         }
         XCTAssertEqual(APIClient.allCases.map(\.title), ["curl", "Python", "JavaScript", "Swift", "Shortcuts", "AI Agent", "Small Model"])

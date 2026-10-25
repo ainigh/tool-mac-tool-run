@@ -1,96 +1,36 @@
-# Prompt: a small model that only knows how to talk
+# PROMPT-SMALL-MODEL: a model that only knows how to talk
 
-For a model whose attention belongs to its task (help the person, write the email, plan the
-trip), and a small one most of all. It doesn't carry tool schemas, load docs, keep request ids,
-poll, or read JSON: it says what it wants to Tool Mac Tool Run and gets plain words back. If what
-it said isn't something the app can do as is, the answer is a few templates to fill in and say
-back.
+A small model (or one whose attention belongs to its task) doesn't need this app's routes, tools,
+ids or JSON. It talks to **Peter** (Tool Mac Agent, github.com/ainigh/tool-mac-tool-run-agent), an
+app beside this one: he reads what it says into this app's calls, carries them out here, and
+answers in plain words. What it said isn't something he can do as is: he answers with a few
+templates to fill in and say back.
 
-## The instructions
+## The instructions (one line)
 
-This is all a model's instructions need:
-
-```text
-To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and say it back.
+```
+To get anything done on the Mac or the web, ask Peter in plain words. If he answers with templates, fill one in and say it back.
 ```
 
-## The one tool
+## Passing it on (the app beside the model)
 
-```json
-{"name": "say",
- "description": "Talk to the Mac's tools in plain words. Say what you want; if it answers with templates, fill one in and say it back.",
- "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "what you want, or a template filled in"}}, "required": ["text"]}}
-```
-
-The app beside the model passes each call to `POST /api/say` (the text as `text/plain`, and
-`?client=<its name>`), or to `POST /api/tools/say {"arguments": {"text": "…"}}`, and hands the
-answer back as is.
+The app sends what the model says to Peter as is, `POST http://127.0.0.1:8770/api/say` (the text
+as `text/plain`, and `?client=<its name>`), and hands his answer back to the model. With
+`X-Reply-To: http://127.0.0.1:<its port>/<path>` it's called back the moment a run is over, or
+something it scheduled is due, as a message from Peter.
 
 ## The templates
 
 - `{…}` is a blank to fill. The words inside say what goes there.
-- `[a | b | c]` is a choice: one of them.
-- `(optional)` after a label: the line may be left out.
-- A form with lines: keep its title as the first line, then one `- label: value` line each, in any
-  order. A value of several lines goes in a fenced block under its label.
+- `[a | b]` is a choice of exactly one.
+- `(optional)` marks a line that may be left out.
+- A title, then `- label: value` lines, is a template of several values (in any order; a value of
+  several lines goes in a fenced block under its label).
 
-```
-Remember something
-- category: EVENT-DATES
-- about: Lagos trip
-- fact: rain likely on the first afternoon, plan indoors
-- date: 2026-10-25
-```
+## What to expect
 
-## Always there
-
-```
-what can you do
-what happened to {something you asked for}
-what have I asked for [today | recently | since {a time}]
-show me {something you asked for}
-more
-stop {something you asked for}
-I'm done with {something you asked for}
-start over
-```
-
-`{something you asked for}` is "the last one", a word from it ("the backup"), a time ("the one
-around 3"), or a number from the last list ("the second one").
-
-## An exchange
-
-```
-Model:  I need to know if it'll rain in Lagos tomorrow
-Mac:    These can do that:
-        1. Weather
-             what's the weather in {a place}
-        2. Search the web
-             search the web for {what to look for}
-        Fill one in and say it back.
-
-Model:  what's the weather in Lagos
-Mac:    Asked for the weather. I'll tell you how it goes.
-
-Model:  what's coming up this week
-Mac:    Meanwhile: The weather finished (it worked). Say "show me the weather" to see what it printed.
-
-        Coming up in the next 7 days:
-        1. 2026-10-25, tomorrow: lagos trip
-```
-
-## What the model needs to know
-
-Nothing more. It never has to tell a script from a note, or know that some things wait for an OK
-on the Mac: every answer says what happened in words it can pass on as they are.
-
-- Something that takes a while is "asked for"; how it went comes at the start of a later answer
-  ("Meanwhile: the weather finished"), and "what happened to the weather" says where it is,
-  with whatever detail there is ("it hasn't started yet: it's waiting for someone at the Mac to
-  OK it. Nothing has run.").
-- A long answer ends with "say more for the rest".
-- A question back ("Did you mean …? Say yes to go ahead, or no.") comes only when the match was
-  uncertain and it would change something.
-
-The person's OK stays theirs: what runs on the Mac waits for them there, on a card that says
-what it does and why (in the model's own words), and nothing the model says stands in for it.
+- Every request is whole in itself: Peter keeps no conversation. Say the whole thing each time.
+- A run (a script, a flow) waits for the person at the Mac to click Run: Peter says it's asked
+  for, and tells you how it went when it's over.
+- "remind me in 20 minutes to …", "every morning at 7, …": Peter keeps the schedule, and tells
+  you (or does it) when it's due.

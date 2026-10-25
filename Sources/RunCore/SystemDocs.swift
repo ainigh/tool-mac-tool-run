@@ -45,7 +45,7 @@ public enum SystemDocs {
 
         SYSTEM-DOCS is how Tool Mac Tool Run works, written for you and for the models (and other apps) that use it. It can't be changed: the app writes it, from what it ships with, each time it starts. Read any doc over the API too: GET /api/system-docs/files/{name}.
 
-        If you're a model using this Mac through the app, read PROMPT-ASSISTANT first, then RECIPES and EXCHANGES. A small model, or one that should only talk: PROMPT-SMALL-MODEL (one tool, say, and plain words).
+        If you're a model using this Mac through the app, read PROMPT-ASSISTANT first, then RECIPES and EXCHANGES. A small model, or one that should only talk: PROMPT-SMALL-MODEL (Peter, Tool Mac Agent, and plain words).
 
         ## The docs
 

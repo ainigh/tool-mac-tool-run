@@ -12,11 +12,12 @@ Base URL   http://127.0.0.1:8768
 ```
 
 **A small model, or one whose attention belongs to its task, doesn't need any of this.** It can
-use one tool, `say`, and plain words: `POST /api/say` takes what it wants as text and answers in
-text, offering templates to fill when it isn't sure, following runs itself and telling what
-changed at the start of the next answer. No ids, no polling, no JSON. Its instructions need one
-line: *"To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and
-say it back."* → [API.md](../API.md#say-plain-words-post-apisay), and SYSTEM-DOCS' PROMPT-SMALL-MODEL.
+talk to [Peter](https://github.com/ainigh/tool-mac-tool-run-agent) (Tool Mac Agent) in plain
+words: `POST http://127.0.0.1:8770/api/say` takes what it wants as text and answers in text,
+reading it into this API's calls, following runs itself and calling the client back when they're
+over. No ids, no polling, no JSON. Its instructions need one line: *"To get anything done on the
+Mac or the web, ask Peter in plain words. If he answers with templates, fill one in and say it
+back."* → SYSTEM-DOCS' PROMPT-SMALL-MODEL.
 What follows is for an agent that makes the calls itself.
 
 ## In one minute
@@ -82,7 +83,7 @@ when a search finds nothing.
 ## The request id
 
 A request is anything that reaches the card: `POST /api/run` (a script), `POST /api/compose` (a
-flow, or Flow code the agent writes), `POST /api/automation` (tag something to run by itself).
+flow, or Flow code the agent writes) (running something later, or every day, is Peter's).
 Each gets a UUID as it arrives, before anyone has clicked. You get it back:
 
 | where | as |
@@ -91,7 +92,6 @@ Each gets a UUID as it arrives, before anyone has clicked. You get it back:
 | a run's JSON (the default, waited-for answer) | `request` |
 | the `202` of `"wait": false` or `"async": true` | `request` |
 | the `403` for Don't Run or no answer | `request` (with `code` and `error`) |
-| an automation's answer | `request` |
 | a stream (`"stream": true`) | `request` on its `waiting`, `started`, `done`, `denied` and `error` lines (and the `X-Request-Id` header) |
 | a run read later (`/api/runs`, `/api/runs/{id}`) | `request` |
 
@@ -121,7 +121,6 @@ Then `GET /api/requests/{id}` answers for it for as long as the app runs (the la
 | `failed` | done, not 0; `run.code`, `run.stderr`, `run.problem` | relays what went wrong, from `stderr`/`problem` first |
 | `stopped` | someone stopped it (the agent, or the person in Runs) | says it was stopped |
 | `could_not_start` | allowed, but it couldn't start (a missing `python3`, a flow that doesn't check…); `error`/`run.problem` says why and the fix | relays the fix |
-| `automated` | an automation request was allowed; nothing ran now | says it's tagged |
 | `withdrawn` | the agent took it back (`DELETE /api/requests/{id}`) before the click | nothing ran; says so if asked |
 | `gone` | the run was cleared from the app's history (Clear Finished) | treats it as finished with an unknown result |
 

@@ -4,8 +4,9 @@ Tool Mac Tool Run is a menu bar app for the Mac that runs your scripts (bash, Py
 your **flows** (scripts composed in the Flow language). It serves both to other apps over HTTP,
 the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serves speech:
 
-- **Talk to it** (start here): `POST /api/say` takes what you want in words and answers in words;
-  it calls everything below for you. [API-SAY.md](API-SAY.md) is its contract.
+- **Talk to it in words**: that's [Peter](https://github.com/ainigh/tool-mac-tool-run-agent)
+  (Tool Mac Agent, `POST http://127.0.0.1:8770/api/say`): he reads what's wanted, calls what's
+  below for you, answers in words, and keeps the schedule (what runs later, or every day).
 - **List** the scripts and flows in the person's scripts folder.
 - **Run** a script, a flow, or Flow code your app sends, and get back how it went and everything
   it printed (all at once, or streamed as it prints).
@@ -35,7 +36,7 @@ before deciding.
 
 This document is the contract for client apps. New fields may be added to responses, but nothing
 listed here changes meaning. **You can depend on the request id**: every answer to `/api/run`,
-`/api/compose` and `/api/automation` carries it (the `X-Request-Id` header and `request` in the
+`/api/compose` and `/api/runs/{id}/stop` carries it (the `X-Request-Id` header and `request` in the
 JSON, on success and on refusal alike), and `GET /api/requests/{id}` answers for it for as long as
 the app runs (the latest 500). **A result is handed over once** (in the answer itself when you
 waited for it, or the first read of `/api/requests/{id}` once it's over); after that the request
@@ -64,8 +65,8 @@ the scripts, runs one with `client` and `why`, keeps the request id, and handles
 ## In one minute
 
 ```bash
-# the one way in, for any client (a small model most of all): say what you want, get words back
-curl -s localhost:8768/api/say?client=My+App -H 'Content-Type: text/plain' -d "what's the weather in Lagos"
+# in words, through Peter (Tool Mac Agent, a separate app): say what you want, get words back
+curl -s localhost:8770/api/say?client=My+App -H 'Content-Type: text/plain' -d "what's the weather in Lagos"
 # Asked for the weather. I'll tell you how it goes.
 
 # what you need, by a few words: only the routes, scripts and flows that match, each with how to call it
@@ -106,9 +107,6 @@ curl -s localhost:8768/api/compose -H 'Content-Type: text/plain' --data-binary @
 # check Flow code without running anything (nothing is asked on the Mac)
 curl -s localhost:8768/api/check -d '{"source": "let double x = x * 2"}'
 
-# tag a script to run by itself every evening (waits for Allow on the Mac; nothing runs now)
-curl -s localhost:8768/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
-
 # the file library: a note by name, written, read, searched (answered at once, nothing asked)
 curl -s localhost:8768/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\n- milk\n"}'
 curl -s localhost:8768/api/library -d '{"op": "search", "q": "milk"}'
@@ -141,11 +139,9 @@ with how many routes it has and the words it's found by); `?q=words` is a search
 | group | what's in it |
 |---|---|
 | **About the API** | `/api/search`, `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
-| **Say: plain words** | `/api/say`, `/api/say/forms`, `/api/say/log`, `/api/say/stop`, `/api/say/reset` ([below](#say-plain-words-post-apisay)) |
 | **Scripts and flows** | `/api/scripts`, `/api/flows`, `/api/run`, `/api/compose`, `/api/check` |
 | **Straw** | `/api/straw`, `/api/straw/check`, `/api/straw/run` ([below](#straw-get-apistraw-post-apistrawcheck-post-apistrawrun)) |
 | **File library** | `/api/library` and everything under it ([below](#the-file-library-apilibrary)) |
-| **Automation** | `/api/automation` |
 | **Runs and requests** | `/api/requests/open`, `/api/requests/{id}`, clearing them, `/api/requests`, `/api/runs`, stopping one |
 
 | route | switch | does |
@@ -158,8 +154,6 @@ with how many routes it has and the words it's found by); `?q=words` is a search
 | `POST /api/run` | `run` | runs a script once it's allowed on the Mac |
 | `POST /api/compose` | `compose` | runs a flow, or Flow code you send, once it's allowed |
 | `POST /api/check` | `compose` | checks Flow code: its types, or its mistake (nothing runs, nothing is asked) |
-| `GET  /api/automation` | `catalog` | the automation tags there are, and the items that run by themselves |
-| `POST /api/automation` | `run` / `compose` | tags a script (or a flow) to run by itself, once it's allowed on the Mac |
 | `GET  /api/doc` | — | this contract in one page of text (`text/markdown`), with the address and token filled in |
 | `GET  /api/requests/open` | `runs` | your requests not collected yet, oldest first: waiting, running, or ready |
 | `GET  /api/requests/{id}` | `runs` | where a request is; once it's over, the first read hands over its result |
@@ -319,7 +313,6 @@ What's *in* a script is never sent.
 | `wait` | optional | `false`: answer as soon as it has started (`202`, once Run is clicked), then read it from `/api/runs/{id}` |
 | `async` | optional | `true`: answer now, before anyone has clicked (`202` with the request's id), then read `/api/requests/{id}` (see *Request ids*) |
 | `stream` | optional | `true`: answer at once and send events as they happen (see *Streaming*) |
-| `automation` | optional | tag it to run by itself instead of running it now (see *Automation*) |
 
 The script runs exactly as a click on its cell runs it: in the scripts folder, with the person's
 shell PATH, its `#!` line or its language's program. It shows on its cell and in Runs, marked as
@@ -387,41 +380,13 @@ answers knowing: `confirmBecause "Delete them?" "They're 30 days old and take 12
 `askBecause`, `askYesNoBecause`, `chooseBecause "Which?" "why" ["a"; "b"]`); the why shows under
 the question.
 
-### `GET /api/automation`, `POST /api/automation`
+### Running by itself: Peter's
 
-A script or a flow can be tagged to **run by itself**. The tags are a fixed set (never made up):
-
-| schedules | triggers |
-|---|---|
-| `every-minute`, `every-5-minutes`, `every-10-minutes`, `every-30-minutes`, `every-hour` (counted from when it was tagged) | `when-api-called` (after another app has run something over this API) |
-| `every-morning` (7:00), `every-afternoon` (13:00), `every-evening` (19:00), `every-day` (9:00) | `when-a-script-runs`, `when-a-flow-runs`, `when-a-utility-runs`, `when-a-browser-script-runs` |
-| `every-week` (Monday 9:00), `every-month` (the 1st, 9:00) | `after-an-item` (with `after`: the items' names), `when-anything-runs` |
-
-Spaces work too (`"every morning"`). A trigger fires once the run that set it off has ended; a run
-the automation started never sets off another. An automated run uses the arguments remembered for
-its cell, shows in `/api/runs` with `"requested_by": "Automation: every morning"`, and asks on
-the card first when its cell would (it looks like it can't be undone, or it's set to ask).
-
-```json
-{"script": "backup.sh", "automation": ["every evening", "when-api-called"], "once": false, "client": "My App", "why": "So the backup never waits on anyone"}
-```
-
-`POST /api/automation` (or `/api/run` or `/api/compose` with `automation`) shows a card on the
-Mac saying your app wants it to run by itself and how; **Allow** tags it, **Don't Allow** doesn't
-(`403 denied` / `not_answered`, as for a run). Nothing runs now. `once: true` runs it the next
-time only, then takes its tags off. `"automation": []` takes its automation off. `after` names
-the items it runs after (`"after": ["hello.sh"]` adds `after-an-item`). Flow code you send
-(`source`) can't be automated: only a file in the folder can. An unknown tag is
-`400 unknown_tag`, with the tags listed in `error`.
-
-```json
-{"ok": true, "automated": true, "name": "backup.sh", "kind": "script", "group": "scripts", "title": "backup",
- "tags": ["every-evening", "when-api-called"], "once": false, "after": [], "summary": "every evening, when the API is called",
- "next": "2026-10-22T19:00:00.000Z"}
-```
-
-`GET /api/automation` answers `{"tags": [{"name", "title", "kind": "schedule"|"trigger", "about"}], "items": [… as above …]}`:
-every tag there is, and every item that runs by itself. `GET /api/health` counts them as `automated`.
+Running a script or a flow later, or on a schedule, is
+[Peter's](https://github.com/ainigh/tool-mac-tool-run-agent) (Tool Mac Agent): `POST
+http://127.0.0.1:8770/api/say "every morning at 7, run the nightly backup"`. When it's due he asks
+for it here like any app (a card waits for Run). A run request here with `automation` is answered
+`400 moved`, and `/api/automation` `404 moved`.
 
 ### `POST /api/check`
 
@@ -496,9 +461,8 @@ for line in r.iter_lines():
 ### Request ids: `GET /api/requests/{id}`, `GET /api/requests`
 
 **Every request that reaches the card gets an id, the moment it arrives.** It's in the
-`X-Request-Id` header of the answer to `/api/run`, `/api/compose` and `/api/automation`, in that
-answer's JSON as `request` (the run's JSON, the `202`, the `403` for Don't Run, the automation's
-answer), and in every line of a stream. Keep it: whether your app waited for the answer, streamed
+`X-Request-Id` header of the answer to `/api/run`, `/api/compose` and `/api/runs/{id}/stop`, in
+that answer's JSON as `request` (the run's JSON, the `202`, the `403` for Don't Run), and in every line of a stream. Keep it: whether your app waited for the answer, streamed
 it, hung up, or asked with `"async": true`, `GET /api/requests/{id}` says where the request is,
 and the app keeps the latest 500 for as long as it runs.
 
@@ -531,9 +495,9 @@ curl -s localhost:8768/api/requests/2A7C4B19-…
 
 | field | |
 |---|---|
-| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `automated` for an automation request; `stopped` for a stop request that was allowed; `withdrawn` when your app took it back before the click; `gone` when the run was cleared from the app's history |
-| `ok` | once it's over: `true` for `succeeded` and `automated`, `false` otherwise (absent while `waiting` or `running`) |
-| `kind`, `name`, `via` | what was asked for (`script`, `flow`, `automation` or `stop`), its name, and the endpoint it came through (`run`, `compose`, `automation`, `stop`) |
+| `state` | `waiting` (on the Mac, no click yet), `denied`, `not_answered`, `running`, then how the run ended: `succeeded`, `failed`, `stopped`, `could_not_start`; `stopped` for a stop request that was allowed; `withdrawn` when your app took it back before the click; `gone` when the run was cleared from the app's history |
+| `ok` | once it's over: `true` for `succeeded`, `false` otherwise (absent while `waiting` or `running`) |
+| `kind`, `name`, `via` | what was asked for (`script`, `flow` or `stop`), its name, and the endpoint it came through (`run`, `compose`, `stop`) |
 | `client`, `from`, `why` | who asked, from where, and why (as the card showed them) |
 | `asked`, `answered` | when it arrived, and when the person clicked (or the two minutes ran out) |
 | `run_id`, `run_url`, `run` | once started: the run's id, its address, and the run itself with everything it printed (as `/api/runs/{id}` gives it) |
@@ -795,125 +759,13 @@ read.
 `"present": true` to show it in that window (`"presented": true`). The text is a file's text, the
 lines found, the names, or else the JSON.
 
-### Say, plain words: `POST /api/say`
+### In plain words: Peter
 
-**The way in for a client** (the contract in full, with how every template maps to what's done
-and the translator: [API-SAY.md](API-SAY.md)). One way in, for a client that should only need to
-know how to talk: no tool names, routes, arguments, ids, polling or JSON, and nothing to load first. A model's instructions need one line:
-*"To use the Mac's tools, use `say`. Say what you want; if it offers templates, fill one in and say
-it back."* (The thinking behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).)
-
-```bash
-curl -s 'localhost:8768/api/say?client=My+App' -H 'Content-Type: text/plain' -d "I need to know if it'll rain in Lagos tomorrow"
-```
-```
-These can do that:
-1. Weather
-     what's the weather in {a place}
-2. Search the web
-     search the web for {what to look for}
-Fill one in and say it back.
-```
-
-- **In**: `POST /api/say` with the words as `text/plain` (or JSON `{"text": "…", "client": "…"}`).
-  Who's talking is `?client=`, `X-Client`, `"client"`, else the User-Agent: each client has a
-  conversation and a log of its own. **Out**: `text/plain`, always 200 (a refusal is said in words).
-- **Templates**: the sentences or short forms that would do something, each with blanks. `{…}` is a
-  blank, `[a | b | c]` a choice of one, `(optional)` a line that may be left out, a value of
-  several lines goes in a fenced block under its label. Two shapes: **inline** (`search the web
-  for {what to look for}`) for nothing or one value, **labeled** (a title, then `- label: value`
-  lines, in any order) for more:
-
-  ```
-  Remember something
-  - category: [PEOPLE | ORGANIZATIONS | EVENT-DATES | BIRTHDAYS | LOCATIONS | IDEAS | LEVERAGE | STRATEGIES | OTHERS]
-  - about: {who or what it's about}
-  - fact: {what to remember}
-  - date (optional): {a day, like 2026-11-03, or 03-14 for every year}
-  ```
-- **What's forgiving and what isn't**: titles, fixed words, labels and choices match fuzzily (case,
-  punctuation, a misspelling, a small word missing; a corrected choice is said: "taken as
-  PEOPLE"). Values are taken exactly as written (quotes around one are taken off). In a sentence a
-  blank takes everything between its fixed words, the last one the rest; an inline template can be
-  sent labeled too (its title, then a line per blank).
-- **The translator**: when the words don't settle on one template (nothing matched closely, two
-  fit about as well, or the closest fit only loosely), a model reads them into the templates. It's
-  stateless (what was said, why, the templates; nothing else), and what it fills in is read back
-  through the adapter's own matcher. A reading it's sure of is done, the reply starting *Taken as:
-  what's the weather in Lagos* (one that changes something without waiting for the Mac is asked
-  about first); one it isn't sure of is offered, numbered (*You might mean: 1. … Say its
-  number*). Off or out of reach, the adapter answers as it does without one. Any model behind a
-  chat completions address (Ollama on this Mac by default) or Anthropic's Messages API:
-  [API-SAY.md](API-SAY.md#the-translator).
-- **When it asks first**: only when a match was uncertain (two templates about as close, or a
-  title or choice that needed a big correction) and it would change something: *Did you mean:
-  Delete a note (shopping)? Say yes to go ahead, or no.* A clean match is done at once; a read is
-  always answered at once.
-- **Where templates come from**: each tool has its own (the web, Chrome, MEMORY, the mind, notes,
-  showing, copying, the guides, runs, Flow code, Straw, automation); each script and flow gets one
-  from its header: a `# Say:` line (`# Say: what's the weather in {a city}`, each `{…}` one of its
-  `# Input:` lines in order), else its name (`run the nightly backup`, `weather: {a place}`), and
-  the labeled shape when it takes two values or more (a line per `# Input:`, `# Why:` in its blank).
-- **Always there**: `what can you do`, `what happened to {something you asked for}`, `what have I
-  asked for [today | recently | since {a time}]`, `show me {something you asked for}`, `more`,
-  `stop {something you asked for}`, `I'm done with {something you asked for}`, `start over`, and
-  `yes` / `no` to a question. `{something you asked for}` is "the last one", a word from it ("the
-  backup"), a time ("the one around 3"), or a number from the last list ("the second one").
-- **The adapter holds the state**: every request id, what was asked and when, how it's going, and
-  whether its result was shown. It follows runs itself (the client never polls), collects a result
-  once it's over (so `GET /api/requests/open` no longer lists it), and every reply starts with the
-  news since the client last spoke: *Meanwhile: The nightly backup finished (it worked). Say "show
-  me the nightly backup" to see what it printed.* A result is shown in full once; after that it's
-  referred to briefly, unless the client asks again.
-- **Told the moment it's over, if the client says where**: with `X-Reply-To` (or `"reply_to"`), an
-  `http` address on this Mac (`127.0.0.1`, `localhost` or `::1`, said from this Mac), the adapter
-  follows the client's runs while any is going and, the moment one is over, POSTs the news there
-  as JSON: `{"client": "Super Face", "text": "Meanwhile: The nightly backup finished (it worked).
-  Say \"show me the nightly backup\" to see what it printed.", "entries": [as /api/say/log has
-  them]}`. News delivered there (a 2xx) isn't told again; news that couldn't be (the client wasn't
-  listening) is tried again for a while, and comes first in its next reply all the same. The
-  address is kept for the client while the app runs; each `POST /api/say` may say it again.
-- **Replies have three parts**, any of them empty: the news, the answer, and what you can say next
-  (one or two templates). Never JSON, routes, file names or ids. Lists are numbered. A long answer
-  is cut to its first 20 lines (or 1500 characters), then *(26 more lines: say "more" for the
-  rest.)*. A failure is a sentence and the template that fixes it.
-- **Consent stays the person's, and the client needn't know about it**: a run (a script, a flow,
-  Flow code, Straw) is asked for with `"async": true`, and the card on the Mac says what it does
-  and why, in the client's own words (*My App asked in words: “run the nightly backup”*). The
-  reply only says it was asked for: *Asked for the nightly backup. I'll tell you how it goes.* The
-  detail is there when it matters: in the news (*The nightly backup didn't run: it was turned down
-  on the Mac.*) and when the client asks (*… hasn't started yet: it's waiting for someone at the
-  Mac to OK it. Nothing has run.*). Nothing the client says stands in for that OK.
-- **How long**: a conversation starts again after six hours without a word (the numbers and
-  anything pending are forgotten; the log is kept). The log keeps a week, at most 200 requests a
-  client, for the latest 100 clients, while the app runs.
-
-The rest of the group:
-
-- `GET /api/say`: how to use it, as text (the one line for a model's instructions, the forms that
-  are always there).
-- `GET /api/say/forms`: every template there is now, as text (`?q=words`: the ones that fit, best
-  first; `?format=json`: `{"forms": [{"title", "template", "kind", "shape", "sentences"?,
-  "fields"?: [{"label", "blank"?, "choices"?, "optional", "multiline"}], "changes",
-  "waits_for_the_mac", "formerly"?}]}`). A title is a contract: it stays from version to version,
-  and one that's renamed keeps its old title in `formerly`, still taken.
-- `GET /api/say/log`: what this client asked for, newest first, as JSON: `{"entries": [{"number",
-  "asked", "said", "template", "what", "state", "shown", "muted", "waits_for_the_mac", "request"?,
-  "result"?, "ended"?}]}`. `state` is `answered`, `done`, `failed`, `waiting`, `running`, `worked`,
-  `denied`, `not_answered`, `withdrawn` or `could_not_start`.
-- `POST /api/say/stop`: one of this client's requests called off by its number in the log
-  (`{"number": 3}`), as `stop …` would: taken back while it waits for the OK, stopped while it
-  runs. `{"ok": true, "number": 3, "message": "Taken back: the nightly backup won't run.",
-  "state": "withdrawn"}`; `404` for a number it doesn't have. For an app beside the model (its
-  Cancel button), so the model needn't be asked.
-- `POST /api/say/reset`: start over (`{"forget": true}`: the log too).
-- `POST /api/say/translate`: the translator alone, stateless (`{"text", "dry"?, "model"?…}`): the
-  prompt the model saw, what it answered, and which templates came of it. For trying models
-  ([BENCH.md](BENCH.md)).
-- `GET /api/say/translator`: its settings (the key only as `"set"`) and latest calls; `POST` (from
-  this Mac) changes them: `{"api": "openai" | "anthropic", "url", "model", "key", "sure", "on"}`.
-- **As a tool**: `say` is in `GET /api/tools`; `POST /api/tools/say {"arguments": {"text": "…"}}`
-  answers the same text.
+Saying what you want in words is [Peter's](https://github.com/ainigh/tool-mac-tool-run-agent)
+(Tool Mac Agent), an app of its own beside this one: `POST http://127.0.0.1:8770/api/say`. He
+makes his templates from what this API lists (`GET /api/tools`, `GET /api/scripts`, `GET
+/api/flows`: each script's and flow's `say`, from its header's `# Say:` lines), calls the tools
+for you, and answers in words. `/api/say` here answers `404 moved`.
 
 ### Tools, for a model: `GET /api/tools`, `POST /api/tools/{name}`
 
@@ -1068,7 +920,7 @@ instead, such as a search for a route that isn't one):
 |---|---|---|
 | 400 | `missing_script`, `missing_flow`, `bad_args`, `bad_request` | the request isn't right |
 | 400 | `missing_query`, `unknown_group` | a search without `?q=`, or a group that isn't one (`error` lists them) |
-| 400 | `unknown_tag` | no such automation tag (`error` lists them) |
+| 400 / 404 | `moved` | `automation`, `/api/automation` and `/api/say` are [Peter's](https://github.com/ainigh/tool-mac-tool-run-agent) now (Tool Mac Agent, port 8770) |
 | 400 | `flow_mistake` | the Flow code has a mistake (with `line` and `fix`) |
 | 400 | `straw_mistake` | the Straw code has a mistake (with `line` and `fix`) |
 | 400 | `missing_op`, `unknown_op`, `bad_name` | a file library call that isn't right (`fix` says how) |

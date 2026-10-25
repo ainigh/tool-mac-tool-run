@@ -37,20 +37,15 @@ public enum APIDoc {
         YOU DON'T HAVE TO READ ALL OF THIS: GET /api/search?q=<a few words> answers only the routes, scripts and flows that match, each with how to call it, and every JSON answer has "next": the calls that usually come after it, with its ids filled in.
         FOR A MODEL, THERE ARE TOOLS: GET /api/tools is everything here as a short list of tools to hand a model as is (each with what it's for, its arguments, and whether it waits for Run), with a guide and examples for its instructions; POST /api/tools/{name} {"arguments": {…}} calls one. A client that passes its model's calls through never needs to know a route.
 
-        ## Say: plain words
+        ## In plain words: Peter
 
-        POST /api/say with what you want, as text/plain (or {"text"}); ?client= or X-Client says who's talking. The answer is plain text, always 200: the news since you last spoke ("Meanwhile: …"), the answer, and what you can say next. No routes, ids, polling or JSON. For a model's instructions: "To use the Mac's tools, use say. Say what you want; if it offers templates, fill one in and say it back."
-        What isn't a template yet is answered with the templates that would do it, numbered. Inline: a sentence with {blanks} ("search the web for {what to look for}"); labeled: a title, then "- label: value" lines in any order (a value of several lines in a fenced block). [a | b] is a choice of one, (optional) a line that may be left out. Fixed words, titles, labels and choices match fuzzily ("taken as PEOPLE"); values are taken as written. An uncertain match that would change something is asked about first ("Did you mean …? Say yes"); reads answer at once. Runs are asked with "async": true and wait for Run on the Mac, but the client needn't know: the reply is "Asked for the nightly backup. I'll tell you how it goes."; the adapter follows it, collects each result once, and tells it as news (a turned-down run too). "what happened to …" gives the detail ("waiting for someone at the Mac to OK it. Nothing has run.").
-        Always there: what can you do · what happened to {something you asked for} · what have I asked for [today | recently | since {a time}] · show me {something you asked for} · more · stop {something you asked for} · I'm done with {something you asked for} · start over · yes · no. {something you asked for}: "the last one", a word from it, a time ("around 3"), a number from the last list.
-        A script's or flow's header can say how it's offered: "# Say: what's the weather in {a city}" (each {…} one of its # Input: lines, in order).
-        THE TRANSLATOR: when the words don't settle on one template (nothing matched closely, two fit about as well, or the closest fit only loosely), a model reads them into the templates: stateless, given only what was said, why, and the templates. A reading it's sure of is done, the reply starting "Taken as: <the template filled in>" (one that changes something without waiting for the Mac is asked about first); one it isn't sure of is offered, numbered ("You might mean: 1. … Say its number"). Out of reach or off, the adapter answers as it does without one. GET /api/say/translator: its settings and latest calls; POST /api/say/translator {"api": "openai"|"anthropic", "url", "model", "key", "sure", "on"} (from this Mac) changes them; POST /api/say/translate {"text", "dry"?} is the call alone (the prompt, the model's answer, what came of it). The contract in full: API-SAY.md.
-        GET /api/say: how to use it (text). GET /api/say/forms (?q=words, ?format=json): the templates. GET /api/say/log: this client's requests (JSON). POST /api/say/stop ({"number"}): one called off. POST /api/say/reset ({"forget": true}?): start over. X-Reply-To (an http address on this Mac) with POST /api/say: the news of a run is POSTed there the moment it's over, {"client", "text": "Meanwhile: …", "entries"}, and not told again. The tool "say" (POST /api/tools/say {"arguments": {"text"}}) answers the same text.
+        Saying what you want in words (and running something later, or every day) is Peter's: Tool Mac Agent, a separate app on this Mac (github.com/ainigh/tool-mac-tool-run-agent). POST http://127.0.0.1:8770/api/say with what you want, as text/plain: he reads it into one of his templates (made from what this API lists: GET /api/tools, /api/scripts, /api/flows), carries it out here, and answers in plain words. A script's or flow's header can say how he offers it: "# Say: what's the weather in {a city}" (each {…} one of its # Input: lines, in order; "say" in GET /api/scripts).
 
         ## Tools, for a model
 
         GET /api/tools → {"tools": [{"name", "description", "args": [{"name", "type", "required", "about"}], "asks_on_the_mac", "answers", "stream", "on", "aliases", "call", "uses"}], "guide": [lines for the model's instructions], "examples": [{"user", "steps": [{"call": {"tool", "arguments"}, "result"}], "answer"}]}. A tool whose switch is off is left out (?all=true: listed, "on": false). GET /api/tools/{name}: one.
         POST /api/tools/{name} {"arguments": {…}, "client": "<you>", "why"?: "<shown on a card>", "stream"?: true}: the answer is the JSON of the route the tool stands for (a run's, a note's, a page's…), with "tool": its name. The arguments may be given flat, too. The names a model reaches for are taken: another name for a tool ("google" is web_search, "list_runs" is runs with op list), another for an argument ("query" for "q", "address" for "url"), a script's or flow's own name as the tool (it's run). A miss says what to do: 404 unknown_tool (the tools there are, and what fits its words), 400 missing_argument; an error has "takes" (what the tool takes) and "tools" (what fits instead, a line each).
-        The tools: find (the tools, scripts and flows for some words), say (everything in plain words, as POST /api/say), run_script, run_flow, run_flow_code, check_flow, runs, web_search, web_fetch, browser, straw, library, remember, recall, memory, mind, show, copy, docs, call_api (any route no tool covers). run_script, run_flow, run_flow_code and straw wait for Run on the Mac and stream with "stream": true; the rest answer at once.
+        The tools: find (the tools, scripts and flows for some words), run_script, run_flow, run_flow_code, check_flow, runs, web_search, web_fetch, browser, straw, library, remember, recall, memory, mind, show, copy, docs, call_api (any route no tool covers). run_script, run_flow, run_flow_code and straw wait for Run on the Mac and stream with "stream": true; the rest answer at once.
 
         ## The web, from this Mac
 
@@ -83,7 +78,6 @@ public enum APIDoc {
         - wait: false → 202 as soon as it has started (once Run is clicked), with its "id"; then read /api/runs/{id} until "state" isn't "running".
         - async: true → 202 now, before anyone has clicked, with "request"; then read /api/requests/{id} (see Request ids).
         - stream: true → see Streaming.
-        - automation: tag it to run by itself instead of running it now (see Automation).
 
         By default the answer comes once the run has ended (however long it takes; closing the connection doesn't stop it):
         {"id", "request", "kind": "script"|"flow", "name", "state", "ok", "code", "seconds", "started", "ended", "command", "arguments", "output", "stdout", "stderr", "trimmed", "requested_by", "why"?, "problem"?, "signal"?, "steps"?}
@@ -148,10 +142,10 @@ public enum APIDoc {
 
         ## Request ids
 
-        Every request that reaches the card (/api/run, /api/compose, /api/automation) gets an id the moment it arrives: the X-Request-Id header of the answer, "request" in its JSON (the run's JSON, the 202, the 403 for Don't Run), and "request" on every line of a stream. Keep it: whether you waited, streamed, hung up, or sent "async": true, GET /api/requests/{id} answers for it while the app runs (the latest 500):
-        {"request", "state", "ok"?, "kind": "script"|"flow"|"automation"|"stop", "name", "via": "run"|"compose"|"automation"|"stop", "client", "from", "why"?, "asked", "answered"?, "run_id"?, "run_url"?, "run"?, "code"?, "error"?, "url"}
-        - state: waiting (on the Mac, no click yet) | denied | not_answered | running | succeeded | failed | stopped | could_not_start | automated | gone (the run was cleared from the app's history). A stop request ("kind": "stop") that was allowed is stopped.
-        - ok: once it's over (true for succeeded and automated); absent while waiting or running.
+        Every request that reaches the card (/api/run, /api/compose, /api/runs/{id}/stop) gets an id the moment it arrives: the X-Request-Id header of the answer, "request" in its JSON (the run's JSON, the 202, the 403 for Don't Run), and "request" on every line of a stream. Keep it: whether you waited, streamed, hung up, or sent "async": true, GET /api/requests/{id} answers for it while the app runs (the latest 500):
+        {"request", "state", "ok"?, "kind": "script"|"flow"|"stop", "name", "via": "run"|"compose"|"stop", "client", "from", "why"?, "asked", "answered"?, "run_id"?, "run_url"?, "run"?, "code"?, "error"?, "url"}
+        - state: waiting (on the Mac, no click yet) | denied | not_answered | running | succeeded | failed | stopped | could_not_start | gone (the run was cleared from the app's history). A stop request ("kind": "stop") that was allowed is stopped.
+        - ok: once it's over (true for succeeded); absent while waiting or running.
         - run: once started, the run itself with everything it printed, as /api/runs/{id} gives it. code, error: when it didn't run.
         Poll it as often as you like (nothing runs for the asking). GET /api/requests?limit=20 lists the latest (cleared or not), without "run". An unknown id is 404 unknown_request. Runs carry "request" too.
         - state also: withdrawn (your app took it back before the click).
@@ -160,11 +154,9 @@ public enum APIDoc {
         GET /api/requests/open → {"count", "waiting", "running", "ready", "order": "oldest first", "requests": [{"position", "request", "name", "state", "delivery", "url", …}], "next"}: what you've asked for and not collected, in the order you sent it. GET /api/health counts them too ("requests").
         DELETE /api/requests/{id}: clear one that's over without reading it; one sent with "async": true and still waiting for the click is taken back (the card goes, nothing runs: state withdrawn). 409 still_running (stop it first) | still_waiting (its caller is still on the line). POST /api/requests/clear {"requests"?: [ids]} clears every one that's over and not collected.
 
-        ## Automation
+        ## Running by itself
 
-        A script or a flow can be tagged to run by itself. The tags are fixed (never made up): schedules — every-minute, every-5-minutes, every-10-minutes, every-30-minutes, every-hour, every-morning (7:00), every-afternoon (13:00), every-evening (19:00), every-day (9:00), every-week (Monday 9:00), every-month (the 1st, 9:00) — and triggers — when-api-called, when-a-script-runs, when-a-flow-runs, when-a-utility-runs, when-a-browser-script-runs, after-an-item (with "after": [names]), when-anything-runs. A trigger fires once the run that set it off has ended; a run the automation started never sets off another. Spaces work too ("every morning").
-        POST /api/run (or /api/compose, or /api/automation) with {"script": "backup.sh", "automation": ["every evening"], "once": false, "client": "My App", "why": "…"} shows a card on the Mac saying your app wants it to run every evening from now on; Run tags it, Don't Run doesn't. Nothing runs at once. The answer: {"ok": true, "automated": true, "name", "kind", "tags", "once", "after", "summary", "next"?}. "once": true runs it the next time only, then takes the tags off. "automation": [] takes its automation off. An automated run shows in /api/runs with "requested_by": "Automation: <tag>", and runs with the arguments remembered for its cell.
-        GET /api/automation → {"tags": [{"name", "title", "kind": "schedule"|"trigger", "about"}], "items": [{"name", "kind", "group", "title", "tags", "once", "after", "summary", "next"?}]}.
+        Running a script or a flow on a schedule is Peter's (Tool Mac Agent): ask him in words, POST http://127.0.0.1:8770/api/say "every morning at 7, run the nightly backup". When it's due he asks for it here like any app, and it waits for Run on the Mac. A run request with "automation" is answered 400 moved, and /api/automation 404 moved.
 
         ## Streaming
 
@@ -183,7 +175,7 @@ public enum APIDoc {
         {"error": "what went wrong", "code": "…", "next": [where to look instead]}
         400 missing_script | missing_flow | bad_args | bad_request    the request isn't right
         400 missing_query | unknown_group                            a search without ?q=, or a group that isn't one
-        400 unknown_tag                                             no such automation tag ("error" lists them)
+        400 moved | 404 moved                                       "automation", /api/automation and /api/say are Peter's now (Tool Mac Agent, :8770)
         400 flow_mistake                                            the Flow code has a mistake (with "line" and "fix")
         401 unauthorized                                            sharing on the network is on and no token was sent
         403 denied | not_answered                                   it didn't run
@@ -230,7 +222,6 @@ public enum APIDoc {
         curl -s \(baseURL)/api/present -d '{"shelf": "memory", "name": "PEOPLE", "why": "To check the details"}'
         curl -s "\(baseURL)/api/browser/has?text=Compute"
         curl -s \(baseURL)/api/straw/check -d '{"source": "open example.com\\nread title"}'
-        curl -s \(baseURL)/api/automation -d '{"script": "backup.sh", "automation": ["every evening"], "client": "My App", "why": "So the backup never waits on anyone"}'
         """
     }
 }

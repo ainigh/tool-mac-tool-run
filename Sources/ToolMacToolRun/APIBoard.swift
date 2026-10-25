@@ -244,8 +244,7 @@ struct APIBoardView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 460), spacing: 10)], spacing: 10) {
             ForEach(tiles) { action in
                 let last = latest(action)
-                APITile(action: action, last: last, shown: last?.id != nil && last?.id == shown,
-                        automation: item(action).map { app.settings($0.grid).automation(for: $0.id) }) { start(action) }
+                APITile(action: action, last: last, shown: last?.id != nil && last?.id == shown) { start(action) }
                     .modifier(Dragged(payload: payload(action), action: action))
                     .contextMenu { menu(action, last: last) }
             }
@@ -276,7 +275,6 @@ struct APIBoardView: View {
         Button("Copy API Request") { copy(action, asCurl: false) }
         if let target = self.item(action) {
             Divider()
-            AutomationMenu(item: target, app: app)
             Button("Edit") { Windows.showEditor(target, kind: target.grid) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([target.url]) }
         }
@@ -430,8 +428,6 @@ struct APITile: View {
     let last: RunRecord?
     /// Its run is the one the result panel shows.
     let shown: Bool
-    /// How it runs by itself, when it does (a script or a flow).
-    var automation: Automation?
     let run: () -> Void
     @State private var hover = false
 
@@ -462,9 +458,6 @@ struct APITile: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                }
-                if let automation, !automation.isEmpty {
-                    AutomationBadge(automation: automation, next: nil)
                 }
             }
             Spacer(minLength: 0)

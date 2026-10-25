@@ -154,24 +154,6 @@ final class AppRunHost: RunHost, @unchecked Sendable {
         }
     }
 
-    func automations() async -> [AutomationEntry] {
-        await MainActor.run { AutomationCenter.shared.entries() }
-    }
-
-    func automate(_ request: RunRequest) async throws -> AutomationEntry {
-        try await MainActor.run { () throws -> AutomationEntry in
-            guard let a = request.automation else { throw HTTPError(status: 400, code: "bad_request", message: "nothing to tag") }
-            let item: ScriptItem
-            switch request.what {
-            case let .script(s), let .flow(s): item = s
-            case .source, .stop: throw HTTPError(status: 400, code: "bad_request", message: "only a script or a flow from the folder can be automated")
-            }
-            let center = AutomationCenter.shared
-            center.set(a, for: item)
-            return AutomationEntry(id: item.id, grid: item.grid, title: item.title, automation: a, next: center.next(for: item.id, kind: item.grid)?.at)
-        }
-    }
-
     func present(_ p: Presentation) async throws {
         await MainActor.run { PresentCenter.shared.show(p) }
     }

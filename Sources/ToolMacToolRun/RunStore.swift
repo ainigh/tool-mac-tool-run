@@ -221,7 +221,6 @@ final class RunStore: ObservableObject {
         lastOutputAt[id] = nil
         if let r = record(id) {
             tellIfLong(r)
-            AutomationCenter.shared.runEnded(r)
         }
         save()
     }
@@ -348,7 +347,6 @@ final class RunStore: ObservableObject {
         lastLines[id] = nil
         if let r = record(id) {
             tellIfLong(r)
-            AutomationCenter.shared.runEnded(r)
         }
         save()
     }

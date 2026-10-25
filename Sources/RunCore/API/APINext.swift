@@ -125,19 +125,9 @@ public enum APINext {
         "GET /api/web/search": [Hint("GET", "/api/web/fetch?url={address}", "read the result that fits best (a page, or a JSON API it points to)"), Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
         "GET /api/web/fetch": [Hint("GET", "/api/web/fetch?url={address}", "follow one of its links, or the API it points to"), Hint("GET", "/api/web/fetch?url={address}&find={words}", "only the lines with some words"),
                                Hint("POST", "/api/browser/open", "open it in Chrome for the person {\"url\"}")],
-        // Say
-        "GET /api/say/forms": [Hint("POST", "/api/say", "say one back, its blanks filled (text/plain)")],
-        "GET /api/say/log": [Hint("POST", "/api/say", "ask about one in words: \"what happened to {something you asked for}\"")],
-        "POST /api/say/reset": [Hint("POST", "/api/say", "say what you want (text/plain)")],
-        "POST /api/say/stop": [Hint("GET", "/api/say/log", "how each request stands now")],
-        "POST /api/say/translate": [Hint("GET", "/api/say/translator", "the translator's settings and its latest calls")],
-        "GET /api/say/translator": [Hint("POST", "/api/say/translate", "try it alone {\"text\"}")],
-        "POST /api/say/translator": [Hint("POST", "/api/say/translate", "try it alone {\"text\"}")],
         // Tools
         "GET /api/tools": [Hint("POST", "/api/tools/{name}", "call one {\"arguments\": {…}}"), Hint("GET", "/api/search?q={words}&in=tools", "the tools for something, by a few words")],
         "GET /api/tools/{name}": [Hint("POST", "/api/tools/{name}", "call it {\"arguments\": {…}}")],
-        // Automation
-        "GET /api/automation": [Hint("POST", "/api/automation", "tag a script or flow to run by itself {\"script\"|\"flow\", \"automation\": [tags], \"why\"}")],
         // Runs and requests
         "GET /api/runs": [Hint("GET", "/api/runs/{id}", "one run, with everything it printed"), Hint("GET", "/api/requests/open", "the requests not collected yet")],
         "GET /api/runs/{id}": [Hint("POST", "/api/runs/{id}/stop", "stop it, if it's running"), Hint("GET", "/api/requests/open", "the requests not collected yet")],

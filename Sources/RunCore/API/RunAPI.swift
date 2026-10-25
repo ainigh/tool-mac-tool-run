@@ -31,15 +31,12 @@ public struct RunRequest: Identifiable, Sendable {
     /// Why the app wants it run, in its own words (the request's `why`), shown on the card so the
     /// person knows before clicking Run. Nil: it didn't say (the card says that too).
     public var why: String?
-    /// Not a run now: the app asks to tag the item so it runs by itself (the request's
-    /// `automation`). The card says so, and Run tags it. Empty tags take the automation off.
-    public var automation: Automation?
     /// Code an app sent that's run as a script (Straw code, kept in a file of its own): the card
     /// shows it in full, as it does Flow code.
     public var shownCode: String?
 
     public init(what: What, name: String, arguments: [String] = [], stdin: String? = nil, client: String,
-                from: String = "this Mac", command: String, dangers: [String] = [], why: String? = nil, automation: Automation? = nil) {
+                from: String = "this Mac", command: String, dangers: [String] = [], why: String? = nil) {
         self.what = what
         self.name = name
         self.arguments = arguments
@@ -49,7 +46,6 @@ public struct RunRequest: Identifiable, Sendable {
         self.command = command
         self.dangers = dangers
         self.why = why
-        self.automation = automation
     }
 
     /// Kept with the run: who asked for it ("curl, on this Mac").
@@ -81,9 +77,8 @@ public struct RunRequest: Identifiable, Sendable {
         return false
     }
 
-    /// What it's called in the ledger and on the card: automation, stop, script or flow.
+    /// What it's called in the ledger and on the card: stop, script or flow.
     public var kindName: String {
-        if automation != nil { return "automation" }
         switch what {
         case .script: return "script"
         case .flow, .source: return "flow"
@@ -128,11 +123,6 @@ public protocol RunHost: AnyObject, Sendable {
     func recent(_ limit: Int) async -> [RunRecord]
     /// Stops a run: false when it isn't running.
     func stop(_ id: UUID) async -> Bool
-    /// The items that run by themselves, with their tags and next times.
-    func automations() async -> [AutomationEntry]
-    /// Tags the request's item as its `automation` says (the person allowed it): how it's
-    /// automated now. Throws an `HTTPError` when the item is gone.
-    func automate(_ request: RunRequest) async throws -> AutomationEntry
     /// Shows something to the person: a window in front of everything, with copy buttons.
     func present(_ p: Presentation) async throws
     /// Puts text on the clipboard.
@@ -140,13 +130,6 @@ public protocol RunHost: AnyObject, Sendable {
 }
 
 extension RunHost {
-    /// A host with no automation (a pretend one): nothing is automated, and nothing can be.
-    public func automations() async -> [AutomationEntry] { [] }
-
-    public func automate(_ request: RunRequest) async throws -> AutomationEntry {
-        throw HTTPError(status: 500, code: "failed", message: "automation isn't available here")
-    }
-
     /// A host with no screen: nothing can be shown.
     public func present(_ p: Presentation) async throws {
         throw HTTPError(status: 501, code: "not_available", message: "showing things needs the Tool Mac Tool Run app on a Mac")
@@ -195,11 +178,6 @@ public final class RunAPI: @unchecked Sendable {
     public let version: String
     /// Every request that reached the card, by its id (`GET /api/requests/{id}`).
     public let requests = RequestLedger()
-    /// What each client said to `POST /api/say`, and how its requests went: the template adapter's log.
-    public let sayLog = SayLog()
-    /// The model that reads what's said to `POST /api/say` into its templates, when the words
-    /// alone don't settle it (stateless: asked about one thing at a time).
-    public var translator = SayTranslator()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
     /// The file library it serves (LIBRARY, in TOOL-MAC-RUN on the Desktop).
@@ -215,10 +193,6 @@ public final class RunAPI: @unchecked Sendable {
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
-    /// How often a client's requests are looked at, to tell it how they went (its `reply_to`).
-    var sayEvery: UInt64 = 1_000_000_000
-    /// How news reaches a client that said where (`reply_to`): POSTed there.
-    var sayDeliver: @Sendable (SayNews) async -> Bool = { await RunAPI.deliver($0) }
 
     public init(host: RunHost, version: String, library: @escaping @Sendable () -> FileLibrary = { FileLibrary() },
                 shelves: @escaping @Sendable () -> Shelves = { Shelves() }, chrome: ChromePage = ChromePage(),
@@ -265,7 +239,6 @@ public final class RunAPI: @unchecked Sendable {
         if path.count > 1, path.hasSuffix("/") { path.removeLast() }
         if path.hasPrefix("/api/runs/") { return try await runRoute(req, path: path, s) }
         if path.hasPrefix("/api/requests/") { return try await requestRoute(req, path: path, s) }
-        if path == "/api/automation" { return try await automationRoute(req, s) }
         for shelf in Shelf.allCases where path == shelf.apiPath || path.hasPrefix(shelf.apiPath + "/") { return try await shelfRoute(shelf, req, path: path, s) }
         if path == "/api/mind" || path.hasPrefix("/api/mind/") { return try await mindRoute(req, path: path, s) }
         if path == "/api/browser" || path.hasPrefix("/api/browser/") { return try await browserRoute(req, path: path, s) }
@@ -273,7 +246,10 @@ public final class RunAPI: @unchecked Sendable {
         if path == "/api/straw" || path.hasPrefix("/api/straw/") { return try await strawRoute(req, path: path, s) }
         if path == "/api/web" || path.hasPrefix("/api/web/") { return try await webRoute(req, path: path, s) }
         if path == "/api/tools" || path.hasPrefix("/api/tools/") { return try await toolsRoute(req, path: path, s) }
-        if path == "/api/say" || path.hasPrefix("/api/say/") { return try await sayRoute(req, path: path, s) }
+        if path == "/api/say" || path.hasPrefix("/api/say/") || path == "/api/automation" {
+            // They moved: talking in words, and running things on a schedule, are Peter's now.
+            throw HTTPError(status: 404, code: "moved", message: "\(path) is Peter's now (Tool Mac Agent, github.com/ainigh/tool-mac-tool-run-agent): POST http://127.0.0.1:8770/api/say, in words. He carries it out here, and keeps the schedule")
+        }
         guard let method = Self.routes[path] else {
             throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.path) (GET /api/endpoints lists every route)")
         }
@@ -569,9 +545,7 @@ public final class RunAPI: @unchecked Sendable {
             if let run = e.runID { out.append(APINext.Hint("GET", "/api/runs/\(run.uuidString)", "the run again, with everything it printed, while the app keeps it")) }
             switch e.outcome {
             case .denied, .notAnswered, .withdrawn:
-                out.append(APINext.Hint("POST", "/api/\(e.via == "automation" ? "automation" : e.via == "stop" ? "runs/{id}/stop" : e.via)", "ask again, only if the person wants it (say why, in \"why\")"))
-            case .automated:
-                out.append(APINext.Hint("GET", "/api/automation", "what runs by itself now"))
+                out.append(APINext.Hint("POST", "/api/\(e.via == "stop" ? "runs/{id}/stop" : e.via)", "ask again, only if the person wants it (say why, in \"why\")"))
             default: break
             }
         }
@@ -580,7 +554,7 @@ public final class RunAPI: @unchecked Sendable {
     }
 
     /// A request as the API gives it: its state (`waiting`, `denied`, `not_answered`, `running`,
-    /// then how its run ended, or `automated`), who asked and why, and (with `run`) the run itself.
+    /// then how its run ended), who asked and why, and (with `run`) the run itself.
     func requestJSON(_ e: RequestLedger.Entry, run: Bool = true) async -> [String: Any] {
         let r = e.request
         var out: [String: Any] = [
@@ -592,15 +566,13 @@ public final class RunAPI: @unchecked Sendable {
         switch e.outcome {
         case .waiting:
             out["state"] = "waiting"
-            out["message"] = r.isStop ? "On the Mac, waiting for Stop It" : r.automation == nil ? "On the Mac, waiting for Run" : "On the Mac, waiting for Allow"
+            out["message"] = r.isStop ? "On the Mac, waiting for Stop It" : "On the Mac, waiting for Run"
         case .denied:
             let err = Self.denied(r)
             out["state"] = "denied"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
         case .notAnswered:
             let err = Self.unanswered(r)
             out["state"] = "not_answered"; out["ok"] = false; out["code"] = err.code; out["error"] = err.message
-        case .automated:
-            out["state"] = "automated"; out["ok"] = true
         case let .stopped(id):
             out["state"] = "stopped"; out["ok"] = true
             out["run_id"] = id.uuidString
@@ -626,34 +598,6 @@ public final class RunAPI: @unchecked Sendable {
             }
         }
         return out
-    }
-
-    /// GET /api/automation: the tags there are, and the items that run by themselves. POST: tags
-    /// a script or a flow (the same as /api/run or /api/compose with "automation"), once Run is
-    /// clicked on the Mac.
-    private func automationRoute(_ req: HTTPRequest, _ s: APISettings) async throws -> HTTPResponse {
-        switch req.method {
-        case "GET", "HEAD":
-            try need(.catalog, s)
-            _ = try await catalog()
-            let tags = AutomationTag.allCases.map { ["name": $0.rawValue, "title": $0.title, "kind": $0.kind.rawValue, "about": $0.about] }
-            let items = await host.automations().map(Self.automationJSON)
-            return JSON.response(["tags": tags, "items": items])
-        case "POST":
-            let fields = try body(req)
-            guard fields["automation"] != nil || fields["tags"] != nil else {
-                throw HTTPError(status: 400, code: "bad_request",
-                                message: "send {\"script\": \"<name>\" or \"flow\": \"<name>\", \"automation\": [\"every morning\"]} (an empty list takes its automation off); GET /api/automation lists the tags")
-            }
-            if Self.text(fields["flow"]) != nil {
-                try need(.compose, s)
-                return try await compose(req, fields: fields)
-            }
-            try need(.run, s)
-            return try await runScript(req, fields: fields)
-        default:
-            throw HTTPError(status: 405, code: "bad_request", message: "/api/automation takes GET or POST")
-        }
     }
 
     private func unknownRun(_ id: UUID) -> HTTPError {
@@ -747,7 +691,6 @@ public final class RunAPI: @unchecked Sendable {
             out["folder"] = c.folder.path
             out["scripts"] = c.scripts.count
             out["flows"] = c.flows.count
-            out["automated"] = await host.automations().count
         } else {
             out["folder"] = NSNull()
         }
@@ -777,6 +720,7 @@ public final class RunAPI: @unchecked Sendable {
 
     private func runScript(_ req: HTTPRequest, fields given: [String: Any]? = nil) async throws -> HTTPResponse {
         let fields = try given ?? body(req)
+        try Self.noAutomation(fields)
         guard let name = Self.text(fields["script"]) ?? Self.text(fields["name"]), !name.isEmpty else {
             throw HTTPError(status: 400, code: "missing_script", message: "send {\"script\": \"<its file name>\"} (GET /api/scripts lists them)")
         }
@@ -791,12 +735,13 @@ public final class RunAPI: @unchecked Sendable {
         let stdin = fields["stdin"].map { Self.text($0) ?? "" }
         let request = RunRequest(what: .script(item), name: item.id, arguments: args, stdin: stdin,
                                  client: Self.client(req, fields), from: Self.from(req), command: command, dangers: item.dangers,
-                                 why: Self.why(fields), automation: try Self.automation(fields, items: c.scripts + c.flows))
-        return try await execute(request, fields, via: given == nil ? "run" : "automation")
+                                 why: Self.why(fields))
+        return try await execute(request, fields, via: "run")
     }
 
     private func compose(_ req: HTTPRequest, fields given: [String: Any]? = nil) async throws -> HTTPResponse {
         let fields = try given ?? body(req, plainTextAs: "source")
+        try Self.noAutomation(fields)
         let c = try await catalog()
         let names = c.scripts.map(\.id) + c.flows.map(\.id)
         let args = try Self.arguments(fields)
@@ -832,14 +777,10 @@ public final class RunAPI: @unchecked Sendable {
         } catch let e as FlowError {
             return Self.flowMistake(e)
         }
-        let automation = try Self.automation(fields, items: c.scripts + c.flows)
-        if automation != nil, case .source = what {
-            throw HTTPError(status: 400, code: "bad_request", message: "only a flow from the folder can be automated: send {\"flow\": \"<its name>\", \"automation\": […]}")
-        }
         let request = RunRequest(what: what, name: name, arguments: args, client: Self.client(req, fields),
                                  from: Self.from(req), command: command, dangers: Self.flowDangers(source, scripts: c.scripts),
-                                 why: Self.why(fields), automation: automation)
-        return try await execute(request, fields, via: given == nil ? "compose" : "automation")
+                                 why: Self.why(fields))
+        return try await execute(request, fields, via: "compose")
     }
 
     /// Checks Flow code (nothing runs, nothing is asked): its types, or its mistake.
@@ -889,29 +830,6 @@ public final class RunAPI: @unchecked Sendable {
         await requests.add(request, via: via)
         let id = request.id.uuidString
         let tagged: [(String, String)] = [("X-Request-Id", id)]
-        // Tagging it to run by itself: asked about the same way, then tagged rather than run.
-        if request.automation != nil {
-            do {
-                try await approve(request)
-                let entry: AutomationEntry
-                do {
-                    entry = try await host.automate(request)
-                } catch let e as HTTPError {
-                    await requests.set(request.id, .failed(e))
-                    throw e
-                }
-                await requests.set(request.id, .automated)
-                await requests.clear(request.id, .delivered)
-                var out = Self.automationJSON(entry)
-                out["ok"] = true
-                out["automated"] = true
-                out["request"] = id
-                out["next"] = [APINext.Hint("GET", "/api/automation", "what runs by itself now").json]
-                return JSON.response(out, headers: tagged)
-            } catch let e as HTTPError {
-                return await refused(e, request)
-            }
-        }
         if fields["stream"] as? Bool == true { return stream(request) }
         let url = "/api/requests/\(id)"
         if fields["async"] as? Bool == true {
@@ -989,13 +907,13 @@ public final class RunAPI: @unchecked Sendable {
         }
     }
 
-    /// A request that didn't run (or wasn't automated), with its id still: the app can ask
+    /// A request that didn't run, with its id still: the app can ask
     /// `/api/requests/{id}` later and get the same answer.
     private func refused(_ e: HTTPError, _ request: RunRequest) async -> HTTPResponse {
         // Said here and now: handed over, so it's cleared.
         await requests.clear(request.id, .delivered)
         var next = [APINext.Hint("GET", "/api/requests/open", "every request not collected yet, oldest first")]
-        if e.code == "not_answered" { next.insert(APINext.Hint("POST", "/api/\(request.isStop ? "runs/{id}/stop" : request.automation != nil ? "automation" : request.isScript ? "run" : "compose")", "send it again, if the person still wants it: they have two minutes to click"), at: 0) }
+        if e.code == "not_answered" { next.insert(APINext.Hint("POST", "/api/\(request.isStop ? "runs/{id}/stop" : request.isScript ? "run" : "compose")", "send it again, if the person still wants it: they have two minutes to click"), at: 0) }
         return JSON.response(["error": e.message, "code": e.code, "request": request.id.uuidString, "delivery": "delivered", "next": next.map(\.json)],
                              status: e.status, headers: [("X-Request-Id", request.id.uuidString)])
     }
@@ -1003,17 +921,13 @@ public final class RunAPI: @unchecked Sendable {
     static func denied(_ r: RunRequest) -> HTTPError {
         HTTPError(status: 403, code: "denied", message: r.isStop
                   ? "\(r.name) wasn't stopped: the person at the Mac chose Keep Running"
-                  : r.automation == nil
-                  ? "\(r.name) didn't run: the person at the Mac chose Don't Run"
-                  : "\(r.name) wasn't automated: the person at the Mac chose Don't Allow")
+                  : "\(r.name) didn't run: the person at the Mac chose Don't Run")
     }
 
     static func unanswered(_ r: RunRequest) -> HTTPError {
         HTTPError(status: 403, code: "not_answered", message: r.isStop
                   ? "\(r.name) wasn't stopped: no one clicked Stop It on the Mac in time"
-                  : r.automation == nil
-                  ? "\(r.name) didn't run: no one clicked Run on the Mac in time"
-                  : "\(r.name) wasn't automated: no one clicked Allow on the Mac in time")
+                  : "\(r.name) didn't run: no one clicked Run on the Mac in time")
     }
 
     /// Waits for a run to end.
@@ -1137,46 +1051,11 @@ public final class RunAPI: @unchecked Sendable {
         return kept.isEmpty ? nil : kept
     }
 
-    /// How the app wants the item automated: "automation" (or "tags"), a list of tag names or
-    /// one name (an empty list: not automated any more); "once": one time only; "after": the
-    /// items it runs after (their names, as /api/scripts and /api/flows give them). Nil when the
-    /// request doesn't mention it (a run now).
-    static func automation(_ fields: [String: Any], items: [ScriptItem]) throws -> Automation? {
-        // "after" alone means the after-an-item tag.
-        guard let value = fields["automation"] ?? fields["tags"] ?? (fields["after"] != nil ? [Any]() : nil) else { return nil }
-        var given: [String]
-        switch value {
-        case let one as String: given = one.isEmpty ? [] : [one]
-        case let list as [Any]: given = list.compactMap(text)
-        case is NSNull: given = []
-        default: throw HTTPError(status: 400, code: "bad_request", message: "automation is a list of tag names (GET /api/automation lists them)")
-        }
-        var tags: [AutomationTag] = []
-        for name in given {
-            guard let tag = AutomationTag.named(name) else {
-                throw HTTPError(status: 400, code: "unknown_tag", message: "there's no automation tag called \(name); the tags: \(AutomationTag.names)")
-            }
-            tags.append(tag)
-        }
-        var after: [String] = []
-        if let list = fields["after"] as? [Any] {
-            for name in list.compactMap(text) {
-                guard let match = ScriptNames.match(name, in: items.map(\.id)) else {
-                    throw HTTPError(status: 404, code: "unknown_script", message: "no script or flow named \(name) to run after; the names: \(names(items))")
-                }
-                after.append(match)
-            }
-        } else if let one = text(fields["after"]), !one.isEmpty {
-            guard let match = ScriptNames.match(one, in: items.map(\.id)) else {
-                throw HTTPError(status: 404, code: "unknown_script", message: "no script or flow named \(one) to run after; the names: \(names(items))")
-            }
-            after = [match]
-        }
-        if !after.isEmpty { tags.append(.afterItem) }
-        if tags.contains(.afterItem), after.isEmpty {
-            throw HTTPError(status: 400, code: "bad_request", message: "\"after-an-item\" needs \"after\": [\"<a script's or flow's name>\"]")
-        }
-        return Automation(tags: tags, once: fields["once"] as? Bool ?? false, after: after)
+    /// Running something by itself, on a schedule, is Peter's now (Tool Mac Agent): a request that
+    /// asks for it here is told where it went, rather than run at once.
+    static func noAutomation(_ fields: [String: Any]) throws {
+        guard fields["automation"] != nil || fields["tags"] != nil || fields["after"] != nil else { return }
+        throw HTTPError(status: 400, code: "moved", message: "running something by itself is Peter's now (Tool Mac Agent, github.com/ainigh/tool-mac-tool-run-agent): ask him in words, POST http://127.0.0.1:8770/api/say \"every morning at 7, run the backup\"")
     }
 
     /// Who's asking: what it calls itself, else its User-Agent's product ("curl/8.4" → "curl").
@@ -1216,6 +1095,8 @@ public final class RunAPI: @unchecked Sendable {
                                   "dangers": s.dangers, "uses_epa": s.usesEPA, "inputs": inputsJSON(s.inputs)]
         if let summary = s.summary { out["summary"] = summary }
         if !s.tags.isEmpty { out["tags"] = s.tags }
+        // How Peter offers it in words (its header's # Say: lines).
+        if !s.say.isEmpty { out["say"] = s.say }
         return out
     }
 
@@ -1229,21 +1110,11 @@ public final class RunAPI: @unchecked Sendable {
         }
     }
 
-    /// An automated item: its name, kind, tags, once, after, and when its schedule next runs.
-    static func automationJSON(_ e: AutomationEntry) -> [String: Any] {
-        var out: [String: Any] = [
-            "name": e.id, "kind": e.grid.isFlow ? "flow" : "script", "group": e.grid.rawValue, "title": e.title,
-            "tags": e.automation.tags.map(\.rawValue), "once": e.automation.once, "after": e.automation.after,
-            "summary": e.automation.summary,
-        ]
-        if let next = e.next { out["next"] = JSON.date(next) }
-        return out
-    }
-
     static func flowJSON(_ f: ScriptItem) -> [String: Any] {
         var out: [String: Any] = ["name": f.id, "title": f.title, "uses_epa": f.usesEPA, "inputs": inputsJSON(f.inputs)]
         if let summary = f.summary { out["summary"] = summary }
         if !f.tags.isEmpty { out["tags"] = f.tags }
+        if !f.say.isEmpty { out["say"] = f.say }
         return out
     }
 
