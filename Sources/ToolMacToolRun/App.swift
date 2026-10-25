@@ -311,6 +311,39 @@ final class AppModel: ObservableObject {
         updater.install()
     }
 
+    /// Factory reset (asked first): it quits, and once it has, everything it keeps that didn't
+    /// come with it goes to the Trash (`FactoryReset`) and its settings are forgotten; then it
+    /// opens again as it was installed.
+    func factoryReset() {
+        NSApp.activate(ignoringOtherApps: true)
+        let plan = FactoryReset.plan(scripts: library?.root)
+        let user = FileManager.default.homeDirectoryForCurrentUser
+        let alert = NSAlert()
+        alert.messageText = "Factory reset Tool Mac Tool Run?"
+        var info = "It quits, and these go to the Trash (you can get them back from there):\n"
+            + plan.trash.map { "• " + Home.short($0) }.joined(separator: "\n")
+        if !plan.kept.isEmpty { info += "\n\nKept: " + plan.kept.joined(separator: "; ") + "." }
+        info += "\n\nIts settings are forgotten too. Then it opens again as it was installed: it asks for a scripts folder, and the examples come with it."
+        let n = runs.runningCount
+        if n > 0 { info += " The \(n) running \(n == 1 ? "run is" : "runs are") stopped." }
+        alert.informativeText = info
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Reset and Restart").hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let app = Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundleURL : nil
+        let reset = Process()
+        reset.executableURL = URL(fileURLWithPath: "/bin/sh")
+        reset.arguments = ["-c", FactoryReset.script] + FactoryReset.arguments(pid: getpid(), trash: user.appendingPathComponent(".Trash", isDirectory: true),
+                                                                              app: app, domain: Bundle.main.bundleIdentifier, plan: plan)
+        do {
+            try reset.run()
+        } catch {
+            problem = "Couldn't factory reset: \(error.localizedDescription)"
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
     func quit() {
         let n = runs.runningCount
         if n > 0 {

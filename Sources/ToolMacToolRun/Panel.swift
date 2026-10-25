@@ -439,6 +439,9 @@ struct PanelView: View {
             HStack(spacing: 10) {
                 UpdateControl(updater: updater) { go { app.installUpdate() } }
                 Spacer()
+                Button("Factory Reset…") { go { app.factoryReset() } }
+                    .buttonStyle(PillButton(tint: .secondary, filled: false))
+                    .help("Back to how it was installed: its folders and settings go to the Trash, then it opens again (it asks first, listing what goes)")
                 Button("Quit") { go { app.quit() } }
                     .buttonStyle(PillButton(tint: .secondary, filled: false))
                     .help(runs.runningCount > 0 ? "Quit (it asks first: \(runs.runningCount) running would stop)" : "Quit Tool Mac Tool Run (⌘Q)")

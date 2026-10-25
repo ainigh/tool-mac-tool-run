@@ -344,6 +344,15 @@ GitHub through `gh`, signed in as above. What went wrong, if anything, is in
 `~/Library/Logs/ToolMacToolRun/update.log` (the copy button beside **Try again** in the panel). Running the
 install command again still works too.
 
+### Starting from scratch
+
+**Factory Reset…**, at the bottom of the panel beside Quit, puts the app back as it was
+installed. It lists what goes and asks first; then it quits, and once it has, its own things (the
+runs, the grids' settings, what ran by itself), TOOL-MAC-RUN (the library, MEMORY, the mind,
+SYSTEM-DOCS) and the scripts folder go to the Trash, where you can get them back. A scripts
+folder that holds more than scripts (your home, Desktop, Documents…) is kept. Its settings are
+forgotten, and it opens again: it asks for a scripts folder, and the examples come with it.
+
 ## First run
 
 1. Click the terminal icon in the menu bar. The panel's first tile is **Choose Your Scripts Folder…**.
