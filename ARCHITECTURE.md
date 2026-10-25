@@ -98,7 +98,7 @@ sequenceDiagram
   time, including scheduled ones. Nothing a model says stands in for that click.
 - **Each updates itself** from its GitHub releases, built and published by CI on every push to main.
 
-## The plan
+## The plan (done: all three shipped)
 
 1. **Peter** (tool-mac-tool-run-agent), a menu bar app like Tool Mac Tool Run:
    - `PeterCore` (Foundation only, tested on Linux): Say's templates, matcher, words and translator,
@@ -128,4 +128,7 @@ sequenceDiagram
 | A reminder that came due while Peter was closed | Done as he opens, saying it's late; over a day late, dropped. |
 | Scheduled runs used to run without a click once allowed | They wait for Run each time now (the consent rule). Reminders and reads (the web, notes) need no click. |
 | Super Face's playbook and standing instructions lived in Tool Mac Tool Run's library | Still there: Super Face asks Peter for them in words ("read the note Super Face playbook"), which is a template, answered without a model. |
-| A client that used `/api/say` on Tool Mac Tool Run | The same API, on Peter's port. |
+| A client that used `/api/say` on Tool Mac Tool Run | The same API, on Peter's port; Tool Mac Tool Run answers `/api/say` and `/api/automation` with `moved`, saying where. |
+| Super Face's model is taught to say "@peter remind me in 20 minutes to …" | Peter reads that (and "every weekday at 8am, …") by its words, without his model. |
+| Super Face reading its own notes through Peter shouldn't wait on his model, or take the model's news | It asks with `?exact=true`, as a client of its own ("Super Face (its notes)"). |
+| You talk while the model starts on Peter's news | You're answered first; the news right after. |
