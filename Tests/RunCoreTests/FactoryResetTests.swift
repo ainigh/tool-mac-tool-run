@@ -91,8 +91,10 @@ final class FactoryResetTests: XCTestCase {
         XCTAssertEqual(StorageSpaces.moveIn(from: home, to: user), [], "once: what's deleted there stays deleted")
         XCTAssertFalse(Shelf.systemDocs.inStorageSpaces)
         XCTAssertTrue(Shelf.library.inStorageSpaces && Shelf.memory.inStorageSpaces)
-        // A factory reset's own shelves are SYSTEM-DOCS alone.
-        let plan = FactoryReset.plan(scripts: nil, home: home, support: root.appendingPathComponent("support"), user: root)
+        // A factory reset's own shelves are SYSTEM-DOCS alone (worked out without looking at the
+        // Desktop: on a Mac, a test reading it waits on a question nobody is there to answer).
+        XCTAssertEqual(Shelf.allCases.filter { !$0.inStorageSpaces }, [.systemDocs])
+        let plan = FactoryReset.plan(scripts: nil, home: home, support: root.appendingPathComponent("support"), shelves: [], user: root)
         XCTAssertFalse(plan.trash.contains { $0.path.contains("STORAGE-SPACES") }, "\(plan.trash)")
     }
 
