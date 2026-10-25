@@ -155,7 +155,17 @@ enum SayWords {
             return page(j, find: j["find"] as? String, lines: lines)
         case "browser":
             switch op {
-            case "open": return "Opened in Chrome. " + page(j, find: nil, lines: [])
+            case "open":
+                let place = (j["where"] as? String).flatMap(ChromePage.Place.init(rawValue:))
+                let opened = place == .onScreen ? "Opened in a new tab of the person's window. " : place == .background ? "Opened in your own Chrome window, in the background. "
+                    : place == .sideBySide ? "Opened in your own Chrome window, side by side with the person's. " : "Opened in Chrome. "
+                return opened + page(j, find: nil, lines: [])
+            case "place":
+                return (j["where"] as? String) == "background" ? "Your own Chrome window is behind the person's now."
+                    : (j["closed"] as? Bool) == true ? (j["said"] as? String ?? "Your own Chrome window is closed.")
+                    : "Your own Chrome window is on the right half of the screen now, and the person's on the left: side by side."
+            case "done", "close":
+                return (j["said"] as? String) ?? "Your own Chrome window is closed."
             case "page": return page(j, find: nil, lines: [])
             case "tabs":
                 return lines.isEmpty ? "No tabs are open in Chrome's window in front." : "The tabs:\n" + numbered(lines.map { $0.replacingOccurrences(of: #"^\d+\.\s*"#, with: "", options: .regularExpression) })

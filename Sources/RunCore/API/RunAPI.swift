@@ -203,8 +203,10 @@ public final class RunAPI: @unchecked Sendable {
     let library: @Sendable () -> FileLibrary
     /// MEMORY, the mind and SYSTEM-DOCS.
     let shelves: @Sendable () -> Shelves
-    /// The page in front of Chrome.
+    /// Chrome's pages: the person's, and the app's own window's.
     let chrome: ChromePage
+    /// The app's own Chrome window, while there is one (side by side with the person's, or behind it).
+    public let browserWindow = BrowserWindow()
     /// The web, read from this Mac.
     let web: Web
     private let settings: @Sendable () -> APISettings

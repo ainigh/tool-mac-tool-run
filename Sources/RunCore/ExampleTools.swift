@@ -3808,6 +3808,9 @@ extension Examples {
         #   browser.sh wait              waits (up to 30 seconds) for the page in front to load
         #   browser.sh encode TEXT       TEXT made safe for an address (for ?q=…)
         #
+        # TMR_CHROME_WINDOW (a Chrome window's id) makes it work in that window rather than the one in front, without
+        # bringing Chrome forward: Straw sets it for a script that says "# Where: side by side" (or "background").
+        #
         # JavaScript is an expression (document.title, or items.map(v => { …; return v.x })), or statements with a
         # return of their own, outside any function, giving back the answer; what isn't text comes back as JSON.
         # Chrome lets scripts run it once View > Developer > Allow JavaScript from Apple Events is ticked; macOS
@@ -3821,11 +3824,29 @@ extension Examples {
           exit 1
         fi
 
+        # The window a script works in: the one TMR_CHROME_WINDOW names (by its id), else the one in front.
+        PICK='on pickWindow()
+          set wid to system attribute "TMR_CHROME_WINDOW"
+          tell application id "com.google.Chrome"
+            if wid is "" then return front window
+            repeat with w in windows
+              if (id of w as text) is wid then return contents of w
+            end repeat
+          end tell
+          error "WINDOW_GONE"
+        end pickWindow
+
+        on ownWindow()
+          return (system attribute "TMR_CHROME_WINDOW") is not ""
+        end ownWindow
+        '
+
         # AppleScript (from its input) run with Chrome's id, then the words given, as argv. Each script
         # names Chrome itself (tell application id "com.google.Chrome"): AppleScript reads Chrome's own
-        # words (active tab, execute, loading) from the app it names, as it compiles.
+        # words (active tab, execute, loading) from the app it names, as it compiles. pickWindow and
+        # ownWindow come before each.
         tell_chrome() {
-          osascript - "$CHROME" "$@"
+          { printf '%s\n' "$PICK"; cat; } | osascript - "$CHROME" "$@"
         }
 
         # What went wrong, in words, with the fix; then stops.
@@ -3835,6 +3856,9 @@ extension Examples {
             *"JavaScript through AppleScript is turned off"*|*"Allow JavaScript from Apple Events"*)
               echo "Chrome doesn't let scripts run JavaScript in its pages yet." >&2
               echo "Fix, once: in Chrome, View > Developer > Allow JavaScript from Apple Events." >&2 ;;
+            *WINDOW_GONE*)
+              echo "The Chrome window it was working in (TMR_CHROME_WINDOW) has been closed." >&2
+              echo "Fix: run it again; a new one is made." >&2 ;;
             *NO_WINDOW*)
               echo "Chrome has no window open." >&2
               echo "Fix: open a page first (browser.sh open https://example.com)." >&2 ;;
@@ -3934,7 +3958,7 @@ extension Examples {
           set wanted to item 2 of argv
           tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
-            if wanted is "" then return id of active tab of front window
+            if wanted is "" then return id of active tab of (my pickWindow())
             repeat with w in windows
               repeat with t in tabs of w
                 if (URL of t) contains wanted then return id of t
@@ -4007,12 +4031,12 @@ extension Examples {
               set URL of active tab of front window to targetURL
               set t to active tab of front window
             else
-              set w to front window
+              set w to my pickWindow()
               set frontIndex to active tab index of w
               set t to make new tab at end of tabs of w with properties {URL:targetURL}
               if item 3 of argv is "behind" then set active tab index of w to frontIndex
             end if
-            if item 3 of argv is "front" then activate
+            if item 3 of argv is "front" and not (my ownWindow()) then activate
             return id of t
           end tell
         end run
@@ -4058,8 +4082,10 @@ extension Examples {
                 if (URL of t) contains wanted then
                   set URL of t to item 3 of argv
                   set active tab index of w to k
-                  set index of w to 1
-                  activate
+                  if not (my ownWindow()) then
+                    set index of w to 1
+                    activate
+                  end if
                   return id of t
                 end if
               end repeat
@@ -4107,7 +4133,7 @@ extension Examples {
         on run argv
           tell application id "com.google.Chrome"
             if (count of windows) = 0 then error "NO_WINDOW"
-            set t to active tab of front window
+            set t to active tab of (my pickWindow())
             if item 2 of argv is "url" then return URL of t
             return title of t
           end tell
@@ -4124,7 +4150,7 @@ extension Examples {
             if item 2 of argv is "--all" then
               set shown to windows
             else
-              set shown to {front window}
+              set shown to {my pickWindow()}
             end if
             repeat with w in shown
               repeat with t in tabs of w
@@ -4183,8 +4209,10 @@ extension Examples {
                 set k to k + 1
                 if (URL of t) contains wanted then
                   set active tab index of w to k
-                  set index of w to 1
-                  activate
+                  if not (my ownWindow()) then
+                    set index of w to 1
+                    activate
+                  end if
                   return title of t
                 end if
               end repeat
@@ -4702,6 +4730,10 @@ extension Examples {
         # on them (their label, their placeholder, what's written on the button). The whole file is checked before
         # anything runs; a mistake says its line and the fix. What it reads goes to the output (a flow's value);
         # what it's doing goes beside it, a line a step. The Straw guide (in the app, and docs/STRAW-GUIDE.md) says more.
+        #
+        # A "# Where:" line at the top says where it works: side by side (a Chrome window of its own on the right
+        # half of the screen, yours moved to the left), background (that window, behind yours) or on screen (the tab
+        # in front, as with no Where line). The app puts the window there (its API must be on: TMR_API sets where).
         import difflib
         import json
         import os
@@ -4709,7 +4741,9 @@ extension Examples {
         import subprocess
         import sys
         import time
+        import urllib.error
         import urllib.parse
+        import urllib.request
 
         WAIT_SECONDS = 15
 
@@ -5033,6 +5067,53 @@ extension Examples {
 
             go(steps)
             return steps
+
+
+        PLACES = {
+            "side by side": "side_by_side", "side_by_side": "side_by_side", "beside": "side_by_side", "beside me": "side_by_side",
+            "on screen": "on_screen", "on_screen": "on_screen", "in front": "on_screen", "front": "on_screen", "on my screen": "on_screen",
+            "background": "background", "in the background": "background", "behind": "background",
+        }
+
+
+        def declared_where(text):
+            """The # Where: line at the top, if there's one: (side_by_side | on_screen | background, its line number)."""
+            for number, raw in enumerate(text.splitlines()[:60], 1):
+                line = raw.strip()
+                if not line:
+                    continue
+                if not line.startswith("#"):
+                    break
+                m = re.match(r"#\s*Where\s*:\s*(.+)", line, re.I)
+                if m:
+                    said = m.group(1).strip().lower()
+                    if said not in PLACES:
+                        raise Mistake(number, f'"{m.group(1).strip()}" isn\'t a place to work.', "# Where: side by side, # Where: background, or # Where: on screen.")
+                    return PLACES[said], number
+            return None, 0
+
+
+        def place_window(where):
+            """Asks the app to put its own Chrome window where (side by side, or in the background): the window's id."""
+            api = os.environ.get("TMR_API", "http://127.0.0.1:8768").rstrip("/")
+            body = json.dumps({"where": where, "client": "Straw"}).encode()
+            req = urllib.request.Request(api + "/api/browser/place", data=body, method="POST",
+                                         headers={"Content-Type": "application/json", "X-Client": "Straw"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    answer = json.loads(r.read().decode("utf-8", "replace"))
+            except urllib.error.HTTPError as e:
+                try:
+                    d = json.loads(e.read().decode("utf-8", "replace"))
+                except ValueError:
+                    d = {}
+                raise Stop((d.get("error") or f"The app said {e.code}.") + (("\nFix: " + d["fix"]) if d.get("fix") else ""))
+            except (urllib.error.URLError, OSError, ValueError):
+                raise Stop(f"The window can't be put {where.replace('_', ' ')}: Tool Mac Tool Run isn't answering at {api}.\n"
+                           "Fix: open the app and switch its API on, or take out the # Where: line to work in the tab in front.")
+            if not answer.get("window"):
+                raise Stop("The app didn't say which window it put " + where.replace("_", " ") + ".")
+            return answer["window"]
 
 
         def declared_inputs(text):
@@ -5617,6 +5698,7 @@ extension Examples {
             name = os.path.basename(path)
             inputs = declared_inputs(text)
             try:
+                where, _ = declared_where(text)
                 steps = check(parse(text), inputs)
             except Mistake as m:
                 lines = text.splitlines()
@@ -5630,6 +5712,8 @@ extension Examples {
             if check_only:
                 count = sum(1 for _ in walk(steps))
                 print(f"✅ {name}: {count} step{'s' if count != 1 else ''}, no mistakes. It would:")
+                if where and where != "on_screen":
+                    print(f"  work in a Chrome window of its own, {'side by side with yours' if where == 'side_by_side' else 'behind yours'}")
                 plan(steps)
                 return 0
             helper = os.environ.get("STRAW_BROWSER") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser.sh")
@@ -5639,6 +5723,11 @@ extension Examples {
                 return 1
             run = Run(steps, args, Browser(helper), inputs, path)
             try:
+                if where and where != "on_screen":
+                    window = place_window(where)
+                    # browser.sh works in that window, without bringing Chrome forward.
+                    os.environ["TMR_CHROME_WINDOW"] = str(window)
+                    run.say(f"→ working {'side by side' if where == 'side_by_side' else 'in the background'}, in a window of its own")
                 run.go(steps)
             except Stop as e:
                 print(f"❌ {e}", file=sys.stderr)

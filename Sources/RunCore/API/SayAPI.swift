@@ -770,7 +770,7 @@ extension RunAPI {
     /// "what can you do": a few lines of what there is, each a template to say.
     static func sayOverview(_ ctx: SayContext) -> String {
         func line(_ title: String) -> String? { ctx.form(title).map { $0.isInline ? "- " + $0.short : "- " + $0.title.lowercased() + " (say it, and I'll show you its lines)" } }
-        let tools = ["Search the web", "Open a page in Chrome", "Remember something", "Recall something", "What's coming up", "Read a note"].compactMap(line)
+        let tools = ["Search the web", "Open a page in Chrome", "Work side by side", "Remember something", "Recall something", "What's coming up", "Read a note"].compactMap(line)
         let folder = ctx.forms.filter { $0.kind == "script" || $0.kind == "flow" }
         var out = "Say what you want, in your own words. If I'm not sure, I'll answer with a few sentences to fill in and say back.\n\nSome of what you can say:\n" + tools.joined(separator: "\n")
         if !folder.isEmpty {

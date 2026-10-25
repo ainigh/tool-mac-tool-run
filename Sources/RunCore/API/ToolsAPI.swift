@@ -131,11 +131,13 @@ public enum Tools {
         return aliases[o] ?? o
     }
 
-    static let browserOps = ["open", "page", "find", "has", "highlight", "tabs", "url", "outline", "status"]
+    static let browserOps = ["open", "page", "find", "has", "highlight", "tabs", "url", "outline", "place", "done", "status"]
     static let browserOpAliases: [String: String] = [
         "read": "page", "text": "page", "content": "page", "read_page": "page", "get_page": "page", "get_text": "page", "links": "page",
         "title": "url", "address": "url", "current": "url", "current_url": "url", "get_url": "url", "tab": "url",
         "list_tabs": "tabs", "windows": "tabs",
+        "side_by_side": "place", "arrange": "place", "beside": "place", "split": "place", "background": "place", "move": "place",
+        "put_back": "done", "close_window": "done", "close_own": "done", "restore": "done", "finish": "done", "finished": "done",
         "contains": "has", "check": "has", "exists": "has", "is_there": "has",
         "search": "find", "locate": "find", "where": "find", "find_text": "find", "look_for": "find",
         "show": "highlight", "point": "highlight", "ring": "highlight", "mark": "highlight", "show_where": "highlight",
@@ -225,10 +227,11 @@ public enum Tools {
              tags: "internet online page website site link api json http read download", uses: "GET /api/web/fetch") { f in
             Call(method: "GET", path: "/api/web/fetch" + query([("url", try need(f, "url", "web_fetch takes url: the address (https://…).")), ("find", f.text("find")), ("max", f.text("max"))]))
         },
-        Tool("browser", "The person's own Chrome, at once: open a page there in a new tab (it's read back to you), read the page in front of them, find where a thing is on it, and ring it in red to show them. It never clicks or types (straw does): tell them what to click, then read again. To find something out yourself, web_search and web_fetch are quicker.",
-             args: [Arg("op", "string", "open, page (its text and links), find, has, highlight, tabs, url or outline", required: true, aliases: "action what"),
+        Tool("browser", "Chrome, at once: open a page (it's read back to you), read a page, find where a thing is on it, and ring it in red to show the person. Each works in any of three places (where): side_by_side, the default, a window of your own on the right half of the screen with the person's on the left, so you work beside them; on_screen, the person's own tab in front of them; or background, your own window, behind theirs. A read with no where reads your own window while there is one, else theirs. done closes your window and puts theirs back. It never clicks or types (straw does): tell them what to click, then read again. To find something out yourself, web_search and web_fetch are quicker.",
+             args: [Arg("op", "string", "open, page (its text and links), find, has, highlight, tabs, url, outline, place (put your own window where) or done (close it, theirs put back)", required: true, aliases: "action what"),
                     Arg("url", "string", "for open: the address", aliases: "address link"),
                     Arg("text", "string", "for find, has and highlight: the words on the page", aliases: "q query words label find"),
+                    Arg("where", "string", "side_by_side (the default), on_screen (the person's own tab) or background", aliases: "place in mode"),
                     Arg("max", "integer", "for page and open: characters of text at most (8000)")],
              endpoint: .browser, aliases: "chrome chrome_page page web_page read_page:page open_page:open open_in_chrome:open navigate:open goto:open open_tab:open highlight:highlight",
              tags: "chrome browser tab page site guide show open navigate visit ring url address link website", uses: "/api/browser/…") { f in
@@ -239,27 +242,35 @@ public enum Tools {
                 throw HTTPError(status: 400, code: "browser_reads_only",
                                 message: "browser can't \(op.replacingOccurrences(of: "_", with: " ")): it opens and reads pages, and rings things. Tell the person what to do on the page (find, then highlight, shows them where), then read it again; or, to do it yourself, straw (it waits for Run on the Mac).")
             }
+            // Where: as asked (an op named for a place is that place).
+            let said = (f.text("op") ?? f.text("action") ?? "").lowercased()
+            let place = f.text("where") ?? (["side_by_side", "beside", "split"].contains(said) ? "side_by_side" : said == "background" ? "background" : nil)
+            let whereBody: [String: Any] = place.map { ["where": $0] } ?? [:]
             switch op {
             case "open":
                 let url = try need(f, "url", "browser open takes url: the address to open.")
-                return Call(method: "POST", path: "/api/browser/open", body: ["url": url, "max": f.int("max") ?? 8000])
+                return Call(method: "POST", path: "/api/browser/open", body: ["url": url, "max": f.int("max") ?? 8000].merging(whereBody) { a, _ in a })
             case "highlight":
-                return Call(method: "POST", path: "/api/browser/highlight", body: ["text": try need(f, "text", "browser highlight takes text: the words of the thing to ring.")])
+                return Call(method: "POST", path: "/api/browser/highlight", body: ["text": try need(f, "text", "browser highlight takes text: the words of the thing to ring.")].merging(whereBody) { a, _ in a })
             case "find", "has":
-                return Call(method: "GET", path: "/api/browser/\(op)" + query([("text", try need(f, "text", "browser \(op) takes text: the words to look for."))]))
-            case "page": return Call(method: "GET", path: "/api/browser/page" + query([("max", String(f.int("max") ?? 8000))]))
-            case "tabs", "url", "outline": return Call(method: "GET", path: "/api/browser/\(op)")
+                return Call(method: "GET", path: "/api/browser/\(op)" + query([("text", try need(f, "text", "browser \(op) takes text: the words to look for.")), ("where", place)]))
+            case "page": return Call(method: "GET", path: "/api/browser/page" + query([("max", String(f.int("max") ?? 8000)), ("where", place)]))
+            case "tabs", "url", "outline": return Call(method: "GET", path: "/api/browser/\(op)" + query([("where", place)]))
+            case "place": return Call(method: "POST", path: "/api/browser/place", body: ["where": place ?? "side_by_side"])
+            case "done": return Call(method: "POST", path: "/api/browser/close", body: [:])
             case "status": return Call(method: "GET", path: "/api/browser")
             default: throw HTTPError(status: 400, code: "unknown_op", message: "browser has no op called \(op): \(browserOps.joined(separator: ", ")).")
             }
         },
         Tool("straw", "Drives Chrome by what's on the page, a plain line a step (open example.com / click \"Sign in\" / type \"Search\" \"cats\" / read all css \"h2\"): for clicking, typing and filling in, which browser can't. A card waits for Run on the Mac. Its words: docs' STRAW-GUIDE.",
              args: [Arg("source", "string", "the Straw code, a line a step", aliases: "code steps"), Arg("script", "string", "or a Straw script's name, instead"),
+                    Arg("where", "string", "side_by_side (the default: a window of your own beside the person's), on_screen (their tab in front) or background", aliases: "place in mode"),
                     Arg("why", "string", "shown on the card", aliases: "reason")],
              asks: true, stream: true, endpoint: .run, aliases: "click type fill automate_browser run_straw straw_run",
              tags: "chrome click type fill press submit form automate drive", uses: "POST /api/straw/run") { f in
-            if let script = f.text("script") { return Call(method: "POST", path: "/api/straw/run", body: ["script": script]) }
-            return Call(method: "POST", path: "/api/straw/run", body: ["source": try need(f, "source", "straw takes source: the Straw code, a line a step (open example.com).")])
+            let whereBody: [String: Any] = f.text("where").map { ["where": $0] } ?? [:]
+            if let script = f.text("script") { return Call(method: "POST", path: "/api/straw/run", body: ["script": script].merging(whereBody) { a, _ in a }) }
+            return Call(method: "POST", path: "/api/straw/run", body: ["source": try need(f, "source", "straw takes source: the Straw code, a line a step (open example.com).")].merging(whereBody) { a, _ in a })
         },
         Tool("library", "The person's notes (Markdown, each known by its name), at once. Ops: read, find (names by words), search (their text), list, recent, append (a line at the end), write (replaces it all), create, rename, copy, delete (to its Trash), restore. Find or read a note before you write to it.",
              args: [Arg("op", "string", "read, find, search, list, recent, append, write, create, rename, copy, delete or restore", required: true, aliases: "action"),
@@ -372,7 +383,7 @@ public enum Tools {
         "Every tool answers in JSON. An error has \"error\", often \"fix\", and \"tools\": what to call instead. Follow them; never repeat a call unchanged.",
         "Not sure what fits, or what something takes? find it by a few words before you guess, and before ever saying you can't.",
         "To find something out from the web (a fact, a price, opening hours, the weather, the news, how something works): web_search, then web_fetch the result that fits, with find for the lines you need. Pages and their docs often point to a JSON API: web_fetch calls those too, with the parameters they say. Never say what a page says without reading it.",
-        "browser is the person's own Chrome: open a page there when they want to see it or use it, read the page in front of them, find where a thing is and highlight it to guide them, a step at a time. It never clicks or types: tell them what to do, or use straw.",
+        "browser works in Chrome in three places (where): side_by_side, the default, a window of your own beside the person's, to work next to them; on_screen, their own tab, to guide them through what they're looking at (find where a thing is, highlight it, a step at a time); background, your own window behind theirs. Each answer says where it was. done puts their window back. It never clicks or types: tell them what to do, or use straw.",
         "run_script, run_flow, run_flow_code and straw put a card on the Mac and wait for the person to click Run: say so when you send one. If they click Don't Run, leave it unless they ask again. Every other tool answers at once.",
         "Notes are library's: find or read one before you write to it. What the person tells you about their world goes to remember; before you answer about a person, place, organization or date, recall it. Only ever write what they said.",
         "Something long (steps, a list, a result to check) is for show; something they'll paste is for copy.",
@@ -400,9 +411,9 @@ public enum Tools {
                     "result": "{\"file\": \"PEOPLE\", \"node\": \"ada\", …}"]],
          "answer": "I'll remember Ada's birthday, the 14th of March."],
         ["user": "Where's the billing page on this site?",
-         "steps": [["call": ["tool": "browser", "arguments": ["op": "find", "text": "Billing"]],
-                    "result": "{\"lines\": [\"The link “Billing” is inside “Account”, which is closed: open it first.\"], …}"],
-                   ["call": ["tool": "browser", "arguments": ["op": "highlight", "text": "Billing"]],
+         "steps": [["call": ["tool": "browser", "arguments": ["op": "find", "text": "Billing", "where": "on_screen"]],
+                    "result": "{\"lines\": [\"The link “Billing” is inside “Account”, which is closed: open it first.\"], \"where\": \"on_screen\", …}"],
+                   ["call": ["tool": "browser", "arguments": ["op": "highlight", "text": "Billing", "where": "on_screen"]],
                     "result": "{\"said\": \"It’s inside “Account”, which is closed: that’s ringed in red, to open first.\", …}"]],
          "answer": "It's under Account, which I've ringed in red: open it and Billing is inside."],
     ]

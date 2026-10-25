@@ -214,12 +214,26 @@ final class LibraryAPITests: XCTestCase {
         XCTAssertEqual(run.status, 200, "\(json(rd))")
         let asked = try XCTUnwrap(host.asked.last)
         XCTAssertEqual(asked.name, "HN titles")
-        XCTAssertEqual(asked.source, "open news.ycombinator.com\nread all css \".titleline > a\"\n", "the card shows the Straw code")
+        XCTAssertEqual(asked.source, "# Where: side by side\nopen news.ycombinator.com\nread all css \".titleline > a\"\n",
+                       "the card shows the Straw code, and where it works: side by side, unless the app says otherwise")
         XCTAssertTrue(asked.itemID?.hasPrefix("browser/hn-titles-") == true, asked.itemID ?? "")
         XCTAssertEqual(json(rd)["request"] as? String, asked.id.uuidString)
+        // Where the app says, or the code's own line.
+        _ = await api.post("/api/straw/run", #"{"source": "open example.com", "where": "background"}"#)
+        XCTAssertEqual(host.asked.last?.source, "# Where: background\nopen example.com")
+        _ = await api.post("/api/straw/run", ##"{"source": "# Where: on screen\nopen example.com"}"##)
+        XCTAssertEqual(host.asked.last?.source, "# Where: on screen\nopen example.com")
+        let (badWhere, bw) = await api.post("/api/straw/run", #"{"source": "open example.com", "where": "upside down"}"#)
+        XCTAssertEqual(badWhere.status, 400)
+        XCTAssertEqual(json(bw)["code"] as? String, "bad_where")
         let (byName, _) = await api.post("/api/straw/run", #"{"script": "hacker-news"}"#)
         XCTAssertEqual(byName.status, 200)
         XCTAssertEqual(host.asked.last?.name, "browser/hacker-news.straw")
+        XCTAssertNil(host.asked.last?.source, "a script of the folder's runs as it is")
+        // Asked to work somewhere, a script of the folder's runs as a copy that says so.
+        let (placed, pd) = await api.post("/api/straw/run", #"{"script": "hacker-news", "where": "side by side"}"#)
+        XCTAssertEqual(placed.status, 200, "\(json(pd))")
+        XCTAssertTrue(host.asked.last?.source?.hasPrefix("# Where: side by side\n") == true, host.asked.last?.source ?? "")
         let (notStraw, nd) = await api.post("/api/straw/run", #"{"script": "browser.sh"}"#)
         XCTAssertEqual(notStraw.status, 404, "\(json(nd))")
     }

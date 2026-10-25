@@ -39,7 +39,7 @@ extension RunAPI {
                 "words": Self.strawWords.map { ["word": $0.word, "takes": $0.takes, "does": $0.does, "example": $0.example] },
                 "scripts": scripts.map(Self.scriptJSON),
                 "check": "POST /api/straw/check {\"source\"}: its mistakes, or what it would do (nothing runs, nothing is asked)",
-                "run": "POST /api/straw/run {\"script\": \"<name>\"} or {\"source\": \"<Straw code>\"}, with \"args\", \"why\", \"wait\", \"async\", \"stream\" as /api/run (waits for Run on the Mac)",
+                "run": "POST /api/straw/run {\"script\": \"<name>\"} or {\"source\": \"<Straw code>\"}, with \"where\" (side_by_side, the default for code sent: a Chrome window of its own beside the person's; on_screen: the tab in front; background: its own window, behind), and \"args\", \"why\", \"wait\", \"async\", \"stream\" as /api/run (waits for Run on the Mac)",
             ])
         case "/api/straw/check":
             try allowMethod(req, "POST", path)
@@ -110,15 +110,19 @@ extension RunAPI {
     }
 
     /// A Straw script from the folder, or Straw code sent (checked first, then kept in the browser
-    /// folder's .api folder, where straw.py finds it), run as a script once Run is clicked.
+    /// folder's .api folder, where straw.py finds it), run as a script once Run is clicked. Code
+    /// sent works side by side with the person unless it says otherwise (`where`, or its own
+    /// `# Where:` line); a folder script asked to work somewhere is run as a copy that says so.
     private func strawRun(_ req: HTTPRequest) async throws -> HTTPResponse {
         let fields = try body(req, plainTextAs: "source")
+        let place = try Self.place(LibraryAPI.Fields(values: fields))
         let c = try await catalog()
         let straws = c.scripts.filter { $0.language == .straw }
-        let item: ScriptItem
+        var item: ScriptItem
         let name: String
         var code: String?
-        if let source = Self.text(fields["source"]) ?? Self.text(fields["code"]), !source.isEmpty {
+        if let sent = Self.text(fields["source"]) ?? Self.text(fields["code"]), !sent.isEmpty {
+            let source = place != nil || Self.whereLine(sent) == nil ? Self.withWhere(sent, place ?? .sideBySide) : sent
             let checked = try await strawCheck(source, folder: c.folder)
             if checked["ok"] as? Bool != true { return JSON.response(checked, status: 400) }
             let browser = c.folder.appendingPathComponent("browser", isDirectory: true)
@@ -137,6 +141,13 @@ extension RunAPI {
             }
             item = found
             name = found.id
+            if let place, let text = try? String(contentsOf: found.url, encoding: .utf8) {
+                let placed = Self.withWhere(text, place)
+                let browser = c.folder.appendingPathComponent("browser", isDirectory: true)
+                let url = try Self.keepStraw(placed, name: found.id, in: browser)
+                item = ScriptItem(url: url, language: .straw, summary: found.summary ?? found.id, grid: .browser).cautioned()
+                code = placed
+            }
         } else {
             throw HTTPError(status: 400, code: "missing_script", message: "send {\"script\": \"<a Straw script's name>\"} (GET /api/straw lists them), or {\"source\": \"<Straw code>\"}")
         }
@@ -146,6 +157,26 @@ extension RunAPI {
                                  command: command, dangers: item.dangers, why: Self.why(fields))
         request.shownCode = code
         return try await execute(request, fields, via: "straw")
+    }
+
+    /// The `# Where:` line at the top of Straw code (its index among the lines), if there's one.
+    static func whereLine(_ code: String) -> Int? {
+        let lines = code.components(separatedBy: "\n")
+        for (k, raw) in lines.prefix(60).enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if !line.hasPrefix("#") { return nil }
+            if line.range(of: #"^#\s*Where\s*:"#, options: [.regularExpression, .caseInsensitive]) != nil { return k }
+        }
+        return nil
+    }
+
+    /// Straw code that says where it works (its own `# Where:` line replaced).
+    static func withWhere(_ code: String, _ place: ChromePage.Place) -> String {
+        var lines = code.components(separatedBy: "\n")
+        if let k = whereLine(code) { lines.remove(at: k) }
+        let said = place == .sideBySide ? "side by side" : place == .onScreen ? "on screen" : "background"
+        return (["# Where: \(said)"] + lines).joined(separator: "\n")
     }
 
     /// Writes Straw code sent over the API where straw.py finds it (browser/.api/, hidden from the

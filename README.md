@@ -293,11 +293,14 @@ without asking (a deleted file waits in its shelf's Trash; the mind keeps its lo
 
 Two more things apps can do for you: **show** something in a window that comes in front of
 everything, with copy buttons (`POST /api/present`: a file, a node of the mind, any text), and
-**copy** to your clipboard (`POST /api/clipboard`, or `"copy": true` on any answer). And to guide
-you through a website, they can **see the page in Chrome** (`/api/browser`): its address, its
-text, whether some words are on it, where a thing is (in view, above, below, inside a closed menu),
-and ring it in red so you see it, and open a page there for you (a new tab). It never clicks or
-types. They can also **read the web** themselves, without Chrome (`/api/web`): search it, and read
+**copy** to your clipboard (`POST /api/clipboard`, or `"copy": true` on any answer). And they can
+**work in Chrome beside you** (`/api/browser`): by default **side by side**, in a Chrome window of
+their own on the right half of the screen while yours moves to the left, so you each work in your
+own; or **on screen**, in your own tab, to guide you through what you're looking at; or **in the
+background**, behind your window. Wherever it is, they read the page (its address, its text,
+whether some words are on it, where a thing is: in view, above, below, inside a closed menu), ring
+a thing in red so you see it, and open pages; done, your window goes back where it was. It never
+clicks or types (Straw does, after you click Run, in the same three places). They can also **read the web** themselves, without Chrome (`/api/web`): search it, and read
 any address (a page's text and links, or a JSON API's answer), only ever reading, and never this
 Mac or your network. And an app with a model hands it **the tools** (`GET /api/tools`): all of
 this as a short list a model calls by name (`POST /api/tools/{name}`), with a guide and examples

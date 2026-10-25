@@ -61,6 +61,10 @@ final class ToolsTests: XCTestCase {
         let chromeSeen = chromeAsked
         let chrome = ChromePage { script, args in
             chromeSeen.copy((script.contains("make new tab") ? "open " : "") + args.joined(separator: " | "))
+            // One window of the person's; one screen; the app's own window, once made, is 7.
+            if script.hasPrefix("// JavaScript") { return #"[{"frame": {"left": 0, "top": 0, "right": 1440, "bottom": 900}, "visible": {"left": 0, "top": 25, "right": 1440, "bottom": 860}}]"# }
+            if script.contains("minimized of w") { return "1\t100,100,1300,800\tfalse" }
+            if script.contains("on bounds4") { return "7" }
             if script.contains("make new tab") { return "Example Domain\n\(args.first ?? "")\nfalse\n2" }
             if script.contains("execute active tab") {
                 return #"{"title": "Example Domain", "url": "https://example.com/", "text": "Example Domain\nMore information...", "chars": 30, "truncated": false, "links": [{"text": "More information...", "url": "https://www.iana.org/domains/example"}]}"#
@@ -257,15 +261,21 @@ final class ToolsTests: XCTestCase {
 
     // MARK: Chrome
 
-    func testChromeOpensAPageInANewTabAndReadsIt() async {
+    func testChromeOpensAPageSideBySideAndReadsIt() async {
         let (r, d) = await call("browser", #"{"op": "open", "url": "example.com"}"#)
         XCTAssertEqual(r.status, 200, "\(d)")
         XCTAssertEqual(d["opened"] as? Bool, true)
-        XCTAssertEqual(d["new_tab"] as? Bool, true)
+        XCTAssertEqual(d["where"] as? String, "side_by_side", "side by side unless asked otherwise")
+        XCTAssertEqual(d["new_tab"] as? Bool, false, "its own window goes to the page")
         XCTAssertEqual(d["title"] as? String, "Example Domain")
         XCTAssertTrue((d["text"] as? String ?? "").contains("More information"))
         XCTAssertEqual((d["links"] as? [[String: Any]])?.first?["url"] as? String, "https://www.iana.org/domains/example")
-        XCTAssertTrue(chromeAsked.copied.contains { $0.hasPrefix("open https://example.com | new") }, "\(chromeAsked.copied)")
+        XCTAssertTrue(chromeAsked.copied.contains(" | 720,25,1440,860 | 1 | 0,25,720,860 |  | 1"), "its own on the right half, the person's on the left: \(chromeAsked.copied)")
+        XCTAssertTrue(chromeAsked.copied.contains { $0.hasPrefix("open https://example.com | front | 7") }, "\(chromeAsked.copied)")
+        // On the person's screen when asked: a new tab of their own window, as before.
+        let (_, mine) = await call("browser", #"{"op": "open", "url": "example.org", "where": "on screen"}"#)
+        XCTAssertEqual(mine["where"] as? String, "on_screen", "\(mine)")
+        XCTAssertTrue(chromeAsked.copied.contains("open https://example.org | new |  | 7"), "\(chromeAsked.copied)")
         // Words, not an address: a search, opened.
         let (_, s) = await call("navigate", #"{"url": "louvre opening hours"}"#)
         XCTAssertEqual(s["searched"] as? String, "louvre opening hours", "\(s)")

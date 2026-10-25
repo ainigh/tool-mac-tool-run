@@ -30,6 +30,29 @@ Two things, once, both asked for the first time a browser script runs:
 `browser.sh` (its cell, with nothing typed) says whether both are done. Straw drives **the tab in
 front** of Chrome's front window; `open` makes a new one and puts it there.
 
+## Where it works
+
+A `# Where:` line at the top says where the steps happen, the same three places as the app's
+Chrome routes:
+
+```
+# Where: side by side
+open example.com
+click "More"
+```
+
+| `# Where:` | The steps happen |
+|---|---|
+| `side by side` | in a Chrome window of its own on the right half of the screen, yours moved to the left: you see every step beside your own work, and keep working in yours |
+| `background` | in that window of its own, kept behind yours: nothing on your screen moves |
+| `on screen` (or no `# Where:` line) | in the tab in front of you, as always |
+
+The app puts the window there (its API must be on). Straw code an app sends
+(`POST /api/straw/run {"source"}`) works **side by side** unless it says otherwise (`"where"`, or
+its own `# Where:` line); a script of yours runs where its own line says, and `"where"` with its
+name runs it somewhere else for that once. In its own window, nothing brings Chrome forward: `open`
+makes its new tab in that window, and `tab` and `go` look only there.
+
 ## A line
 
 A line is a word, then what it works on. Text goes in quotes (`"…"` or `'…'`); a `#` starts a

@@ -465,3 +465,24 @@ extension SayTests {
         XCTAssertTrue(host.started.isEmpty)
     }
 }
+
+/// Chrome in words: side by side unless the person's own tab ("my page", "on my screen") or the
+/// background is said.
+extension SayTests {
+    func testWhereInChromeIsSaidInWords() async throws {
+        for (said, template) in [("open example.com on my screen", "Open a page on my screen"),
+                                 ("open example.com in the background", "Open a page in the background"),
+                                 ("open example.com in Chrome", "Open a page in Chrome"),
+                                 ("open example.com beside me", "Open a page in Chrome"),
+                                 ("where is Billing on my page", "Find something on my page"),
+                                 ("where is Billing on the page", "Find something on the page"),
+                                 ("read the page in front of me", "Read my page"),
+                                 ("work side by side with me", "Work side by side"),
+                                 ("put my browser back", "Put my browser back")] {
+            _ = await say(said, client: "Where \(template)")
+            let (_, d) = await api.send("GET", "/api/say/log?client=\("Where \(template)".addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")
+            let entry = (json(d)["entries"] as? [[String: Any]])?.first
+            XCTAssertEqual(entry?["template"] as? String, template, said)
+        }
+    }
+}

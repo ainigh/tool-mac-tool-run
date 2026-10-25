@@ -958,39 +958,62 @@ switch turns it off (and its tools with it).
 
 ### Chrome's page: `/api/browser`
 
-The person's own Google Chrome, answered at once (nothing asks on the Mac): open a page there,
-read the page in front of them, find where a thing is, and ring it in red. **It never clicks,
-types or fills anything in**: that's Straw, after Run.
+Google Chrome, answered at once (nothing asks on the Mac): open a page, read it, find where a
+thing is, and ring it in red. **It never clicks, types or fills anything in**: that's Straw, after
+Run.
+
+**Where** (`"where"`, on every route, and on Straw): each of these works the same in three places.
+
+| `where` | What it is |
+|---|---|
+| `side_by_side` (the default) | a Chrome window of the app's own on the right half of the screen, and the person's own Chrome window moved to the left half: the app works beside the person, each in a window of their own. The person's window stays in front, theirs to work in |
+| `on_screen` | the person's own tab in front of them (to guide them through what they're looking at) |
+| `background` | the app's own window, kept behind the person's: nothing on their screen moves |
+
+`open` with no `where` opens side by side (or where the app's own window already is). A read
+(`url`, `page`, `has`, `find`, `highlight`, `outline`, `tabs`) with no `where` reads the app's own
+window while there is one, else the person's tab. Every answer says which (`"where"`, and
+`"where_said"` in words). `POST /api/browser/place {"where"}` moves the app's own window (side by
+side, or behind; `on_screen` closes it), and `POST /api/browser/close` closes it and puts the
+person's window back where it was. The first side by side brings Chrome forward; after that, what
+the person moves stays moved. Asked for a place with no window of its own yet: `409
+no_window_of_its_own`, with the call that opens one. Words work too: `"beside me"`, `"on my
+screen"`, `"in the background"`.
 
 | To | Use | Asks on the Mac |
 |---|---|---|
-| open a page for the person (and read it) | `POST /api/browser/open {"url": "example.com"}` | no |
+| open a page beside the person (and read it) | `POST /api/browser/open {"url": "example.com"}` (side by side) | no |
+| open a page in the person's own window | `POST /api/browser/open {"url": "example.com", "where": "on_screen"}` | no |
 | find something out, without Chrome | `GET /api/web/search?q=…`, `GET /api/web/fetch?url=…` | no |
-| see what's on the page in front | `/api/browser/url`, `/page`, `/has`, `/find`, `/outline` | no |
+| see what's on a page (its own, or the person's with `"where": "on_screen"`) | `/api/browser/url`, `/page`, `/has`, `/find`, `/outline` | no |
 | show the person where something is | `POST /api/browser/highlight {"text"}` | no |
 | click, type, fill, several steps | Straw: `POST /api/straw/run {"source": "open example.com\nclick \"More\""}` | yes (Run) |
 | search a site (YouTube, Amazon, GitHub, Maps, 40 more) | `POST /api/run {"script": "browser/site-search.sh", "args": ["youtube lofi hip hop"]}` | yes (Run) |
 
-`POST /api/browser/open {"url", "new_tab"?: true, "max"?}` opens the address in a new tab in
-front (in a new window, or Chrome itself, when there's none; `"new_tab": false` uses the tab in
-front), waits up to 15 seconds for it to load, and answers with the page as `/page` reads it
+`POST /api/browser/open {"url", "where"?, "new_tab"?, "max"?}` opens the address: side by side
+or in the background, in the app's own window (made when there's none; it goes to the page, or a
+new tab with `"new_tab": true`); on screen, in a new tab of the person's window, in front (in a
+new window, or Chrome itself, when there's none; `"new_tab": false` uses the tab in front). It
+waits up to 15 seconds for it to load, and answers with the page as `/page` reads it
 (`"opened": true`, `title`, `url`, `text`, `links`). Words instead of an address are a Google
 search, opened (`"searched"`). An address sent to a read (`/api/browser/url?text=https://…`)
-isn't opened: the answer is the tab in front as always, with `"not_opened"`, a `"note"`, and `next`
+isn't opened: the answer is the page it reads as always, with `"not_opened"`, a `"note"`, and `next`
 giving the call that opens it. An action it doesn't do (`/api/browser/click`, `/type`, `/search`…)
 is `400 browser_reads_only`, saying what does.
 
-To guide the person through a site, an app sees the tab in front of Google Chrome — not a
-picture, the page: its address and title, its text and links, whether words are on it, and where a
-thing is. The **Chrome's page** switch turns it off.
+To work beside the person, or guide them through a site, an app sees the page itself — not a
+picture: its address and title, its text and links, whether words are on it, and where a thing is.
+The **Chrome's page** switch turns it off.
 
 | route | gives back |
 |---|---|
-| `GET /api/browser` | `chrome` (`open`, or what's wrong), `front` (`{title, url}`), `javascript` (whether pages can be read, and the fix) |
+| `GET /api/browser` | `chrome` (`open`, or what's wrong), `front` (`{title, url}`: the person's), `its_window` (`{id, where}`, or null), `javascript` (whether pages can be read, and the fix) |
 | `GET /api/browser/url` | `title`, `url`, `loading` (needs nothing switched on in Chrome) |
 | `GET /api/browser/tabs` | `tabs`: `[{window, index, active, title, url}]` (`?all=true`: every window) |
 | `GET /api/browser/page` | `title`, `url`, `host`, `text` (`?max=20000` characters; `chars`, `truncated`), `links` (the main part's, `[{text, url}]`), `selection`, `description`, `scroll`, `focused` (`?outline=true` adds `outline`) |
-| `POST /api/browser/open {"url"}` | opens it in a new tab and reads it: `opened`, then as `/page` |
+| `POST /api/browser/open {"url", "where"?}` | opens it (side by side unless `where` says) and reads it: `opened`, `where`, then as `/page` |
+| `POST /api/browser/place {"where"}` | the app's own window put side by side (the person's to the left half) or behind; `on_screen`: closed, as `/close` |
+| `POST /api/browser/close` | the app's own window closed, the person's put back where it was (`restored`) |
 | `GET /api/browser/has?text=Compute` | `present` (true·false), `answer` (yes·no), `count`, `hidden` (times in what isn't shown), `lines` (`?case_sensitive`, `?whole_words`) |
 | `GET /api/browser/find?text=Compute` | `found`: `[{text, kind, clickable, exact, shown, where, side, in, href, box}]` — `where` is `in view`, `above (scroll up)`, `below (scroll down)`, or `inside “Workers & Pages”, which is closed: open it first`; `lines`: each as a sentence to say |
 | `POST /api/browser/highlight {"text", "seconds"?}` | scrolls to it and rings it in red, with a label (or the closed menu it's inside); `said`: what to tell the person |
@@ -1046,6 +1069,8 @@ instead, such as a search for a route that isn't one):
 | 409 | `no_runner` | Straw code was sent, and the browser folder has no `straw.py` to run it |
 | 400 | `browser_reads_only` | `/api/browser/click`, `/type`, `/search`…: Chrome's page doesn't act; `error` and `next` say what does (Straw, the web's search) |
 | 409 | `chrome_not_open`, `no_window`, `no_chrome` | there's no page in Chrome to read (`POST /api/browser/open` opens one) |
+| 409 | `no_window_of_its_own`, `window_gone` | asked for the app's own window (side by side, background) when there's none, or the person closed it: `POST /api/browser/open {"url", "where"}` makes one |
+| 400 | `bad_where` | `where` isn't `side_by_side`, `on_screen` or `background` |
 | 404 | `unknown_tool` | `POST /api/tools/{name}` for a tool there isn't: `error` names the tools, and what fits |
 | 400 | `missing_argument` | a tool called without what it needs: `takes` says what it takes |
 | 403 | `local_address` | the web's routes never reach this Mac or its local network |
