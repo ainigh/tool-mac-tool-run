@@ -74,6 +74,11 @@ public final class ShellEnvironment: @unchecked Sendable {
         // Python and others print as they go, not all at the end, when they can't see a terminal.
         env["PYTHONUNBUFFERED"] = "1"
         env["TMR"] = "1"
+        // Where the library, MEMORY and the mind are (Storage Spaces' USER space), for scripts
+        // that read them as files (library.py, and copies of it from before they moved).
+        if env["TMR_LIBRARY"] == nil { env["TMR_LIBRARY"] = Shelf.library.root.path }
+        if env["TMR_MEMORY"] == nil { env["TMR_MEMORY"] = Shelf.memory.root.path }
+        if env["TMR_MIND"] == nil { env["TMR_MIND"] = MindStore.defaultRoot.path }
         return env
     }
 

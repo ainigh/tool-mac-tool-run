@@ -1,6 +1,6 @@
 # The memory guide
 
-MEMORY (in TOOL-MAC-RUN on the Desktop) is an opinionated library: it comes with a file for each kind of thing worth remembering, and every file in it is a **node of the mind** (in the mind's root scope). The files hold the detail; the mind holds how things link. Apps reach it at `/api/memory`, without asking the person each time.
+MEMORY (in STORAGE-SPACES/USER on the Desktop) is an opinionated library: it comes with a file for each kind of thing worth remembering, and every file in it is a **node of the mind** (in the mind's root scope). The files hold the detail; the mind holds how things link. Apps reach it at `/api/memory`, without asking the person each time.
 
 ## The files it comes with
 

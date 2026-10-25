@@ -90,7 +90,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         curl -s\(auth) \(base)/api/compose -d '{"flow": "morning.flow", "client": "My Terminal", "why": "Morning check"}'
         curl -s\(auth) \(base)/api/compose -d '{"source": "print \\"hi\\"", "name": "Say hi", "client": "My Terminal"}'
 
-        # The file library (LIBRARY, in TOOL-MAC-RUN on the Desktop): notes by name, answered at once, nothing asked on the Mac
+        # The file library (LIBRARY, in STORAGE-SPACES/USER on the Desktop): notes by name, answered at once, nothing asked on the Mac
         curl -s\(auth) \(base)/api/library -d '{"op": "write", "name": "groceries", "text": "- eggs\\n- milk\\n", "client": "My Terminal"}'
         curl -s\(auth) \(base)/api/library -d '{"op": "search", "q": "milk"}'
         curl -s\(auth) "\(base)/api/library/files/groceries?format=text"
@@ -162,7 +162,7 @@ public enum APIClient: String, CaseIterable, Sendable {
 
 
         def library(op, **fields):
-            """The file library (LIBRARY, in TOOL-MAC-RUN on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            """The file library (LIBRARY, in STORAGE-SPACES/USER on the Desktop): notes by name, answered at once, nothing asked on the Mac.
             library("write", name="groceries", text="- eggs"), library("read", name="groceries")["text"],
             library("append", name="groceries", text="- milk"), library("search", q="milk")["results"],
             library("find", q="milk")["names"], library("names")["names"], library("delete", name="groceries")."""
@@ -227,7 +227,7 @@ public enum APIClient: String, CaseIterable, Sendable {
           return json.request;
         }
 
-        // The file library (LIBRARY, in TOOL-MAC-RUN on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+        // The file library (LIBRARY, in STORAGE-SPACES/USER on the Desktop): notes by name, answered at once, nothing asked on the Mac.
         // await library("write", { name: "groceries", text: "- eggs" }); (await library("read", { name: "groceries" })).text
         // (await library("search", { q: "eggs" })).results; (await library("find", { q: "eggs" })).names; library("delete", { name: "groceries" })
         export async function library(op, fields = {}) {
@@ -288,7 +288,7 @@ public enum APIClient: String, CaseIterable, Sendable {
                 return json["request"] as? String ?? ""
             }
 
-            /// The file library (LIBRARY, in TOOL-MAC-RUN on the Desktop): notes by name, answered at once, nothing asked on the Mac.
+            /// The file library (LIBRARY, in STORAGE-SPACES/USER on the Desktop): notes by name, answered at once, nothing asked on the Mac.
             /// `try await library("write", ["name": "groceries", "text": "- eggs"])`, `try await library("read", ["name": "groceries"])["text"]`,
             /// "search" (["q": "eggs"]), "find", "append", "delete" (to the library's Trash), "restore"…
             func library(_ op: String, _ fields: [String: Any] = [:]) async throws -> [String: Any] {
@@ -350,7 +350,7 @@ public enum APIClient: String, CaseIterable, Sendable {
         5. Send runs with "async": true and keep the request id ("request" in the JSON, and the X-Request-Id header). GET \(base)/api/requests/{id} says where it is: "delivery" is "pending" while it waits for the click or runs (ask again in a few seconds, or later). Once it's over, that read hands over the result ("delivered", with "run": its output) once; asked again, it says how it ended without the output. So use the output when you get it.
         6. Lost track? GET \(base)/api/requests/open lists every request not collected yet, oldest first, each "pending" or "ready". DELETE /api/requests/{id} takes back one still waiting for the click (nothing runs).
         7. A run that fails is still over: read "ok" and "run.code"; relay "run.stderr" or "run.problem". 403 (or state denied, not_answered) means it didn't run; don't ask again unless the user wants you to.
-        8. The user's notes, LIBRARY (in TOOL-MAC-RUN on their Desktop), are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
+        8. The user's notes, LIBRARY (in STORAGE-SPACES/USER on their Desktop), are yours to read and write without a click: POST /api/library {"op": "<op>", …}. A note is a name (no .md) and its text, like a key and its value. Deleting moves it to the library's own Trash ("restore" brings it back), so it's safe; still, don't delete or replace what the user didn't ask you to.
 
         Endpoints:
         GET  /api/search?q=<words>        only the routes, scripts and flows that match, each with how to call it: START HERE

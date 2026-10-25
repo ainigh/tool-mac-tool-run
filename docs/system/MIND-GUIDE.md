@@ -1,6 +1,6 @@
 # The mind guide
 
-The mind is what's known, as names and the links between them: a text file (MIND/mind.txt in TOOL-MAC-RUN) of lines in the **text mind-map notation** (MIND-NOTATION has every rule). It's **only ever added to**: new lines go at the end; nothing above is changed. The Mind board (⌘9) draws it as a picture, shows its text, and lets you add lines; apps reach it at `/api/mind`, without asking each time.
+The mind is what's known, as names and the links between them: a text file (MIND/mind.txt in STORAGE-SPACES/USER) of lines in the **text mind-map notation** (MIND-NOTATION has every rule). It's **only ever added to**: new lines go at the end; nothing above is changed. The Mind board (⌘9) draws it as a picture, shows its text, and lets you add lines; apps reach it at `/api/mind`, without asking each time.
 
 ## The lines, in a minute
 

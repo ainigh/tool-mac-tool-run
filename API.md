@@ -13,7 +13,7 @@ the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serve
 - **Read** the runs, and stop one. **Every request has an id** you get back at once and can ask
   about any time later (`/api/requests/{id}`): still waiting for the click, denied, running, done.
 - **Automate**: tag a script or a flow to run by itself, on a schedule or when something happens.
-- **Keep notes** in the person's file library (LIBRARY (in TOOL-MAC-RUN on their Desktop)): Markdown notes by name,
+- **Keep notes** in the person's file library (LIBRARY (in STORAGE-SPACES/USER on their Desktop)): Markdown notes by name,
   like keys and values. List, read, write, append, search the full text, delete to the library's
   own Trash and restore. **These answer at once, without a card**: they're notes, not programs.
 - **Drive Chrome with Straw**: its words, check Straw code, run a Straw script or code you send.
@@ -585,7 +585,7 @@ send `client` and `why` in the body as for a run. It answers like a run request:
 
 ### The file library: `/api/library`
 
-**LIBRARY**, in TOOL-MAC-RUN on the person's Desktop, holds their notes: Markdown files, each known by its name
+**LIBRARY**, in STORAGE-SPACES/USER on the person's Desktop ([Storage Spaces](https://github.com/ainigh/tool-mac-tool-run-storage-spaces) keeps it, and serves the same files at http://127.0.0.1:8771), holds their notes: Markdown files, each known by its name
 without `.md` (`groceries` is `LIBRARY/groceries.md`). A name is a key and its text the value.
 **Nothing here shows a card or waits for a click**: the library's calls answer at once. Deleting
 a note only moves it to the library's own Trash folder, numbered (`groceries (1).md`, `groceries
@@ -649,7 +649,7 @@ with `fix` naming the notes near it; **400** `bad_name`, `missing_op`, `unknown_
 
 ### MEMORY: `/api/memory`
 
-**MEMORY**, in TOOL-MAC-RUN beside LIBRARY, is an opinionated library: it comes with a file for
+**MEMORY**, in STORAGE-SPACES/USER beside LIBRARY, is an opinionated library: it comes with a file for
 each kind of thing worth remembering — `PEOPLE`, `ORGANIZATIONS`, `EVENT-DATES`, `BIRTHDAYS`,
 `LOCATIONS`, `IDEAS`, `LEVERAGE`, `STRATEGIES`, `OTHERS` — and **every file is a node of the mind**
 (below), in its root scope. Every library operation and route works here too, with `/api/memory`
@@ -680,7 +680,7 @@ curl -s "localhost:8768/api/memory/upcoming?days=30"
 
 ### The mind: `/api/mind`
 
-The mind is `MIND/mind.txt` in TOOL-MAC-RUN: lines in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
+The mind is `MIND/mind.txt` in STORAGE-SPACES/USER: lines in the [text mind-map notation](docs/Text%20mind-map%20notation.md)
 that compile to a graph (things, and directed or undirected links with labels and notes, in
 scopes). **It's only ever added to**: every change, even a rename (`| old = new`) or a forget
 (`| old =`), is a line appended; the log is the record. Nothing asks on the Mac. MEMORY's files

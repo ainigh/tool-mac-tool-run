@@ -113,8 +113,8 @@ final class AppModel: ObservableObject {
     }
 
     /// At launch, off the main thread: SYSTEM-DOCS brought up to date, and MEMORY (with its
-    /// files, the first time) and the mind made if they aren't there. The library is made when
-    /// it's first used.
+    /// files, the first time) and the mind made in Storage Spaces' USER space if they aren't there.
+    /// The library is made when it's first used.
     func setUpHome() {
         Task.detached(priority: .utility) {
             do {
@@ -369,6 +369,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything reads them: the library, MEMORY and the mind move to Storage Spaces'
+        // USER space, once (a rename, the same files).
+        StorageSpaces.moveIn()
         statusBar = StatusBarController()
         AppModel.shared.updater.start()
         APIService.shared.launch()

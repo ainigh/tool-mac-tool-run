@@ -395,7 +395,7 @@ text there's `text-case` (upper, lower, title, slug, snake, camel…), `encode` 
 escapes, hex, HTML), `hash`, `new-id` and `pick` (a number, one of some things, a coin, dice, a
 shuffle). Text goes in as their input: `"Hello World" |> pipe "text-case" ["slug"]`.
 
-**The file library.** Your notes, LIBRARY in TOOL-MAC-RUN on the Desktop (the **Library** board, ⌘7), are a flow's
+**The file library.** Your notes, LIBRARY in STORAGE-SPACES/USER on the Desktop (the **Library** board, ⌘7), are a flow's
 too, each by its name without `.md`: `libraryRead "groceries"`, `libraryWrite "groceries" "- eggs"`
 (created, or its text replaced), `libraryAppend "journal" "Ran 5k"` (a line at its end),
 `libraryExists`, `libraryNames ()`, `libraryRecent 5`, `libraryRename "draft" "Letter"`,

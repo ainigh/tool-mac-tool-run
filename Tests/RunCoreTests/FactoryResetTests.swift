@@ -63,6 +63,39 @@ final class FactoryResetTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: trash.path + "/" + inTrash.first { $0.hasPrefix("TOOL-MAC-RUN") }! + "/MEMORY/PEOPLE.md"), "kept whole, to be had back")
     }
 
+    /// The library, MEMORY and the mind move from TOOL-MAC-RUN to Storage Spaces' USER space,
+    /// once, whole; one already there is left alone; and a factory reset leaves them.
+    func testTheShelvesMoveToStorageSpacesOnce() throws {
+        let home = root.appendingPathComponent("TOOL-MAC-RUN", isDirectory: true)
+        let user = root.appendingPathComponent("STORAGE-SPACES/USER", isDirectory: true)
+        _ = try make("TOOL-MAC-RUN/LIBRARY/groceries.md", "- eggs")
+        _ = try make("TOOL-MAC-RUN/MEMORY/PEOPLE.md", "# PEOPLE")
+        _ = try make("TOOL-MAC-RUN/SYSTEM-DOCS/START-HERE.md")
+        // Storage Spaces made the mind there already: it stays, and TOOL-MAC-RUN's with it.
+        _ = try make("STORAGE-SPACES/USER/MIND/mind.txt", "| sam | paper")
+        _ = try make("TOOL-MAC-RUN/MIND/mind.txt", "| old | mind")
+        // …and copied MEMORY in, but for one file: that one comes over; the rest stay as they are there.
+        _ = try make("STORAGE-SPACES/USER/MEMORY/PEOPLE.md", "# PEOPLE, edited there")
+        _ = try make("TOOL-MAC-RUN/MEMORY/IDEAS.md", "# IDEAS")
+        let moved = StorageSpaces.moveIn(from: home, to: user)
+        XCTAssertEqual(moved, ["LIBRARY", "MEMORY/IDEAS"])
+        XCTAssertEqual(try String(contentsOf: user.appendingPathComponent("MEMORY/PEOPLE.md"), encoding: .utf8), "# PEOPLE, edited there")
+        let fm = FileManager.default
+        XCTAssertEqual(try String(contentsOf: user.appendingPathComponent("LIBRARY/groceries.md"), encoding: .utf8), "- eggs")
+        XCTAssertFalse(fm.fileExists(atPath: home.appendingPathComponent("LIBRARY").path))
+        XCTAssertEqual(try String(contentsOf: user.appendingPathComponent("MIND/mind.txt"), encoding: .utf8), "| sam | paper")
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("MIND/mind.txt").path))
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("SYSTEM-DOCS/START-HERE.md").path), "SYSTEM-DOCS stays the app's")
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("WHERE-THE-LIBRARY-WENT.md").path))
+        try FileManager.default.removeItem(at: user.appendingPathComponent("MEMORY/IDEAS.md"))
+        XCTAssertEqual(StorageSpaces.moveIn(from: home, to: user), [], "once: what's deleted there stays deleted")
+        XCTAssertFalse(Shelf.systemDocs.inStorageSpaces)
+        XCTAssertTrue(Shelf.library.inStorageSpaces && Shelf.memory.inStorageSpaces)
+        // A factory reset's own shelves are SYSTEM-DOCS alone.
+        let plan = FactoryReset.plan(scripts: nil, home: home, support: root.appendingPathComponent("support"), user: root)
+        XCTAssertFalse(plan.trash.contains { $0.path.contains("STORAGE-SPACES") }, "\(plan.trash)")
+    }
+
     func testAFolderOfThePersonsIsNeverTakenWhole() {
         let user = URL(fileURLWithPath: "/Users/sam")
         for path in ["/", "/Users", "/Users/sam", "/Users/sam/Documents", "/Users/sam/Desktop", "/Users/sam/Downloads", "/Applications", "/Volumes/Backup"] {

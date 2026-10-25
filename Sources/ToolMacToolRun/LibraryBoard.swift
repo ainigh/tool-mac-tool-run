@@ -3,7 +3,7 @@ import Combine
 import RunCore
 import SwiftUI
 
-/// What a shelf's board shows and does: the files in its folder in TOOL-MAC-RUN (by name, without
+/// What a shelf's board shows and does: the files in its folder in STORAGE-SPACES/USER (by name, without
 /// .md), the one open, a search across them all, and its own Trash. The Library is your notes;
 /// MEMORY is what's remembered (each file a node of the mind, kept so as the files change); SYSTEM-
 /// DOCS is how the app works, read only. The same shelves the API serves (`/api/library`,

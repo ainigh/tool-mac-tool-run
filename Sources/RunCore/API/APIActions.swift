@@ -22,7 +22,7 @@ public struct APIAction: Identifiable, Equatable, Sendable {
             case .scripts: "The scripts at the top of your folder (POST /api/run)"
             case .utilities: "Small reusable helpers, in the utilities folder (POST /api/run)"
             case .browser: "Scripts that drive Chrome, in the browser folder (POST /api/run; Straw's also POST /api/straw/run)"
-            case .library: "The notes in LIBRARY (in TOOL-MAC-RUN on your Desktop), by name (POST /api/library: answered at once, nothing asked)"
+            case .library: "The notes in LIBRARY (in STORAGE-SPACES/USER on your Desktop), by name (POST /api/library: answered at once, nothing asked)"
             case .flows: "Your flows, from the composer folder (POST /api/compose)"
             case .epa: "EPA's commands, run as one line of Flow (POST /api/compose)"
             case .functions: "Flow's own functions, each run as one line of Flow (POST /api/compose)"

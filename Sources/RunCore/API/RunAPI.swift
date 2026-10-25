@@ -180,7 +180,7 @@ public final class RunAPI: @unchecked Sendable {
     public let requests = RequestLedger()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
-    /// The file library it serves (LIBRARY, in TOOL-MAC-RUN on the Desktop).
+    /// The file library it serves (LIBRARY, in STORAGE-SPACES/USER on the Desktop).
     let library: @Sendable () -> FileLibrary
     /// MEMORY, the mind and SYSTEM-DOCS.
     let shelves: @Sendable () -> Shelves
@@ -707,6 +707,8 @@ public final class RunAPI: @unchecked Sendable {
         out["requests"] = ["open": waiting + running + ready, "waiting": waiting, "running": running, "ready": ready, "list": "/api/requests/open"]
         let sh = shelves()
         out["home"] = Home.root.path
+        out["storage_spaces"] = ["folder": StorageSpaces.user.path, "url": StorageSpaces.url,
+                                 "about": "the library, MEMORY and the mind are Storage Spaces' USER space: this app reads and writes them there, and Storage Spaces serves them to the other apps"]
         out["shelves"] = [
             "library": ["folder": library().root.path, "notes": library().list().count, "approval": "none (answered at once)"] as [String: Any],
             "memory": ["folder": sh.memory.files.root.path, "files": sh.memory.files.list().count, "approval": "none (answered at once)"] as [String: Any],

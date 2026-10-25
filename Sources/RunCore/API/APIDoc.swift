@@ -91,7 +91,7 @@ public enum APIDoc {
 
         ## The file library: notes by name, answered at once
 
-        LIBRARY, in TOOL-MAC-RUN on the person's Desktop, holds their notes: Markdown files, each known by its name without .md (groceries is LIBRARY/groceries.md). A name is a key and the note's text its value. NOTHING HERE ASKS ON THE MAC: the library's calls answer at once (they're notes, not programs). A delete only moves the note to the library's own Trash folder, numbered (groceries (1).md, groceries (2).md…), so it can be restored.
+        LIBRARY, in STORAGE-SPACES/USER on the person's Desktop (Storage Spaces keeps it), holds their notes: Markdown files, each known by its name without .md (groceries is LIBRARY/groceries.md). A name is a key and the note's text its value. NOTHING HERE ASKS ON THE MAC: the library's calls answer at once (they're notes, not programs). A delete only moves the note to the library's own Trash folder, numbered (groceries (1).md, groceries (2).md…), so it can be restored.
         Every call has an id, as a run's request does: X-Request-Id, and "request" in the JSON; GET /api/library/operations/{id} (or /api/requests/{id}) says what it did, who asked and how it went.
         The easy way: POST /api/library {"op": "<operation>", …its fields}. Every answer has "ok", "op" and "request"; a refusal also "code", "error" and often "fix".
         - list {"sort"?: "name"|"modified"|"created"|"size", "order"?: "asc"|"desc", "q"?: words in the name, "limit"?, "offset"?, "content"?: true} → {"notes": [{"name", "file", "title"?, "size", "modified", "created"?, "text"?}], "count", "total"}
@@ -108,7 +108,7 @@ public enum APIDoc {
 
         ## MEMORY: what's remembered, answered at once
 
-        MEMORY, in TOOL-MAC-RUN beside LIBRARY, is a library with a file for each kind of thing worth remembering: PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS (and any others made). Each file is a node of the mind (below). Every library operation and route works on it, at /api/memory (POST /api/memory {"op"}, /api/memory/files/{name}…). Its own:
+        MEMORY, in STORAGE-SPACES/USER beside LIBRARY, is a library with a file for each kind of thing worth remembering: PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS (and any others made). Each file is a node of the mind (below). Every library operation and route works on it, at /api/memory (POST /api/memory {"op"}, /api/memory/files/{name}…). Its own:
         - remember {"category": "PEOPLE", "about": "Ada Lovelace", "text"?, "links"?: [{"label"?, "to", "category"?}], "notes"?: ["birthday 03-14"]} → a line in the file, and in the mind the file linked to it, its links and notes → {"file", "node", "added_to_file", "added_to_mind"}
         - recall {"name"} (GET /api/memory/recall?name=ada) → {"found", "nodes", "about": [{"notes", "links"}], "categories", "mentions", "lines"}: look here before answering about a person, place or plan
         - categories → each file, whether it's one MEMORY comes with, how many things the mind files under it            members {"name"} (GET /api/memory/categories/PEOPLE/members)
@@ -118,7 +118,7 @@ public enum APIDoc {
 
         ## The mind: what links to what, append only
 
-        The mind is MIND/mind.txt in TOOL-MAC-RUN: lines in the text mind-map notation (GET /api/system-docs/files/MIND-NOTATION has every rule; MIND-GUIDE how to use it). "| ada lovelace - works at | acme" links two things; "| paper @date 2026-11-03" is a note; "| old = new" merges; "| old =" forgets; "| @ work" starts a scope. MEMORY's files are nodes in the root scope. NOTHING ASKS ON THE MAC, and nothing is ever taken out of the log: every change is a line added at the end.
+        The mind is MIND/mind.txt in STORAGE-SPACES/USER: lines in the text mind-map notation (GET /api/system-docs/files/MIND-NOTATION has every rule; MIND-GUIDE how to use it). "| ada lovelace - works at | acme" links two things; "| paper @date 2026-11-03" is a note; "| old = new" merges; "| old =" forgets; "| @ work" starts a scope. MEMORY's files are nodes in the root scope. NOTHING ASKS ON THE MAC, and nothing is ever taken out of the log: every change is a line added at the end.
         Ask it without the notation: GET /api/mind/nodes/{name} (all about a thing, looked up as a person means it), /nodes/{name}/neighbors?depth=2, /path?from=&to=, /find?q=, /edges?label=, /notes?kind=date, /dates?days=30, POST /api/mind/context {"text"} (the part of the mind a conversation touches, as lines), /stats, /graph, /canonical (one line a fact), /log.
         Ask it in the notation: POST /api/mind/query {"q": "| sam | x"}: a name not in the mind is a variable (| x - reviews | y, | paper @x, | @ talk) → {"lines", "answers": [{"matches": [{"bindings", "lines"}]}]}.
         Add without the notation: POST /api/mind/add {"from", "label"?, "to"?, "undirected"?, "notes"?} or {"facts": [those]}; note {"name", "note"}; rename {"name", "to"}; forget {"name"}. Names are matched to the mind's (case, spaces); new ones are written in lower case.

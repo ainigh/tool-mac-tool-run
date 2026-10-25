@@ -1,6 +1,6 @@
 import Foundation
 
-/// The file library: a folder of notes (LIBRARY, in TOOL-MAC-RUN on the Desktop), each a Markdown
+/// The file library: a folder of notes (LIBRARY, in STORAGE-SPACES/USER on the Desktop), each a Markdown
 /// file, and each known by its name alone: `groceries` is LIBRARY/groceries.md. A name is a key and the file's
 /// text its value: list them, read one, write one (created or replaced), create one (only if it
 /// isn't there), append to one, rename, copy, and delete one, which moves it to the library's own
@@ -20,13 +20,13 @@ public struct FileLibrary: Sendable {
     public let shelf: Shelf
 
     public static let defaultExtension = "md"
-    /// The folder's name, in TOOL-MAC-RUN.
+    /// The folder's name, in STORAGE-SPACES/USER.
     public static let folderName = "LIBRARY"
     /// Where deleted notes go, inside the library: a folder of its own, never listed as a note.
     public static let trashName = "Trash"
 
-    /// ~/Desktop/TOOL-MAC-RUN/LIBRARY, or `TMR_LIBRARY` when it's set (a test, or a library kept
-    /// elsewhere; `TMR_HOME` moves TOOL-MAC-RUN itself).
+    /// ~/Desktop/STORAGE-SPACES/USER/LIBRARY (Storage Spaces' USER space), or `TMR_LIBRARY` when
+    /// it's set (a test, or a library kept elsewhere; `STORAGE_HOME` moves STORAGE-SPACES itself).
     public static var defaultRoot: URL { Shelf.library.root }
 
     public init(root: URL = FileLibrary.defaultRoot, ext: String = FileLibrary.defaultExtension, shelf: Shelf = .library) {
@@ -35,7 +35,7 @@ public struct FileLibrary: Sendable {
         self.shelf = shelf
     }
 
-    /// A shelf, where it is (in TOOL-MAC-RUN, unless its variable says otherwise).
+    /// A shelf, where it is (STORAGE-SPACES/USER, or TOOL-MAC-RUN for SYSTEM-DOCS, unless its variable says otherwise).
     public init(shelf: Shelf) {
         self.init(root: shelf.root, shelf: shelf)
     }

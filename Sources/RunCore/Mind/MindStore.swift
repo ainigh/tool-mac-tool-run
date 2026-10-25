@@ -1,6 +1,6 @@
 import Foundation
 
-/// The mind on disk: MIND in TOOL-MAC-RUN, holding the log (mind.txt, the notation's lines, read
+/// The mind on disk: MIND in Storage Spaces' USER space, holding the log (mind.txt, the notation's lines, read
 /// top to bottom) and an Archive of the logs compaction replaced. The log is only ever added to:
 /// what's sent is checked against the mind as it is (a line with a mistake is said with its fix,
 /// and nothing is written), lines that would add nothing are left out, and the rest go at the
@@ -12,8 +12,8 @@ public struct MindStore: Sendable {
     public static let logName = "mind.txt"
     public static let archiveName = "Archive"
 
-    /// ~/Desktop/TOOL-MAC-RUN/MIND, or `TMR_MIND` when it's set.
-    public static var defaultRoot: URL { Home.folder(folderName, variable: "TMR_MIND") }
+    /// ~/Desktop/STORAGE-SPACES/USER/MIND (Storage Spaces' USER space), or `TMR_MIND` when it's set.
+    public static var defaultRoot: URL { StorageSpaces.folder(folderName, variable: "TMR_MIND") }
 
     public init(root: URL = MindStore.defaultRoot) {
         self.root = root

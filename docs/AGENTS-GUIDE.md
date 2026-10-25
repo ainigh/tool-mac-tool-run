@@ -325,7 +325,7 @@ the why in chat is fine, inventing a different one is not.
 
 ## The file library: memory that needs no click
 
-The person's notes, **LIBRARY** in TOOL-MAC-RUN on their Desktop, are a key-value store an agent can use without
+The person's notes, **LIBRARY** in STORAGE-SPACES/USER on their Desktop, are a key-value store an agent can use without
 a card: a note is a name (no `.md`) and its text. Everything is one endpoint, answered at once:
 
 ```bash

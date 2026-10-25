@@ -1,12 +1,13 @@
-# How it fits together: Super Face, Peter, Tool Mac Tool Run
+# How it fits together: Super Face, Peter, Tool Mac Tool Run, Storage Spaces
 
-Three apps on one Mac, each with one job:
+Four apps on one Mac, each with one job:
 
 | App | Repository | Port | Its job |
 |---|---|---|---|
 | **Super Face** | [JUST-super-mac-tts-ONLY-service](https://github.com/ainigh/JUST-super-mac-tts-ONLY-service) | 8769 | The face and the conversation. It hears you, thinks with one model, and speaks. It does nothing itself: it asks Peter. |
 | **Peter** (Tool Mac Agent) | [tool-mac-tool-run-agent](https://github.com/ainigh/tool-mac-tool-run-agent) | 8770 | Reads requests in plain words and carries them out on Tool Mac Tool Run. Answers in plain words. Keeps the schedule and calls clients back. Keeps no conversation. |
 | **Tool Mac Tool Run** | [tool-mac-tool-run](https://github.com/ainigh/tool-mac-tool-run) | 8768 | The hands. Scripts, flows, the web, Chrome, notes, MEMORY, the mind, showing and copying, over an HTTP API. A run waits for you to click Run on the Mac. |
+| **Storage Spaces** | [tool-mac-tool-run-storage-spaces](https://github.com/ainigh/tool-mac-tool-run-storage-spaces) | 8771 | What's kept, a space each: yours (the library, MEMORY and the mind, in STORAGE-SPACES/USER, which this app's boards and API read and write as files), Super Face's, Peter's (his schedule, status, settings), and what's waiting for approval. Peter may read and write all of it and lets the other apps in. |
 
 ## The picture, in the end
 
@@ -132,3 +133,4 @@ sequenceDiagram
 | Super Face's model is taught to say "@peter remind me in 20 minutes to …" | Peter reads that (and "every weekday at 8am, …") by its words, without his model. |
 | Super Face reading its own notes through Peter shouldn't wait on his model, or take the model's news | It asks with `?exact=true`, as a client of its own ("Super Face (its notes)"). |
 | You talk while the model starts on Peter's news | You're answered first; the news right after. |
+| The library, MEMORY and the mind were this app's own, in TOOL-MAC-RUN | They're Storage Spaces' now, in its USER space (STORAGE-SPACES/USER on the Desktop): this app's boards, flows, tools and `/api/library`, `/api/memory`, `/api/mind` read and write the same files there, and Storage Spaces serves them to the other apps (Peter always; the rest once he lets them in), watching the folders so its change feed hears of every edit. The first launch of this version moves each folder over whole, once. SYSTEM-DOCS stays in TOOL-MAC-RUN; a factory reset here leaves Storage Spaces' things alone. |

@@ -3,7 +3,7 @@ import Combine
 import RunCore
 import SwiftUI
 
-/// What the Mind board shows and does: the mind (MIND/mind.txt in TOOL-MAC-RUN) compiled, laid
+/// What the Mind board shows and does: the mind (MIND/mind.txt in STORAGE-SPACES/USER) compiled, laid
 /// out as a picture, or as its text (the log as written, or its shortest form); a node picked, with
 /// all that's known about it; and lines being written to add, checked as they're typed. Adding is
 /// appending: nothing above is ever changed. Read again often: another app may have just added.

@@ -68,7 +68,7 @@ public enum APIRoutes {
             Route("POST", "/api/straw/check", "check Straw code without running it {\"source\"}: what it would do, or its mistake, line and fix", tags: "check validate plan"),
             Route("POST", "/api/straw/run", "run a Straw script {\"script\"}, or Straw code you send {\"source\", \"name\"?}, in Chrome: it opens pages, goes to addresses, clicks and types (open example.com, click \"More\")", asks: true, tags: "run execute click type fill press submit form login automate drive steps"),
         ]),
-        Group(id: "library", title: "File library", about: "The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no extension): answered at once, without asking on the Mac",
+        Group(id: "library", title: "File library", about: "The notes in LIBRARY (in STORAGE-SPACES/USER on the Desktop), by name (no extension): answered at once, without asking on the Mac",
               endpoint: .library, tags: "library note notes file files text markdown document doc key value store save", routes: [
             Route("GET", "/api/library", "where it is, how many notes, and every operation with what it takes", tags: "operations ops info where"),
             Route("POST", "/api/library", "any operation, by name: {\"op\": \"read\", \"name\": \"groceries\"} (list, read, write, create, append, rename, copy, delete, search, find…)", tags: "op operation any do"),
@@ -94,7 +94,7 @@ public enum APIRoutes {
             Route("GET", "/api/library/operations", "the latest library operations, each with its id (?limit)", tags: "operations history log audit"),
             Route("GET", "/api/library/operations/{id}", "one operation: what it was, who asked, how it went", tags: "operation id history"),
         ]),
-        Group(id: "memory", title: "Memory", about: "What's remembered, in MEMORY (in TOOL-MAC-RUN on the Desktop): a file for each kind of thing (PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS), each a node of the mind. Every library route works here too (/api/memory/files/…); answered at once",
+        Group(id: "memory", title: "Memory", about: "What's remembered, in MEMORY (in STORAGE-SPACES/USER on the Desktop): a file for each kind of thing (PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS), each a node of the mind. Every library route works here too (/api/memory/files/…); answered at once",
               endpoint: .memory, tags: "memory remember recall person people contact birthday date event organization place idea fact know", routes: [
             Route("GET", "/api/memory", "where it is, its files, and every operation (the library's, and memory's own) with what it takes", tags: "operations info files"),
             Route("POST", "/api/memory", "any operation, by name: {\"op\": \"remember\", …} (list, read, write, append, search, remember, recall, upcoming…)", tags: "op operation any"),
@@ -113,7 +113,7 @@ public enum APIRoutes {
             Route("POST", "/api/memory/defaults", "put back any of the files MEMORY comes with", tags: "defaults restore files"),
             Route("GET", "/api/memory/operations", "the latest memory operations, each with its id", tags: "operations history log"),
         ]),
-        Group(id: "mind", title: "The mind", about: "What's linked to what, in the text mind-map notation (MIND/mind.txt in TOOL-MAC-RUN): ask it in plain fields or in its query lines, add to it in plain fields or in the notation. Append only; answered at once",
+        Group(id: "mind", title: "The mind", about: "What's linked to what, in the text mind-map notation (MIND/mind.txt in STORAGE-SPACES/USER): ask it in plain fields or in its query lines, add to it in plain fields or in the notation. Append only; answered at once",
               endpoint: .mind, tags: "mind graph link links relation relationship node edge knowledge map connect fact", routes: [
             Route("GET", "/api/mind", "how big it is, the scope it's in, and every operation with what it takes", tags: "operations info size"),
             Route("POST", "/api/mind", "any operation, by name: {\"op\": \"about\", \"name\": \"ada\"}", tags: "op operation any"),

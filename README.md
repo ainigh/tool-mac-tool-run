@@ -130,7 +130,7 @@ the API offers by hand. Each section's tiles are under their topics (the utiliti
 Finding files, Date and time, This Mac…; the browser's Straw, Searching sites, Chrome; the
 functions' Text, Lists, System…), and its **Library** section runs the file library's operations.
 
-**The Library board** (⌘7) is your notes: a folder called **LIBRARY** in TOOL-MAC-RUN on your Desktop, each note a
+**The Library board** (⌘7) is your notes: a folder called **LIBRARY** in STORAGE-SPACES/USER on your Desktop, each note a
 Markdown file known by its name alone (`groceries` is `LIBRARY/groceries.md`). A tile each, the
 latest changed first; click one to read and edit it beside them (⌘S saves); **New Note** (⌘N),
 a search across every note's text (each match with the lines it's on), right-click to rename,
@@ -256,10 +256,15 @@ for an assistant's instructions), and the **Address**. Each lists the scripts, r
 `client` and `why`, keeps the request id and handles Don't Run. **Allow other devices** listens
 on the network too; callers from elsewhere need the token shown there.
 
-## TOOL-MAC-RUN: Library, Memory, Mind and System Docs
+## Library, Memory, Mind and System Docs
 
-The app keeps its own shelves in one folder, **TOOL-MAC-RUN on your Desktop**, each with its board
-(from the panel, or ⌘6 to ⌘9 on any board) and its API:
+Your notes, MEMORY and the mind are kept by [Storage Spaces](https://github.com/ainigh/tool-mac-tool-run-storage-spaces),
+the app that keeps what the apps on this Mac keep, a space each: they're in
+**STORAGE-SPACES/USER on your Desktop**, and this app reads and writes them there (Storage Spaces
+serves the same files to the other apps, Peter and the ones he lets in). The first time this
+version opens, LIBRARY, MEMORY and MIND move there from TOOL-MAC-RUN (the same files).
+TOOL-MAC-RUN keeps SYSTEM-DOCS. Each has its board (from the panel, or ⌘6 to ⌘9 on any board)
+and its API:
 
 - **Library** (⌘6, `/api/library`): your notes, Markdown files known by their names.
 - **Memory** (⌘7, `/api/memory`): what's remembered, a file for each kind of thing — PEOPLE,
@@ -336,8 +341,9 @@ install command again still works too.
 
 **Factory Reset…**, at the bottom of the panel beside Quit, puts the app back as it was
 installed. It lists what goes and asks first; then it quits, and once it has, its own things (the
-runs, the grids' settings, what ran by itself), TOOL-MAC-RUN (the library, MEMORY, the mind,
-SYSTEM-DOCS) and the scripts folder go to the Trash, where you can get them back. A scripts
+runs, the grids' settings), TOOL-MAC-RUN (SYSTEM-DOCS) and the scripts folder go to the Trash,
+where you can get them back. Your library, MEMORY and the mind stay: they're Storage Spaces'
+(its own Factory Reset takes them). A scripts
 folder that holds more than scripts (your home, Desktop, Documents…) is kept. Its settings are
 forgotten, and it opens again: it asks for a scripts folder, and the examples come with it.
 

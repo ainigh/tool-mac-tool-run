@@ -421,10 +421,10 @@ extension Builtin {
 
     // MARK: the file library
 
-    /// The notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), by name (no .md): the same library the Library board
+    /// The notes in LIBRARY (in STORAGE-SPACES/USER on the Desktop), by name (no .md): the same library the Library board
     /// shows and the API serves.
     static let library: [Builtin] = [
-        Builtin("libraryNames", "unit -> string list", "Library", "The names of the notes in LIBRARY (in TOOL-MAC-RUN on the Desktop), A to Z.", "libraryNames () |> each print", arity: 1) { _, _, _ in
+        Builtin("libraryNames", "unit -> string list", "Library", "The names of the notes in LIBRARY (in STORAGE-SPACES/USER on the Desktop), A to Z.", "libraryNames () |> each print", arity: 1) { _, _, _ in
             .list(FileLibrary().names().map(Value.str))
         },
         Builtin("libraryRead", "string -> string", "Library", "A note's text, by its name (without .md).", "let list = libraryRead \"groceries\"", arity: 1) { _, a, pos in
@@ -475,7 +475,7 @@ extension Builtin {
 
     // MARK: MEMORY and the mind
 
-    /// MEMORY (PEOPLE, ORGANIZATIONS, EVENT-DATES…, in TOOL-MAC-RUN) and the mind that links it:
+    /// MEMORY (PEOPLE, ORGANIZATIONS, EVENT-DATES…, in STORAGE-SPACES/USER) and the mind that links it:
     /// the same ones the Memory and Mind boards show and the API serves.
     static let memory: [Builtin] = [
         Builtin("remember", "string -> string -> string -> unit", "Memory", "Remembers something (first: the MEMORY file, then who or what it's about, then what): a line in the file, linked in the mind.",

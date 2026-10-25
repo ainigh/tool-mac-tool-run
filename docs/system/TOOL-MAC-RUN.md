@@ -1,13 +1,13 @@
-# TOOL-MAC-RUN: the app's folder on your Desktop
+# Where the app's shelves are
 
-Everything the app keeps for you (as opposed to your scripts, which live in the scripts folder you chose) is in one folder, **TOOL-MAC-RUN on the Desktop**, a folder for each shelf:
+Your notes, MEMORY and the mind are kept by **Storage Spaces** (github.com/ainigh/tool-mac-tool-run-storage-spaces), the app that keeps what the apps on this Mac keep, a space each: they're in **STORAGE-SPACES/USER on the Desktop** (your space). This app reads and writes them there, with its boards and its API as before; Storage Spaces serves the same files to the other apps (Peter, and the ones Peter lets in) at http://127.0.0.1:8771. The app's own folder, **TOOL-MAC-RUN on the Desktop**, holds SYSTEM-DOCS. Your scripts live in the scripts folder you chose.
 
 | Folder | What it is | Who changes it | Its board | Its API |
 |---|---|---|---|---|
-| `LIBRARY` | Your notes: Markdown files, each known by its name (groceries is `LIBRARY/groceries.md`) | You, and apps, without asking each time | Library (⌘7) | `/api/library` |
-| `MEMORY` | What's remembered: a file for each kind of thing (PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS), each a node of the mind | You, and apps, without asking each time | Memory (⌘8) | `/api/memory` |
-| `MIND` | The mind: `mind.txt`, lines in the text mind-map notation that link what's known; `Archive` keeps old logs | Only ever added to (by you or apps) | Mind (⌘9) | `/api/mind` |
-| `SYSTEM-DOCS` | How the app works, for you and for models: these docs | The app, each time it starts; nobody else | System Docs (⌘0) | `/api/system-docs` |
+| `STORAGE-SPACES/USER/LIBRARY` | Your notes: Markdown files, each known by its name (groceries is `LIBRARY/groceries.md`) | You, and apps, without asking each time | Library (⌘7) | `/api/library` |
+| `STORAGE-SPACES/USER/MEMORY` | What's remembered: a file for each kind of thing (PEOPLE, ORGANIZATIONS, EVENT-DATES, BIRTHDAYS, LOCATIONS, IDEAS, LEVERAGE, STRATEGIES, OTHERS), each a node of the mind | You, and apps, without asking each time | Memory (⌘8) | `/api/memory` |
+| `STORAGE-SPACES/USER/MIND` | The mind: `mind.txt`, lines in the text mind-map notation that link what's known; `Archive` keeps old logs | Only ever added to (by you or apps) | Mind (⌘9) | `/api/mind` |
+| `TOOL-MAC-RUN/SYSTEM-DOCS` | How the app works, for you and for models: these docs | The app, each time it starts; nobody else | System Docs (⌘0) | `/api/system-docs` |
 
 ## What "by name" means
 
@@ -21,7 +21,9 @@ The mind is never shrunk by deleting: forgetting a thing adds a line (`| name =`
 
 ## Moving it
 
-`TMR_HOME` (an environment variable) puts TOOL-MAC-RUN somewhere else; `TMR_LIBRARY`, `TMR_MEMORY`, `TMR_MIND` and `TMR_SYSTEM_DOCS` move one shelf each.
+`STORAGE_HOME` (an environment variable) puts STORAGE-SPACES somewhere else (set it for Storage Spaces too); `TMR_HOME` puts TOOL-MAC-RUN somewhere else; `TMR_LIBRARY`, `TMR_MEMORY`, `TMR_MIND` and `TMR_SYSTEM_DOCS` move one shelf each.
+
+Before Storage Spaces, LIBRARY, MEMORY and MIND were in TOOL-MAC-RUN: the first time this version opens, each is moved to STORAGE-SPACES/USER whole (the same files), unless one is there already.
 
 ## The other things the app does for apps
 

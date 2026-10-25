@@ -1,6 +1,6 @@
 import Foundation
 
-/// MEMORY, the mind and SYSTEM-DOCS, as the API finds them (in TOOL-MAC-RUN, unless a test says
+/// MEMORY, the mind and SYSTEM-DOCS, as the API finds them (in STORAGE-SPACES/USER and TOOL-MAC-RUN, unless a test says
 /// otherwise), and where the app keeps the docs it ships with.
 public struct Shelves: Sendable {
     public var memory: Memory

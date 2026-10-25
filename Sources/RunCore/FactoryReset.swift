@@ -1,10 +1,10 @@
 import Foundation
 
 /// Factory reset: the app back as it was installed. Everything it keeps that didn't come with it
-/// goes to the Trash (so it can be had back): its own things (the runs, the grids' settings, what
-/// ran by itself), TOOL-MAC-RUN (the library, MEMORY, the mind, SYSTEM-DOCS), and the scripts
-/// folder, unless that's a folder of the person's that holds more than scripts (their home, the
-/// Desktop, Documents…). Its settings are forgotten too. It's done once the app has quit (as it
+/// goes to the Trash (so it can be had back): its own things (the runs, the grids' settings),
+/// TOOL-MAC-RUN (SYSTEM-DOCS), and the scripts folder, unless that's a folder of the person's that
+/// holds more than scripts (their home, the Desktop, Documents…). The library, MEMORY and the mind
+/// stay: they're Storage Spaces' (its own Factory Reset takes them). Its settings are forgotten too. It's done once the app has quit (as it
 /// quits, the app saves its runs and settings, which would only come back), then the app opens
 /// again: it asks for a scripts folder, and the examples come with it.
 public enum FactoryReset {
@@ -17,7 +17,7 @@ public enum FactoryReset {
 
     /// What a factory reset takes away, the app's own first: what's there now.
     public static func plan(scripts: URL?, home: URL = Home.root, support: URL = AppPaths.support,
-                            shelves: [URL] = Shelf.allCases.map(\.root) + [MindStore.defaultRoot],
+                            shelves: [URL] = Shelf.allCases.filter { !$0.inStorageSpaces }.map(\.root),
                             user: URL = FileManager.default.homeDirectoryForCurrentUser) -> Plan {
         let fm = FileManager.default
         var trash: [URL] = []
