@@ -157,13 +157,15 @@ final class SayTests: XCTestCase {
     func testARunWaitsForTheMacAndTheNewsSaysWhenItsDone() async throws {
         host.holdApprovals = true
         let asked = await say("run the nightly backup")
-        XCTAssertTrue(asked.hasPrefix("This needs the person at the Mac to click Run. I'll tell you when they do."), asked)
+        XCTAssertTrue(asked.hasPrefix("Asked for the nightly backup. I'll tell you how it goes."), asked)
+        XCTAssertFalse(asked.contains("click"), "the client needn't know about the Mac's OK")
         try await waitForAsks(1)
         XCTAssertEqual(host.asked.first?.name, "nightly-backup.sh")
         XCTAssertEqual(host.asked.first?.client, "Tester")
         XCTAssertEqual(host.asked.first?.why, "Tester asked in words: “run the nightly backup”", "the card says what was said")
         let waiting = await say("what happened to the backup")
-        XCTAssertTrue(waiting.hasPrefix("The nightly backup is waiting for the person at the Mac"), waiting)
+        XCTAssertTrue(waiting.hasPrefix("The nightly backup hasn't started yet: it's waiting for someone at the Mac to OK it"), waiting)
+        XCTAssertTrue(waiting.contains("Nothing has run."), waiting)
         host.holdApprovals = false
         for _ in 0..<200 where host.started.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
         try await Task.sleep(nanoseconds: 20_000_000)
@@ -188,11 +190,11 @@ final class SayTests: XCTestCase {
         XCTAssertEqual(host.asked.last?.name, "greet.sh")
         XCTAssertEqual(host.asked.last?.arguments, ["Ada Lovelace"])
         let postcard = await say("Postcard\n- the message: Wish you were here\n- to whom: Sam")
-        XCTAssertTrue(postcard.contains("click Run"), postcard)
+        XCTAssertTrue(postcard.contains("Asked for the postcard"), postcard)
         try await waitForAsks(2)
         XCTAssertEqual(host.asked.last?.arguments, ["Sam", "Wish you were here"])
         let weather = await say("what's the weather")
-        XCTAssertTrue(weather.contains("click Run"), weather)
+        XCTAssertTrue(weather.contains("Asked for the weather"), weather)
         try await waitForAsks(3)
         XCTAssertEqual(host.asked.last?.arguments, [], "an optional input left out")
         // Don't Run is news too.
@@ -201,7 +203,7 @@ final class SayTests: XCTestCase {
         try await waitForAsks(4)
         try await Task.sleep(nanoseconds: 20_000_000)
         let news = await say("what can you do")
-        XCTAssertTrue(news.contains("didn't go ahead: the person at the Mac said no."), news)
+        XCTAssertTrue(news.contains("didn't run: it was turned down on the Mac."), news)
     }
 
     func testAnUncertainChangeIsAskedAboutFirstAndReadsAreNot() async throws {
@@ -232,7 +234,7 @@ final class SayTests: XCTestCase {
         XCTAssertTrue(delete.hasPrefix("Did you mean: Delete a note (groceries)?"), delete)
         _ = await say("no")
         let run = await say("run the nightly bakup")
-        XCTAssertTrue(run.contains("click Run"), run)
+        XCTAssertTrue(run.contains("Asked for the nightly backup"), run)
         // Misspelt words still find the templates; a question offers the web.
         let typos = await say("serch teh wbe fro louvre hours")
         XCTAssertTrue(typos.contains("These can do that:\n1. Search the web"), typos)
@@ -245,7 +247,7 @@ final class SayTests: XCTestCase {
         _ = await say("run the nightly backup")
         try await waitForAsks(1)
         let stopped = await say("stop the backup")
-        XCTAssertTrue(stopped.hasPrefix("Taken back: the card is gone from the Mac, and nothing ran."), stopped)
+        XCTAssertTrue(stopped.hasPrefix("Taken back: the nightly backup won't run."), stopped)
         host.holdApprovals = false
         try await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertTrue(host.started.isEmpty)
