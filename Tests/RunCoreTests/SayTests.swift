@@ -370,3 +370,98 @@ extension SayTests {
         XCTAssertEqual(outcome, .withdrawn)
     }
 }
+
+/// News delivered where the client said (`reply_to`), the moment a run is over, and a request
+/// called off by its number.
+extension SayTests {
+    /// What was delivered to clients, as they'd have got it.
+    final class Inbox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var got: [RunAPI.SayNews] = []
+        var take = true
+        var all: [RunAPI.SayNews] { lock.withLock { got } }
+        func add(_ n: RunAPI.SayNews) -> Bool { lock.withLock { got.append(n); return take } }
+    }
+
+    func sayTold(_ text: String, client: String = "Super Face", replyTo: String? = "http://127.0.0.1:8769/api/peter") async -> (Int, String) {
+        var headers = ["Content-Type": "text/plain", "X-Client": client]
+        if let replyTo { headers["X-Reply-To"] = replyTo }
+        let (r, d) = await api.send("POST", "/api/say", body: Data(text.utf8), headers: headers)
+        return (r.status, String(decoding: d, as: UTF8.self))
+    }
+
+    func testARunsNewsIsDeliveredWhereTheClientSaidTheMomentItsOver() async throws {
+        let inbox = Inbox()
+        api.sayEvery = 5_000_000
+        api.sayDeliver = { inbox.add($0) }
+        host.holdApprovals = true
+        let (status, asked) = await sayTold("run the nightly backup")
+        XCTAssertEqual(status, 200)
+        XCTAssertTrue(asked.hasPrefix("Asked for the nightly backup."), asked)
+        try await waitForAsks(1)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertTrue(inbox.all.isEmpty, "nothing to tell while it waits for the OK")
+        host.holdApprovals = false
+        for _ in 0..<400 where inbox.all.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
+        let news = try XCTUnwrap(inbox.all.first)
+        XCTAssertEqual(news.url.absoluteString, "http://127.0.0.1:8769/api/peter")
+        let body = json(news.body)
+        XCTAssertEqual(body["client"] as? String, "Super Face")
+        XCTAssertEqual(body["text"] as? String, "Meanwhile: The nightly backup finished (it worked). Say \"show me the nightly backup\" to see what it printed.")
+        let entries = try XCTUnwrap(body["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.first?["number"] as? Int, 1)
+        XCTAssertEqual(entries.first?["state"] as? String, "worked")
+        // Told once: not again there, nor at the start of the next reply.
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertEqual(inbox.all.count, 1)
+        let (_, next) = await sayTold("what can you do", replyTo: nil)
+        XCTAssertFalse(next.contains("Meanwhile"), next)
+        // The adapter collected it, as when it's told in a reply.
+        let (_, open) = await api.send("GET", "/api/requests/open")
+        XCTAssertEqual(json(open)["count"] as? Int, 0)
+    }
+
+    func testNewsThatCouldntBeDeliveredComesFirstInTheNextReply() async throws {
+        let inbox = Inbox()
+        inbox.take = false
+        api.sayEvery = 5_000_000
+        api.sayDeliver = { inbox.add($0) }
+        _ = await sayTold("run the nightly backup")
+        for _ in 0..<400 where inbox.all.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertFalse(inbox.all.isEmpty, "it was tried")
+        let (_, next) = await sayTold("what can you do", replyTo: nil)
+        XCTAssertTrue(next.hasPrefix("Meanwhile: The nightly backup finished (it worked)."), next)
+    }
+
+    func testReplyToIsAnAddressOnThisMacSaidFromThisMac() async throws {
+        let (far, farText) = await sayTold("what can you do", replyTo: "http://example.com/hook")
+        XCTAssertEqual(far, 400, farText)
+        XCTAssertTrue(farText.contains("an http address on this Mac"), farText)
+        let (https, _) = await sayTold("what can you do", replyTo: "file:///etc/passwd")
+        XCTAssertEqual(https, 400)
+        // From another machine (when the API is open to the network), it isn't taken.
+        let remote = HTTPRequest(method: "POST", target: "/api/say", headers: ["X-Reply-To": "http://127.0.0.1:8769/api/peter"], body: Data(), fromLoopback: false)
+        XCTAssertThrowsError(try RunAPI.replyAddress(remote, [:])) { XCTAssertEqual(($0 as? HTTPError)?.status, 403) }
+        let (ok, _) = await sayTold("what can you do", replyTo: "http://localhost:8769/api/peter")
+        XCTAssertEqual(ok, 200)
+        let replyTo = await api.sayLog.with("Super Face") { $0.replyTo }
+        XCTAssertEqual(replyTo?.absoluteString, "http://localhost:8769/api/peter")
+    }
+
+    func testARequestIsCalledOffByItsNumber() async throws {
+        host.holdApprovals = true
+        _ = await sayTold("run the nightly backup", replyTo: nil)
+        try await waitForAsks(1)
+        let (r, d) = await api.post("/api/say/stop", #"{"number": 1}"#, headers: ["X-Client": "Super Face"])
+        XCTAssertEqual(r.status, 200)
+        XCTAssertEqual(json(d)["message"] as? String, "Taken back: the nightly backup won't run.")
+        XCTAssertEqual(json(d)["state"] as? String, "withdrawn")
+        let (missing, _) = await api.post("/api/say/stop", #"{"number": 9}"#, headers: ["X-Client": "Super Face"])
+        XCTAssertEqual(missing.status, 404)
+        let (bad, _) = await api.post("/api/say/stop", #"{}"#, headers: ["X-Client": "Super Face"])
+        XCTAssertEqual(bad.status, 400)
+        host.holdApprovals = false
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertTrue(host.started.isEmpty)
+    }
+}

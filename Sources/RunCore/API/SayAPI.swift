@@ -36,7 +36,7 @@ extension RunAPI {
         HTTPResponse(status: status, contentType: "text/plain; charset=utf-8", data: Data((s.hasSuffix("\n") ? s : s + "\n").utf8))
     }
 
-    /// /api/say, /api/say/forms, /api/say/log, /api/say/reset.
+    /// /api/say, /api/say/forms, /api/say/log, /api/say/stop, /api/say/reset.
     func sayRoute(_ req: HTTPRequest, path: String, _ s: APISettings) async throws -> HTTPResponse {
         let method = req.method == "HEAD" ? "GET" : req.method
         var fields: [String: Any] = req.query
@@ -49,13 +49,20 @@ extension RunAPI {
         case "/api/say":
             if method == "GET" { return Self.plainText(Self.sayHowTo) }
             guard method == "POST" else { throw HTTPError(status: 405, code: "bad_request", message: "/api/say takes POST (what you want, as text) or GET (how to use it)") }
+            // Where to tell it how its runs went, without waiting to be asked.
+            if let url = try Self.replyAddress(req, fields) { await sayLog.with(client) { $0.replyTo = url } }
             let text: String
             if req.contentType.hasPrefix("application/json") {
                 text = Self.text(fields["text"]) ?? Self.text(fields["say"]) ?? Self.text(fields["message"]) ?? Self.text(fields["q"]) ?? ""
             } else {
                 text = req.body.isEmpty ? (req.query["text"] ?? req.query["q"] ?? "") : String(decoding: req.body, as: UTF8.self)
             }
-            return Self.plainText(await say(text, client: client, req, s))
+            let reply = await say(text, client: client, req, s)
+            if await sayLog.needsWatch(client) { sayWatch(client) }
+            return Self.plainText(reply)
+        case "/api/say/stop":
+            guard method == "POST" else { throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes POST") }
+            return try await sayStopRoute(fields, client: client, req, s)
         case "/api/say/forms":
             guard method == "GET" else { throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes GET") }
             let forms = SayForms.all(catalog: s.isOn(.catalog) ? await host.catalog() : nil, settings: s)
@@ -81,7 +88,7 @@ extension RunAPI {
             return JSON.response(["ok": true, "client": client, "forgot_the_log": forget,
                                   "message": forget ? "A fresh start: the conversation and what was asked are forgotten." : "A fresh start: the numbers and anything pending are forgotten; what was asked is kept."])
         default:
-            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (POST /api/say, GET /api/say/forms, GET /api/say/log, POST /api/say/reset)")
+            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (POST /api/say, GET /api/say/forms, GET /api/say/log, POST /api/say/stop, POST /api/say/reset)")
         }
     }
 
@@ -120,7 +127,9 @@ extension RunAPI {
 
     {something you asked for} is "the last one", a word from it ("the backup"), a time ("the one around 3"), or a number from the last list ("the second one").
 
-    Also: GET /api/say/forms (every template; ?q=words for the ones that fit, ?format=json), GET /api/say/log (what this client asked for, as JSON), POST /api/say/reset (start over; {"forget": true} forgets the log too). The one tool for a model is "say" (POST /api/tools/say {"arguments": {"text": "…"}}).
+    To be told how a run went the moment it's over, rather than in your next answer, say where (X-Reply-To: http://127.0.0.1:{port}/{path}, an address on this Mac): the news is POSTed there as JSON, {"client", "text": "Meanwhile: …", "entries": […]}.
+
+    Also: GET /api/say/forms (every template; ?q=words for the ones that fit, ?format=json), GET /api/say/log (what this client asked for, as JSON), POST /api/say/stop ({"number": 3}: one of them called off), POST /api/say/reset (start over; {"forget": true} forgets the log too). The one tool for a model is "say" (POST /api/tools/say {"arguments": {"text": "…"}}).
     """
 
     // MARK: saying

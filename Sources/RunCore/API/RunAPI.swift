@@ -210,6 +210,10 @@ public final class RunAPI: @unchecked Sendable {
     private let settings: @Sendable () -> APISettings
     /// How often a run being waited for is looked at.
     var poll: UInt64 = 200_000_000
+    /// How often a client's requests are looked at, to tell it how they went (its `reply_to`).
+    var sayEvery: UInt64 = 1_000_000_000
+    /// How news reaches a client that said where (`reply_to`): POSTed there.
+    var sayDeliver: @Sendable (SayNews) async -> Bool = { await RunAPI.deliver($0) }
 
     public init(host: RunHost, version: String, library: @escaping @Sendable () -> FileLibrary = { FileLibrary() },
                 shelves: @escaping @Sendable () -> Shelves = { Shelves() }, chrome: ChromePage = ChromePage(),

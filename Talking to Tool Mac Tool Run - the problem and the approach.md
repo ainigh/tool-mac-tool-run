@@ -291,6 +291,7 @@ Layer 1 is built: `POST /api/say` ([API.md](API.md#say-plain-words-post-apisay))
 | `GET /api/say` | how to use it, as text: the one line for a model's instructions, and the built-in forms |
 | `GET /api/say/forms` | every template there is now (`?q=words`: the ones that fit; `?format=json`) |
 | `GET /api/say/log` | what this client asked for and how each went, as JSON (for the app beside the model, or for debugging) |
+| `POST /api/say/stop` | one of them called off by its number (`{"number": 3}`): for the app beside the model, its Cancel button |
 | `POST /api/say/reset` | start over (`{"forget": true}`: the log too) |
 | `POST /api/tools/say` | the same, as the one tool (`say` is in `GET /api/tools`) |
 
@@ -350,6 +351,15 @@ through them.
   and the answer comes as news.
 - **What isn't followed**: requests a client makes directly (`POST /api/run`) aren't in its `say`
   log; only what it asked for in words.
+
+- **Told the moment it's over, not only at the next reply.** "News first" still left the client
+  to say something before it heard that a run was done. A client that can listen says where, with
+  what it says (`X-Reply-To`, an address on this Mac), and the adapter POSTs the news there the
+  moment a run is over: the same "Meanwhile: …" words, with the entries as JSON. The client's
+  model never polls or keeps an id: the news comes in like a message from someone it asked.
+  Delivered news isn't told again; news that couldn't be delivered comes first in the next reply,
+  as before. [Super Face](https://github.com/ainigh/JUST-super-mac-tts-ONLY-service) talks to it
+  this way: its model writes "@peter …" and hears back from "Peter".
 
 ## Open questions (answered above, kept for the record)
 

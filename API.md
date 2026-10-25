@@ -139,7 +139,7 @@ with how many routes it has and the words it's found by); `?q=words` is a search
 | group | what's in it |
 |---|---|
 | **About the API** | `/api/search`, `/api/endpoints`, `/api/health`, `/api/doc`, `/` |
-| **Say: plain words** | `/api/say`, `/api/say/forms`, `/api/say/log`, `/api/say/reset` ([below](#say-plain-words-post-apisay)) |
+| **Say: plain words** | `/api/say`, `/api/say/forms`, `/api/say/log`, `/api/say/stop`, `/api/say/reset` ([below](#say-plain-words-post-apisay)) |
 | **Scripts and flows** | `/api/scripts`, `/api/flows`, `/api/run`, `/api/compose`, `/api/check` |
 | **Straw** | `/api/straw`, `/api/straw/check`, `/api/straw/run` ([below](#straw-get-apistraw-post-apistrawcheck-post-apistrawrun)) |
 | **File library** | `/api/library` and everything under it ([below](#the-file-library-apilibrary)) |
@@ -853,6 +853,14 @@ Fill one in and say it back.
   news since the client last spoke: *Meanwhile: The nightly backup finished (it worked). Say "show
   me the nightly backup" to see what it printed.* A result is shown in full once; after that it's
   referred to briefly, unless the client asks again.
+- **Told the moment it's over, if the client says where**: with `X-Reply-To` (or `"reply_to"`), an
+  `http` address on this Mac (`127.0.0.1`, `localhost` or `::1`, said from this Mac), the adapter
+  follows the client's runs while any is going and, the moment one is over, POSTs the news there
+  as JSON: `{"client": "Super Face", "text": "Meanwhile: The nightly backup finished (it worked).
+  Say \"show me the nightly backup\" to see what it printed.", "entries": [as /api/say/log has
+  them]}`. News delivered there (a 2xx) isn't told again; news that couldn't be (the client wasn't
+  listening) is tried again for a while, and comes first in its next reply all the same. The
+  address is kept for the client while the app runs; each `POST /api/say` may say it again.
 - **Replies have three parts**, any of them empty: the news, the answer, and what you can say next
   (one or two templates). Never JSON, routes, file names or ids. Lists are numbered. A long answer
   is cut to its first 20 lines (or 1500 characters), then *(26 more lines: say "more" for the
@@ -881,6 +889,11 @@ The rest of the group:
   "asked", "said", "template", "what", "state", "shown", "muted", "waits_for_the_mac", "request"?,
   "result"?, "ended"?}]}`. `state` is `answered`, `done`, `failed`, `waiting`, `running`, `worked`,
   `denied`, `not_answered`, `withdrawn` or `could_not_start`.
+- `POST /api/say/stop`: one of this client's requests called off by its number in the log
+  (`{"number": 3}`), as `stop …` would: taken back while it waits for the OK, stopped while it
+  runs. `{"ok": true, "number": 3, "message": "Taken back: the nightly backup won't run.",
+  "state": "withdrawn"}`; `404` for a number it doesn't have. For an app beside the model (its
+  Cancel button), so the model needn't be asked.
 - `POST /api/say/reset`: start over (`{"forget": true}`: the log too).
 - **As a tool**: `say` is in `GET /api/tools`; `POST /api/tools/say {"arguments": {"text": "…"}}`
   answers the same text.

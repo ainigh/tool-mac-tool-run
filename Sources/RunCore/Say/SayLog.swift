@@ -96,7 +96,13 @@ public actor SayLog {
         public var pending: Pending?
         /// How many times each template was used.
         public var used: [String: Int] = [:]
+        /// Where to tell the client how its runs went, as it said (`reply_to`): nil, it hears at
+        /// the start of its next reply.
+        public var replyTo: URL?
         var counter = 0
+
+        /// Something to tell it yet: a run still going, or one over and not told.
+        var untold: Bool { entries.contains { $0.asks && ($0.state.open || (!$0.muted && $0.state.key != $0.told)) } }
     }
 
     public static let idle: TimeInterval = 6 * 3600
@@ -106,6 +112,8 @@ public actor SayLog {
 
     private var conversations: [String: Conversation] = [:]
     private var order: [String] = []
+    /// The clients whose requests are being followed, to tell them how they went.
+    private var watched: Set<String> = []
 
     public init() {}
 
@@ -149,6 +157,27 @@ public actor SayLog {
     }
 
     public func entries(_ client: String) -> [Entry] { with(client) { $0.entries } }
+
+    /// Whether a client has somewhere to be told and something to tell it, with no watch on it yet.
+    public func needsWatch(_ client: String) -> Bool {
+        guard !watched.contains(client), let c = conversations[client] else { return false }
+        return c.replyTo != nil && c.untold
+    }
+
+    /// Starts following a client's requests: false when they're followed already.
+    public func watch(_ client: String) -> Bool { watched.insert(client).inserted }
+
+    public func unwatch(_ client: String) { watched.remove(client) }
+
+    /// Stops following a client's requests if there's nothing left to tell it (at once, so a
+    /// request it makes meanwhile is never missed): whether it stopped.
+    public func unwatchIfIdle(_ client: String) -> Bool {
+        guard let c = conversations[client], c.replyTo != nil, c.untold else {
+            watched.remove(client)
+            return true
+        }
+        return false
+    }
 
     /// Forgets the conversation (the numbers, what's pending); with `log`, what was asked too.
     public func reset(_ client: String, log: Bool = false) {

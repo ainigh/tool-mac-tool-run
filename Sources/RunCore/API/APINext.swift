@@ -129,6 +129,7 @@ public enum APINext {
         "GET /api/say/forms": [Hint("POST", "/api/say", "say one back, its blanks filled (text/plain)")],
         "GET /api/say/log": [Hint("POST", "/api/say", "ask about one in words: \"what happened to {something you asked for}\"")],
         "POST /api/say/reset": [Hint("POST", "/api/say", "say what you want (text/plain)")],
+        "POST /api/say/stop": [Hint("GET", "/api/say/log", "how each request stands now")],
         // Tools
         "GET /api/tools": [Hint("POST", "/api/tools/{name}", "call one {\"arguments\": {…}}"), Hint("GET", "/api/search?q={words}&in=tools", "the tools for something, by a few words")],
         "GET /api/tools/{name}": [Hint("POST", "/api/tools/{name}", "call it {\"arguments\": {…}}")],
