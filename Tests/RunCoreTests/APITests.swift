@@ -34,6 +34,7 @@ final class FakeRunHost: RunHost, @unchecked Sendable {
             if Task.isCancelled { return .denied }
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
+        // Let go and taken back at once: the answer that comes is the person's, and the API must not start it.
         return lock.withLock { answer }
     }
 

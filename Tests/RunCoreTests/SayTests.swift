@@ -250,7 +250,7 @@ final class SayTests: XCTestCase {
         XCTAssertTrue(stopped.hasPrefix("Taken back: the nightly backup won't run."), stopped)
         host.holdApprovals = false
         try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertTrue(host.started.isEmpty)
+        XCTAssertTrue(host.started.isEmpty, "taken back is never started, even when the OK comes after")
         let story = await say("what happened to it")
         XCTAssertTrue(story.contains("was taken back before anyone answered"), story)
         let unknown = await say("what happened to the zeppelin")
@@ -303,12 +303,13 @@ final class SayTests: XCTestCase {
     }
 
     func testReferences() {
-        let now = Date()
+        // Noon: every entry here is today's, whenever the test runs.
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
         var c = SayLog.Conversation()
         func entry(_ n: Int, _ what: String, _ short: String, ago: TimeInterval) -> SayLog.Entry {
             SayLog.Entry(number: n, asked: now.addingTimeInterval(-ago), said: what, form: "x", what: what, short: short, state: .answered)
         }
-        c.entries = [entry(1, "run the nightly backup", "the nightly backup", ago: 3600), entry(2, "search the web for flights", "search the web for flights", ago: 60)]
+        c.entries = [entry(1, "run the nightly backup", "the nightly backup", ago: 120), entry(2, "search the web for flights", "search the web for flights", ago: 60)]
         XCTAssertEqual(SayRefs.resolve("the last one", in: c, now: now)?.number, 2)
         XCTAssertEqual(SayRefs.resolve("the backup", in: c, now: now)?.number, 1)
         XCTAssertEqual(SayRefs.resolve("the first one", in: c, now: now)?.number, 1)
@@ -347,5 +348,25 @@ final class SayTests: XCTestCase {
         XCTAssertEqual(tr.header("Content-Type"), "text/plain; charset=utf-8")
         let (_, search) = await api.send("GET", "/api/search?q=talk%20in%20plain%20words")
         XCTAssertTrue(String(decoding: search, as: UTF8.self).contains("/api/say"))
+    }
+}
+
+extension SayTests {
+    /// The click and the taking back crossing (the person clicks Run as the client says stop):
+    /// the OK arrives after the request was taken back, and nothing starts.
+    func testAnOKThatComesAfterTakingBackStartsNothing() async throws {
+        host.holdApprovals = true
+        _ = await say("run the nightly backup")
+        try await waitForAsks(1)
+        let open = await api.requests.open()
+        let id = try XCTUnwrap(open.first?.id)
+        // Withdrawn and let go in the same instant: the pretend card may answer Run.
+        let withdrawn = await api.requests.withdraw(id)
+        host.holdApprovals = false
+        XCTAssertTrue(withdrawn)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(host.started.isEmpty)
+        let outcome = await api.requests.entry(id)?.outcome
+        XCTAssertEqual(outcome, .withdrawn)
     }
 }

@@ -961,6 +961,11 @@ public final class RunAPI: @unchecked Sendable {
     /// Waits for the click, then starts it: the run's id. The ledger follows along.
     private func approveAndStart(_ request: RunRequest) async throws -> UUID {
         try await approve(request)
+        // Taken back while the card was up (the click and the taking back can cross): it doesn't start.
+        let outcome = await requests.entry(request.id)?.outcome
+        if Task.isCancelled || outcome == .withdrawn {
+            throw HTTPError(status: 409, code: "withdrawn", message: "\(request.name) was taken back before it started: nothing ran")
+        }
         do {
             let id = try await host.start(request)
             await requests.set(request.id, .running(id))
