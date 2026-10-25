@@ -4,6 +4,8 @@ Tool Mac Tool Run is a menu bar app for the Mac that runs your scripts (bash, Py
 your **flows** (scripts composed in the Flow language). It serves both to other apps over HTTP,
 the way [Super Voice](https://github.com/ainigh/super-mac-tts-stt-service) serves speech:
 
+- **Talk to it** (start here): `POST /api/say` takes what you want in words and answers in words;
+  it calls everything below for you. [API-SAY.md](API-SAY.md) is its contract.
 - **List** the scripts and flows in the person's scripts folder.
 - **Run** a script, a flow, or Flow code your app sends, and get back how it went and everything
   it printed (all at once, or streamed as it prints).
@@ -795,8 +797,9 @@ lines found, the names, or else the JSON.
 
 ### Say, plain words: `POST /api/say`
 
-One way in, for a client that should only need to know how to talk: no tool names, routes,
-arguments, ids, polling or JSON, and nothing to load first. A model's instructions need one line:
+**The way in for a client** (the contract in full, with how every template maps to what's done
+and the translator: [API-SAY.md](API-SAY.md)). One way in, for a client that should only need to
+know how to talk: no tool names, routes, arguments, ids, polling or JSON, and nothing to load first. A model's instructions need one line:
 *"To use the Mac's tools, use `say`. Say what you want; if it offers templates, fill one in and say
 it back."* (The thinking behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).)
 
@@ -833,6 +836,15 @@ Fill one in and say it back.
   PEOPLE"). Values are taken exactly as written (quotes around one are taken off). In a sentence a
   blank takes everything between its fixed words, the last one the rest; an inline template can be
   sent labeled too (its title, then a line per blank).
+- **The translator**: when the words don't settle on one template (nothing matched closely, two
+  fit about as well, or the closest fit only loosely), a model reads them into the templates. It's
+  stateless (what was said, why, the templates; nothing else), and what it fills in is read back
+  through the adapter's own matcher. A reading it's sure of is done, the reply starting *Taken as:
+  what's the weather in Lagos* (one that changes something without waiting for the Mac is asked
+  about first); one it isn't sure of is offered, numbered (*You might mean: 1. … Say its
+  number*). Off or out of reach, the adapter answers as it does without one. Any model behind a
+  chat completions address (Ollama on this Mac by default) or Anthropic's Messages API:
+  [API-SAY.md](API-SAY.md#the-translator).
 - **When it asks first**: only when a match was uncertain (two templates about as close, or a
   title or choice that needed a big correction) and it would change something: *Did you mean:
   Delete a note (shopping)? Say yes to go ahead, or no.* A clean match is done at once; a read is
@@ -895,6 +907,11 @@ The rest of the group:
   "state": "withdrawn"}`; `404` for a number it doesn't have. For an app beside the model (its
   Cancel button), so the model needn't be asked.
 - `POST /api/say/reset`: start over (`{"forget": true}`: the log too).
+- `POST /api/say/translate`: the translator alone, stateless (`{"text", "dry"?, "model"?…}`): the
+  prompt the model saw, what it answered, and which templates came of it. For trying models
+  ([BENCH.md](BENCH.md)).
+- `GET /api/say/translator`: its settings (the key only as `"set"`) and latest calls; `POST` (from
+  this Mac) changes them: `{"api": "openai" | "anthropic", "url", "model", "key", "sure", "on"}`.
 - **As a tool**: `say` is in `GET /api/tools`; `POST /api/tools/say {"arguments": {"text": "…"}}`
   answers the same text.
 

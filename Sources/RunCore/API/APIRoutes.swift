@@ -64,6 +64,9 @@ public enum APIRoutes {
             Route("GET", "/api/say/log", "what this client asked for, and how each went (JSON, the newest first)", tags: "log history asked requests conversation"),
             Route("POST", "/api/say/stop", "call off one of this client's requests by its number in the log {\"number\": 3}: taken back while it waits, stopped while it runs", tags: "stop cancel withdraw take back abort number"),
             Route("POST", "/api/say/reset", "start over: the numbers and anything pending forgotten ({\"forget\": true}: what was asked too)", tags: "reset start over forget clear new"),
+            Route("POST", "/api/say/translate", "the translator alone, stateless {\"text\", \"dry\"?, \"model\"?…}: the prompt the model saw, what it answered, and which templates came of it (for trying models: BENCH.md)", tags: "translate translator model llm bench benchmark prompt natural language understand interpret"),
+            Route("GET", "/api/say/translator", "the translator's settings (the model, its address, how sure it must be) and its latest calls", tags: "translator model llm settings ollama anthropic openai"),
+            Route("POST", "/api/say/translator", "change the translator's settings, from this Mac {\"api\": \"openai\" | \"anthropic\", \"url\", \"model\", \"key\", \"sure\", \"on\"}", tags: "translator model llm settings configure ollama anthropic openai key"),
         ]),
         Group(id: "scripts", title: "Scripts and flows", about: "The scripts and flows in the folder, and running them", endpoint: nil, tags: "script flow run execute program shell bash python node command tool job task", routes: [
             Route("GET", "/api/scripts", "the scripts (?group=scripts, utilities or browser: one grid's)", tags: "scripts list available utilities tools what"),
