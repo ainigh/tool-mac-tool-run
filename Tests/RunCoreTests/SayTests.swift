@@ -32,6 +32,8 @@ final class SayTests: XCTestCase {
                      shelves: { Shelves(memory: m, systemDocs: FileLibrary(root: h.appendingPathComponent("SYSTEM-DOCS"), shelf: .systemDocs)) },
                      web: web) { [unowned self] in self.settings }
         api.poll = 5_000_000
+        // The templates alone: the translator has tests of its own (SayTranslatorTests).
+        api.translator = .off()
     }
 
     override func tearDownWithError() throws {

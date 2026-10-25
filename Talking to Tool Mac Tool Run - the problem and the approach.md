@@ -274,11 +274,16 @@ Adapter: Meanwhile: the nightly backup finished (it worked).
 
 1. **The template adapter** (this document). It's deterministic, built on `/api/search` and the
    existing metadata, and covers single-step requests, status and history.
-2. **The d-model** (optional, later). It adds a free-language parser in front of the adapter that
-   tries to understand requests that aren't filled templates. It would also learn from what
-   clients approve (counting a mapping as learned only once its result was used without
-   correction), and would chain simple steps ("then save it"). It's only needed where layer 1
-   proves too strict.
+2. **The translator** (built: [API-SAY.md](API-SAY.md#the-translator)). A model whose only job is
+   to read what was said into the templates, asked only where layer 1 can't settle it: nothing
+   matched closely, two templates fit about as well, or the closest fit only loosely. It's
+   stateless (what was said, why, and the templates; no history), it never does anything itself,
+   and what it fills in is read back through layer 1's own matcher, so it can only ever produce
+   one of the adapter's templates. The reply says how it took the words ("Taken as: what's the
+   weather in Lagos"), so the client learns the template and needs the model less. Which model
+   does it best is measured against [BENCH.md](BENCH.md).
+3. **Later**: learning from what clients approve (counting a mapping as learned only once its
+   result was used without correction), and chaining simple steps ("then save it").
 
 ## Where it stands
 

@@ -81,6 +81,12 @@ extension RunAPI {
             let entries = await sayLog.entries(client)
             return JSON.response(["ok": true, "client": client, "count": entries.count, "entries": entries.reversed().map(Self.sayEntryJSON),
                                   "note": "What this client asked POST /api/say for, newest first (kept a week, the latest 200). A conversation starts again after six hours without a word."])
+        case "/api/say/translate":
+            guard method == "POST" else { throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes POST {\"text\"}") }
+            return try await sayTranslateRoute(fields, client: client, req, s)
+        case "/api/say/translator":
+            guard method == "GET" || method == "POST" else { throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes GET (its settings) or POST (to change them)") }
+            return try await sayTranslatorRoute(method, fields, req)
         case "/api/say/reset":
             guard method == "POST" else { throw HTTPError(status: 405, code: "bad_request", message: "\(path) takes POST") }
             let forget = Self.flag(Self.text(fields["forget"]))
@@ -88,7 +94,7 @@ extension RunAPI {
             return JSON.response(["ok": true, "client": client, "forgot_the_log": forget,
                                   "message": forget ? "A fresh start: the conversation and what was asked are forgotten." : "A fresh start: the numbers and anything pending are forgotten; what was asked is kept."])
         default:
-            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (POST /api/say, GET /api/say/forms, GET /api/say/log, POST /api/say/stop, POST /api/say/reset)")
+            throw HTTPError(status: 404, code: "not_found", message: "no such route: \(req.method) \(req.path) (POST /api/say, GET /api/say/forms, GET /api/say/log, POST /api/say/stop, POST /api/say/reset, POST /api/say/translate, GET or POST /api/say/translator)")
         }
     }
 
@@ -114,6 +120,7 @@ extension RunAPI {
     - Say what you want. If that isn't one of its templates yet, it answers with a few that would do it, each with blanks: {…} is a blank to fill, [a | b] a choice of one, (optional) a line that may be left out.
     - Copy one, fill the blanks, and say it back. It's done at once, or (a run) put to the person at the Mac, who clicks Run.
     - Every answer starts with what changed since you last spoke ("Meanwhile: the nightly backup finished"). You never poll, keep ids, or read JSON.
+    - Words that aren't one of its templates are read by a model whose only job is that (the translator: GET /api/say/translator). What it's sure of is done, the answer starting "Taken as: …": say it that way next time.
 
     Always there:
       what can you do
@@ -129,7 +136,7 @@ extension RunAPI {
 
     To be told how a run went the moment it's over, rather than in your next answer, say where (X-Reply-To: http://127.0.0.1:{port}/{path}, an address on this Mac): the news is POSTed there as JSON, {"client", "text": "Meanwhile: …", "entries": […]}.
 
-    Also: GET /api/say/forms (every template; ?q=words for the ones that fit, ?format=json), GET /api/say/log (what this client asked for, as JSON), POST /api/say/stop ({"number": 3}: one of them called off), POST /api/say/reset (start over; {"forget": true} forgets the log too). The one tool for a model is "say" (POST /api/tools/say {"arguments": {"text": "…"}}).
+    Also: GET /api/say/forms (every template; ?q=words for the ones that fit, ?format=json), GET /api/say/log (what this client asked for, as JSON), POST /api/say/stop ({"number": 3}: one of them called off), POST /api/say/reset (start over; {"forget": true} forgets the log too), POST /api/say/translate ({"text"}: the translator alone, for trying models). The one tool for a model is "say" (POST /api/tools/say {"arguments": {"text": "…"}}).
     """
 
     // MARK: saying
@@ -185,7 +192,7 @@ extension RunAPI {
             if let p = conv.pending, k <= p.choices.count {
                 await sayLog.with(ctx.client) { $0.pending = nil }
                 let choice = p.choices[k - 1]
-                if let form = ctx.form(choice.form) { return await sayAct(form, choice.filled, said: choice.text, ctx) }
+                if let form = ctx.form(choice.form) { return await sayPicked(form, choice.filled, said: choice.text, ctx) }
             }
             if conv.pending == nil, !conv.offered.isEmpty, k <= conv.offered.count, let form = ctx.form(conv.offered[k - 1]) {
                 if Self.needsNothing(form) { return await sayAct(form, SayFilled(), said: form.short, ctx) }
@@ -197,7 +204,7 @@ extension RunAPI {
         if let p = conv.pending {
             await sayLog.with(ctx.client) { $0.pending = nil }
             if Self.isBuiltin(text, .yes, ctx), let first = p.choices.first, let form = ctx.form(first.form) {
-                return await sayAct(form, first.filled, said: first.text, ctx)
+                return await sayPicked(form, first.filled, said: first.text, ctx)
             }
             if Self.isBuiltin(text, .no, ctx) { return SayReply(answer: "All right: nothing was done.") }
         }
@@ -233,10 +240,13 @@ extension RunAPI {
             if usable.count > 1, usable[1].score >= top.score - 0.03, top.form.changes || usable[1].form.changes,
                found.first(where: { $0.form.title == usable[1].form.title })?.fixed == found.first?.fixed {
                 let two = Array(usable.prefix(2))
+                // The model may know which: done if it's sure, else the question as it was.
+                if let r = await sayTranslate(text, .between(two.map(\.form.title)), ctx, list: false) { return r }
                 await sayLog.with(ctx.client) { $0.pending = SayLog.Pending(choices: two.map { ($0.form.title, $0.filled, text) }) }
                 return SayReply(answer: "Did you mean:\n" + SayWords.numbered(two.map { Self.described($0.form, $0.filled) }) + "\nSay its number.")
             }
             if top.score < SayMatch.certain(top.form), top.form.changes, top.form.kind != "builtin" {
+                if top.score < SayMatch.clean, let r = await sayTranslate(text, .weak(top.form.title), ctx, list: false) { return r }
                 return await sayConfirm(top.form, top.filled, text, ctx)
             }
             return await sayAct(top.form, top.filled, said: text, ctx)
@@ -254,7 +264,18 @@ extension RunAPI {
             if Self.needsNothing(form) { return await sayAct(form, SayFilled(), said: text, ctx) }
             return SayReply(answer: "Fill in the blanks and say it back:\n\n" + form.template)
         }
+        // Nothing matched closely: what the model makes of it, else the templates that fit the words.
+        if let r = await sayTranslate(text, .nothing, ctx, list: true) { return r }
         return await sayOffer(text, ctx)
+    }
+
+    /// One of the choices offered, picked: done, or (a reading not filled all the way) shown to fill.
+    func sayPicked(_ form: SayForm, _ filled: SayFilled, said: String, _ ctx: SayContext) async -> SayReply {
+        guard Self.complete(form, filled) else {
+            let partial = form.isInline ? form.title + "\n  " + Self.filledIn(form, filled) : Self.template(form, with: filled)
+            return SayReply(answer: "Fill in the blanks and say it back:\n\n" + (filled.values.isEmpty ? form.template : partial))
+        }
+        return await sayAct(form, filled, said: said, ctx)
     }
 
     /// The labeled shape: which template its title (or its labels) mean, and what it gave.

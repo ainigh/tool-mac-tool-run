@@ -197,6 +197,9 @@ public final class RunAPI: @unchecked Sendable {
     public let requests = RequestLedger()
     /// What each client said to `POST /api/say`, and how its requests went: the template adapter's log.
     public let sayLog = SayLog()
+    /// The model that reads what's said to `POST /api/say` into its templates, when the words
+    /// alone don't settle it (stateless: asked about one thing at a time).
+    public var translator = SayTranslator()
     /// Every file library operation, by its id (`GET /api/library/operations/{id}`).
     public let libraryLog = LibraryLog()
     /// The file library it serves (LIBRARY, in TOOL-MAC-RUN on the Desktop).

@@ -237,7 +237,10 @@ card. It follows each request itself and starts every answer with what changed (
 nightly backup finished*), so the client never keeps an id, polls or reads JSON. A model's
 instructions need one line: *"To use the Mac's tools, use `say`. Say what you want; if it offers
 templates, fill one in and say it back."* A script's header can say how it's offered: `# Say:
-what's the weather in {a city}`. → [API.md](API.md#say-plain-words-post-apisay), and the thinking
+what's the weather in {a city}`. Words that aren't a template are read by a model whose only job
+is that (stateless, Ollama on this Mac by default, or Claude), and the reply says how it took them
+(*Taken as: what's the weather in Lagos*). → [API-SAY.md](API-SAY.md) (the contract, and how each
+template maps to what's done), [BENCH.md](BENCH.md) (which model translates best), and the thinking
 behind it: [Talking to Tool Mac Tool Run](Talking%20to%20Tool%20Mac%20Tool%20Run%20-%20the%20problem%20and%20the%20approach.md).
 
 **[API.md](API.md)** is what client apps need: `http://127.0.0.1:8768`, with `/api/scripts`,
@@ -499,6 +502,8 @@ installer downloads). To build by hand on a Mac: `scripts/build-app.sh` (makes
 | `Sources/RunCore/Automation.swift` | the automation tags, when a schedule next runs, what sets a trigger off |
 | `Sources/ToolMacToolRun/` | the menu bar app (SwiftUI and AppKit): the panel (`Panel.swift`), the grids, the editor, Runs, the API's server and the card that asks before a run (`APIServer.swift`, `Approvals.swift`), the clock and triggers that start what's automated and the Automation board (`AutomationCenter.swift`, `AutomationBoard.swift`) |
 | `API.md` | the HTTP API, for client apps |
+| `API-SAY.md` | `POST /api/say`, the way in for clients: how what's said is read, the templates and what each does, the translator |
+| `BENCH.md` | what a client says and the template it should become: the cases for trying translator models (`scripts/bench-say.py`) |
 | `docs/AGENTS-GUIDE.md` | the API from an agent's loop (Super Voice's Tom and Jerry): request ids, `async`, polling, what to tell the person |
 | `docs/FLOW-GUIDE.md` | the Flow guide (also shown inside the app) |
 | `docs/STRAW-GUIDE.md` | the Straw guide, for `.straw` scripts that drive Chrome (also shown inside the app); `straw.py`, which runs them, is an example in `Sources/RunCore/ExampleTools.swift`, and `Straw.swift` finds it |
